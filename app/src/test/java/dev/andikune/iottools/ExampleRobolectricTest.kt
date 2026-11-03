@@ -35,4 +35,19 @@ class ExampleRobolectricTest {
     assertTrue(manifest.contains("android.permission.CAMERA"))
     assertTrue(manifest.contains("dev.andikune.iottools.mbsabang"))
   }
+
+  @Test
+  fun testStandaloneMainActivityGeneration() {
+    val config = WebToApkConfig(
+      appName = "MB Sabang",
+      packageName = "dev.andikune.iottools.mbsabang",
+      webUrl = "https://mbsabang.com",
+      permCamera = true,
+      permRecordAudio = true
+    )
+    val activityCode = WebToApkPipeline.generateStandaloneMainActivity(config)
+    assertTrue(activityCode.contains("package dev.andikune.iottools.mbsabang"))
+    assertTrue(activityCode.contains("class MainActivity : ComponentActivity()"))
+    assertTrue(activityCode.contains("https://mbsabang.com"))
+  }
 }

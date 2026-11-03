@@ -726,7 +726,42 @@ fun WebToApkScreen() {
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Method 2: System Package Installer (.apk)
+                        // Method 2: Standalone Android Studio Project (.ZIP) - 100% Berdiri Sendiri
+                        Button(
+                            onClick = {
+                                val zip = ApkPackagingEngine.exportStandaloneProjectZip(context, config)
+                                Toast.makeText(context, "✓ Berhasil! Project ZIP tersimpan di Download: ${zip.name}", Toast.LENGTH_LONG).show()
+                                ApkPackagingEngine.shareApk(context, zip)
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PrimaryIndigo,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Icon(Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "EKSPOR PROJECT STANDALONE (.ZIP)",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Project Android Studio lengkap siap build mandiri di PC / Termux / CI",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.5.sp,
+                                    color = Color.White.copy(alpha = 0.92f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Method 3: System Package Installer (.apk)
                         CyberSecondaryButton(
                             text = "Instal Berkas .APK Asli (Package Installer)",
                             onClick = {

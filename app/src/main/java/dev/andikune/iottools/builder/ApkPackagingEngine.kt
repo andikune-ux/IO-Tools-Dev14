@@ -76,6 +76,222 @@ object ApkPackagingEngine {
     }
 
     /**
+     * Generates a complete, ready-to-build Standalone Android Studio / Gradle Project (.ZIP).
+     * Contains all source code, manifest with custom package & permissions, MainActivity.kt,
+     * Gradle build scripts, GitHub Actions workflow, and assets.
+     */
+    fun exportStandaloneProjectZip(context: Context, config: WebToApkConfig): File {
+        WebToApkStorage.saveActiveConfig(context, config)
+
+        val sanitizedName = config.appName.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "WebApp" }
+        val outputDir = File(context.cacheDir, "project_zips").apply {
+            if (!exists()) mkdirs()
+        }
+        val outputZipFile = File(outputDir, "$sanitizedName-Standalone-Project.zip")
+
+        java.util.zip.ZipOutputStream(BufferedOutputStream(FileOutputStream(outputZipFile))).use { zos ->
+            fun addZipEntry(path: String, content: String) {
+                zos.putNextEntry(java.util.zip.ZipEntry(path))
+                zos.write(content.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+
+            // 1. Root settings.gradle.kts
+            val settingsGradle = """
+                pluginManagement {
+                    repositories {
+                        google()
+                        mavenCentral()
+                        gradlePluginPortal()
+                    }
+                }
+                dependencyResolutionManagement {
+                    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+                    repositories {
+                        google()
+                        mavenCentral()
+                    }
+                }
+                rootProject.name = "${config.appName.replace("\"", "")}"
+                include(":app")
+            """.trimIndent()
+            addZipEntry("settings.gradle.kts", settingsGradle)
+
+            // 2. Root build.gradle.kts
+            val rootBuildGradle = """
+                buildscript {
+                    repositories {
+                        google()
+                        mavenCentral()
+                    }
+                    dependencies {
+                        classpath("com.android.tools.build:gradle:8.7.2")
+                        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21")
+                    }
+                }
+            """.trimIndent()
+            addZipEntry("build.gradle.kts", rootBuildGradle)
+
+            // 3. gradle.properties
+            val gradleProps = """
+                org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+                android.useAndroidX=true
+                android.nonTransitiveRClass=true
+                kotlin.code.style=official
+            """.trimIndent()
+            addZipEntry("gradle.properties", gradleProps)
+
+            // 4. app/build.gradle.kts
+            val appBuildGradle = """
+                plugins {
+                    id("com.android.application")
+                    id("kotlin-android")
+                }
+
+                android {
+                    namespace = "${config.packageName}"
+                    compileSdk = 35
+
+                    defaultConfig {
+                        applicationId = "${config.packageName}"
+                        minSdk = 24
+                        targetSdk = 35
+                        versionCode = ${config.versionCode}
+                        versionName = "${config.versionName}"
+                    }
+
+                    signingConfigs {
+                        create("release") {
+                            keyAlias = "AndikUne"
+                            keyPassword = "AndikUne123456"
+                            storePassword = "AndikUne123456"
+                        }
+                    }
+
+                    buildTypes {
+                        release {
+                            isMinifyEnabled = false
+                            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                            signingConfig = signingConfigs.getByName("release")
+                        }
+                    }
+                    compileOptions {
+                        sourceCompatibility = JavaVersion.VERSION_17
+                        targetCompatibility = JavaVersion.VERSION_17
+                    }
+                    kotlinOptions {
+                        jvmTarget = "17"
+                    }
+                }
+
+                dependencies {
+                    implementation("androidx.core:core-ktx:1.15.0")
+                    implementation("androidx.appcompat:appcompat:1.7.0")
+                    implementation("com.google.android.material:material:1.12.0")
+                    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+                    implementation("androidx.webkit:webkit:1.12.1")
+                }
+            """.trimIndent()
+            addZipEntry("app/build.gradle.kts", appBuildGradle)
+
+            // 5. AndroidManifest.xml
+            val manifestContent = WebToApkPipeline.generatePatchedManifest(config)
+            addZipEntry("app/src/main/AndroidManifest.xml", manifestContent)
+
+            // 6. Assets config.json
+            val configJson = WebToApkPipeline.generateConfigJson(config)
+            addZipEntry("app/src/main/assets/config.json", configJson)
+
+            // 7. Standalone MainActivity.kt
+            val packagePath = config.packageName.replace('.', '/')
+            val mainActivityContent = WebToApkPipeline.generateStandaloneMainActivity(config)
+            addZipEntry("app/src/main/java/$packagePath/MainActivity.kt", mainActivityContent)
+
+            // 8. Resources
+            addZipEntry(
+                "app/src/main/res/values/strings.xml",
+                """<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">${config.appName}</string>
+</resources>"""
+            )
+
+            addZipEntry(
+                "app/src/main/res/values/colors.xml",
+                """<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary_color">${config.themeColorHex}</color>
+    <color name="nav_bar_color">${config.navBarColorHex}</color>
+</resources>"""
+            )
+
+            // 9. GitHub Actions workflow for 1-click CI Build
+            val workflowContent = """
+                name: Build Standalone APK
+                on: [push, workflow_dispatch]
+                jobs:
+                  build:
+                    runs-on: ubuntu-latest
+                    steps:
+                      - uses: actions/checkout@v4
+                      - uses: actions/setup-java@v4
+                        with:
+                          distribution: 'zulu'
+                          java-version: '17'
+                      - uses: gradle/actions/setup-gradle@v3
+                      - name: Assemble Release APK
+                        run: gradle assembleRelease --stacktrace || gradle assembleDebug --stacktrace
+                      - name: Upload APK
+                        uses: actions/upload-artifact@v4
+                        with:
+                          name: ${config.appName}-APK
+                          path: app/build/outputs/apk/**/*.apk
+            """.trimIndent()
+            addZipEntry(".github/workflows/build_apk.yml", workflowContent)
+
+            // 10. README.md with clear instructions
+            val readmeContent = """
+                # ${config.appName} - Standalone Android Application
+                Generated by iD-Tools Dev14 Web-to-APK Studio
+
+                - Package Name: `${config.packageName}`
+                - Target URL: `${config.webUrl}`
+                - Version: `${config.versionName}` (${config.versionCode})
+
+                ## Cara Build APK Sendiri (100% Berdiri Sendiri):
+                ### Opsi 1: Android Studio (Mudah)
+                1. Buka Android Studio.
+                2. Pilih **Open an Existing Project** dan pilih folder hasil ekstrak ZIP ini.
+                3. Tunggu Gradle sync selesai.
+                4. Klik menu **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
+                5. File APK siap dipasang di HP tanpa konflik!
+
+                ### Opsi 2: Terminal / Termux (CLI)
+                Jalankan perintah:
+                ```bash
+                gradle assembleRelease
+                ```
+                File APK akan berada di folder `app/build/outputs/apk/release/`.
+
+                ### Opsi 3: GitHub Actions (Otomatis & Gratis)
+                Push folder ini ke repository GitHub baru Anda. Workflow GitHub Actions di `.github/workflows/build_apk.yml` akan otomatis mengompilasi APK dan menyediakannya di tab Actions > Artifacts!
+            """.trimIndent()
+            addZipEntry("README.md", readmeContent)
+        }
+
+        // Copy to public Downloads folder for user convenience
+        try {
+            val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (publicDownloads != null && publicDownloads.exists()) {
+                val publicFile = File(publicDownloads, "$sanitizedName-Standalone-Project.zip")
+                outputZipFile.copyTo(publicFile, overwrite = true)
+            }
+        } catch (_: Exception) {}
+
+        return outputZipFile
+    }
+
+    /**
      * "Terima Bersih" Experience:
      * Installs the Web-to-APK directly to the Android Homescreen with custom app name & icon,
      * AND launches the standalone app immediately in fullscreen!

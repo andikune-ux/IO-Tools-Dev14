@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +41,26 @@ fun ImageTools() {
 
     // Sample bitmap state for demonstration and processing
     var sampleBitmap by remember { mutableStateOf(createSampleCyberBitmap()) }
+    var selectedImageName by remember { mutableStateOf<String?>("Gambar Cyber Default (1200x800)") }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bmp = BitmapFactory.decodeStream(stream)
+                    if (bmp != null) {
+                        sampleBitmap = bmp
+                        selectedImageName = uri.lastPathSegment ?: "Foto Galeri (${bmp.width}x${bmp.height})"
+                        Toast.makeText(context, "Foto berhasil dimuat (${bmp.width}x${bmp.height})!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Gagal memuat foto: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -51,6 +76,39 @@ fun ImageTools() {
                 statusText = "IDLE",
                 statusColor = NeonCyan
             )
+        }
+
+        item {
+            CyberCard(borderColor = NeonCyan) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("FOTO / GAMBAR SUMBER", style = MaterialTheme.typography.labelSmall, color = NeonCyan)
+                        Text(
+                            text = selectedImageName ?: "Gambar default aktif",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TerminalText,
+                            maxLines = 1
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = CyberBlack)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Pilih Foto", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
         }
 
         item {

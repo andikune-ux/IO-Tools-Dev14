@@ -140,6 +140,8 @@ object WebToApkPipeline {
      * Generates MainActivity.kt for the Web-to-APK output.
      * Contains the strict config.json parser & WebChromeClient permission interceptor.
      */
+    fun generateStandaloneMainActivity(config: WebToApkConfig): String = generateTemplateMainActivity(config)
+
     fun generateTemplateMainActivity(config: WebToApkConfig): String {
         return """
 package ${config.packageName}

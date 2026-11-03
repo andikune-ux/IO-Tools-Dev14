@@ -42,6 +42,7 @@ import dev.andikune.iottools.tools.network.NetworkTools
 import dev.andikune.iottools.tools.pdf.PdfTools
 import dev.andikune.iottools.tools.privacy.PrivacyTools
 import dev.andikune.iottools.tools.qr.QrBarcodeTools
+import dev.andikune.iottools.tools.tiktok.TikTokDownloaderScreen
 import dev.andikune.iottools.ui.components.CyberTerminalHeader
 import dev.andikune.iottools.ui.theme.*
 
@@ -65,7 +66,8 @@ enum class MainNavigationTab(val label: String, val icon: ImageVector) {
 }
 
 enum class ToolCategory(val label: String, val description: String, val icon: ImageVector, val color: Color) {
-    QR_BARCODE("QR & Barcode", "Generator, Code128, Scanner", Icons.Default.QrCode, AccentRose),
+    TIKTOK("TikTok Downloader", "Unduh Video HD Tanpa Watermark & MP3", Icons.Default.CloudDownload, AccentRose),
+    QR_BARCODE("QR & Barcode", "Generator, Code128, Scanner", Icons.Default.QrCode, AccentCyan),
     IMAGE("Studio Gambar", "Compress, Resize, Convert, EXIF", Icons.Default.Image, AccentCyan),
     PDF("Dokumen PDF", "Merge, Split, Protect, Rotate", Icons.Default.PictureAsPdf, AccentAmber),
     DATA_HASH("File & Hash", "SHA-256, MD5, Base64, Rename", Icons.Default.DataObject, AccentEmerald),
@@ -132,6 +134,7 @@ fun MainAppScreen() {
                         })
                     } else {
                         when (category) {
+                            ToolCategory.TIKTOK -> TikTokDownloaderScreen()
                             ToolCategory.QR_BARCODE -> QrBarcodeTools()
                             ToolCategory.IMAGE -> ImageTools()
                             ToolCategory.PDF -> PdfTools()
