@@ -88,33 +88,42 @@ class WebToApkStandaloneActivity : ComponentActivity() {
             isAudioAllowed = permAudioExtra
             isLocationAllowed = permLocationExtra
         } else {
-            // Load from assets/config.json
-            try {
-                val inputStream: InputStream = assets.open("config.json")
-                val jsonStr = inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(jsonStr)
-                val perms = json.optJSONObject("permissions")
-                val media = perms?.optJSONObject("media")
-                val location = perms?.optJSONObject("location")
+            // First try loading from WebToApkStorage (actively configured by user)
+            val savedConfig = dev.andikune.iottools.builder.WebToApkStorage.getActiveConfig(this)
+            if (savedConfig != null) {
+                config = savedConfig
+                isCameraAllowed = savedConfig.permCamera
+                isAudioAllowed = savedConfig.permRecordAudio
+                isLocationAllowed = savedConfig.permFineLocation || savedConfig.permCoarseLocation
+            } else {
+                // Fallback to assets/config.json
+                try {
+                    val inputStream: InputStream = assets.open("config.json")
+                    val jsonStr = inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(jsonStr)
+                    val perms = json.optJSONObject("permissions")
+                    val media = perms?.optJSONObject("media")
+                    val location = perms?.optJSONObject("location")
 
-                isCameraAllowed = media?.optBoolean("CAMERA", false) == true
-                isAudioAllowed = media?.optBoolean("RECORD_AUDIO", false) == true
-                isLocationAllowed = location?.optBoolean("ACCESS_FINE_LOCATION", false) == true
+                    isCameraAllowed = media?.optBoolean("CAMERA", false) == true
+                    isAudioAllowed = media?.optBoolean("RECORD_AUDIO", false) == true
+                    isLocationAllowed = location?.optBoolean("ACCESS_FINE_LOCATION", false) == true
 
-                config = WebToApkConfig(
-                    appName = json.optString("appName", "My Web App"),
-                    webUrl = json.optString("webUrl", "https://example.com"),
-                    themeColorHex = json.optString("themeColorHex", "#6366F1"),
-                    navBarColorHex = json.optString("navBarColorHex", "#090D16"),
-                    permCamera = isCameraAllowed,
-                    permRecordAudio = isAudioAllowed,
-                    permFineLocation = isLocationAllowed,
-                    enablePullToRefresh = json.optBoolean("enablePullToRefresh", true),
-                    enableProgressBar = json.optBoolean("enableProgressBar", true),
-                    enableDesktopMode = json.optBoolean("enableDesktopMode", false),
-                    enableZoomControls = json.optBoolean("enableZoomControls", true)
-                )
-            } catch (_: Exception) {}
+                    config = WebToApkConfig(
+                        appName = json.optString("appName", "My Web App"),
+                        webUrl = json.optString("webUrl", "https://example.com"),
+                        themeColorHex = json.optString("themeColorHex", "#6366F1"),
+                        navBarColorHex = json.optString("navBarColorHex", "#090D16"),
+                        permCamera = isCameraAllowed,
+                        permRecordAudio = isAudioAllowed,
+                        permFineLocation = isLocationAllowed,
+                        enablePullToRefresh = json.optBoolean("enablePullToRefresh", true),
+                        enableProgressBar = json.optBoolean("enableProgressBar", true),
+                        enableDesktopMode = json.optBoolean("enableDesktopMode", false),
+                        enableZoomControls = json.optBoolean("enableZoomControls", true)
+                    )
+                } catch (_: Exception) {}
+            }
         }
     }
 

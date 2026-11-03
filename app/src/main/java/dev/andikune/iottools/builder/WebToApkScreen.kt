@@ -693,10 +693,10 @@ fun WebToApkScreen() {
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Primary Action: Install APK directly
+                        // Method 1: Terima Bersih (Pin to Homescreen + Launch standalone app immediately)
                         Button(
                             onClick = {
-                                ApkPackagingEngine.installApk(context, apk)
+                                ApkPackagingEngine.installTerimaBersih(context, config)
                             },
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -705,16 +705,34 @@ fun WebToApkScreen() {
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(50.dp)
+                                .height(56.dp)
                         ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "PASANG / INSTALL APK KE HP SEKARANG",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "PASANG & BUKA SEKARANG (TERIMA BERSIH)",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "1-Klik buat ikon di HP & langsung jalankan aplikasi",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.5.sp,
+                                    color = Color.White.copy(alpha = 0.92f)
+                                )
+                            }
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Method 2: System Package Installer (.apk)
+                        CyberSecondaryButton(
+                            text = "Instal Berkas .APK Asli (Package Installer)",
+                            onClick = {
+                                ApkPackagingEngine.installApk(context, apk)
+                            }
+                        )
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -744,7 +762,39 @@ fun WebToApkScreen() {
                             ) {
                                 Icon(Icons.Default.Launch, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Buka Standalone", color = AccentCyan, style = MaterialTheme.typography.labelMedium)
+                                Text("Buka Langsung", color = AccentCyan, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Parse Error Guide Box
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SlateSurface)
+                                .border(1.dp, SlateBorder, RoundedCornerShape(10.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = AccentAmber, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "Solusi 'Ada masalah saat mengurai paket'",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AccentAmber
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Jika installer Android memunculkan 'Gagal Mengurai Paket', hal ini disebabkan bentrok nama paket (package conflict) dengan aplikasi iD-Tools yang sedang berjalan di HP Anda. Cukup tekan tombol 'PASANG KE LAYAR UTAMA' di atas untuk memasang aplikasi secara instan ke menu HP tanpa bentrok!",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
                             }
                         }
 
