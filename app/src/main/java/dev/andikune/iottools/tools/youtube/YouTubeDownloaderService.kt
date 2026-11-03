@@ -4,17 +4,15 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import dev.andikune.iottools.tools.common.AppDownloadManager
 import dev.andikune.iottools.tools.common.VideoDownloadHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 data class YouTubeVideoFormat(
@@ -68,8 +66,12 @@ object YouTubeDownloaderService {
     }
 
     /**
-     * Fetches metadata (title, author, thumbnail) and resolves downloadable streams.
-     * Uses YouTube Official oEmbed + Invidious / Cobalt / Loader.to API direct streaming.
+     * Fetches metadata and resolves direct playable video streams using multiple cascading endpoints:
+     * 1. Official YouTube oEmbed (metadata)
+     * 2. Piped API (high reliability direct CDN streams)
+     * 3. Invidious Instances
+     * 4. Cobalt API
+     * 5. Loader.to converter polling
      */
     suspend fun fetchVideoDetails(rawUrl: String): Result<YouTubeVideoData> = withContext(Dispatchers.IO) {
         try {
@@ -104,53 +106,77 @@ object YouTubeDownloaderService {
                         }
                     }
                 }
-            } catch (_: Exception) {
-                // Keep default metadata if oEmbed fails
-            }
+            } catch (_: Exception) {}
 
             val formats = mutableListOf<YouTubeVideoFormat>()
 
-            // Step 2: Try Invidious instances to extract direct audio+video MP4 stream
-            val invidiousInstances = listOf(
-                "https://invidious.jing.rocks",
-                "https://invidious.nerdvpn.de",
-                "https://iv.melmac.space",
-                "https://yt.artemislena.eu"
+            // Step 2: Try Piped API instances
+            val pipedInstances = listOf(
+                "https://pipedapi.tokhmi.xyz",
+                "https://pipedapi.kavin.rocks",
+                "https://api.piped.private.coffee"
             )
 
-            var resolvedDirectUrl: String? = null
-            for (instance in invidiousInstances) {
+            for (instance in pipedInstances) {
                 try {
-                    val apiReq = Request.Builder()
-                        .url("$instance/api/v1/videos/$videoId")
+                    val pipedUrl = "$instance/streams/$videoId"
+                    val req = Request.Builder()
+                        .url(pipedUrl)
                         .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
                         .build()
-                    client.newCall(apiReq).execute().use { resp ->
+
+                    client.newCall(req).execute().use { resp ->
                         if (resp.isSuccessful) {
-                            val respStr = resp.body?.string().orEmpty()
-                            val json = JSONObject(respStr)
-                            val formatStreams = json.optJSONArray("formatStreams")
-                            if (formatStreams != null && formatStreams.length() > 0) {
-                                for (i in 0 until formatStreams.length()) {
-                                    val item = formatStreams.getJSONObject(i)
+                            val body = resp.body?.string().orEmpty()
+                            val json = JSONObject(body)
+                            videoTitle = json.optString("title", videoTitle)
+                            authorName = json.optString("uploader", authorName)
+
+                            val videoStreams = json.optJSONArray("videoStreams")
+                            if (videoStreams != null && videoStreams.length() > 0) {
+                                for (i in 0 until videoStreams.length()) {
+                                    val item = videoStreams.getJSONObject(i)
                                     val streamUrl = item.optString("url", "")
-                                    val quality = item.optString("qualityLabel", "720p")
-                                    val container = item.optString("container", "mp4")
-                                    if (streamUrl.isNotBlank() && container.contains("mp4", ignoreCase = true)) {
-                                        val fullUrl = if (streamUrl.startsWith("/")) "$instance$streamUrl" else streamUrl
+                                    val quality = item.optString("quality", "720p")
+                                    val format = item.optString("format", "mp4").lowercase()
+                                    val isVideoOnly = item.optBoolean("videoOnly", false)
+
+                                    if (streamUrl.isNotBlank() && !isVideoOnly && format.contains("mp4")) {
+                                        val clen = item.optLong("contentLength", 0L)
+                                        val sizeStr = if (clen > 0) String.format("%.1f MB", clen / (1024.0 * 1024.0)) else "Video Asli"
                                         formats.add(
                                             YouTubeVideoFormat(
                                                 formatId = quality.replace(" ", "_"),
-                                                label = "MP4 Video Asli ($quality)",
+                                                label = "Video Asli MP4 ($quality)",
                                                 resolution = quality,
                                                 ext = "mp4",
                                                 isAudioOnly = false,
-                                                approximateSize = item.optString("size", "Video HD"),
-                                                directUrl = fullUrl
+                                                approximateSize = sizeStr,
+                                                directUrl = streamUrl
                                             )
                                         )
-                                        if (resolvedDirectUrl == null) resolvedDirectUrl = fullUrl
                                     }
+                                }
+                            }
+
+                            // Also extract audio
+                            val audioStreams = json.optJSONArray("audioStreams")
+                            if (audioStreams != null && audioStreams.length() > 0) {
+                                val firstAudio = audioStreams.getJSONObject(0)
+                                val aUrl = firstAudio.optString("url", "")
+                                val aExt = firstAudio.optString("format", "m4a").lowercase()
+                                if (aUrl.isNotBlank()) {
+                                    formats.add(
+                                        YouTubeVideoFormat(
+                                            formatId = "audio",
+                                            label = "Audio Asli (High Quality)",
+                                            resolution = "Audio Stream",
+                                            ext = if (aExt.contains("mp3")) "mp3" else "m4a",
+                                            isAudioOnly = true,
+                                            approximateSize = "Musik Jernih",
+                                            directUrl = aUrl
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -159,7 +185,101 @@ object YouTubeDownloaderService {
                 if (formats.isNotEmpty()) break
             }
 
-            // Step 3: Try loader.to conversion API to get direct binary MP4 / MP3 links
+            // Step 3: Try Invidious instances if Piped returned empty
+            if (formats.isEmpty()) {
+                val invidiousInstances = listOf(
+                    "https://inv.nadeko.net",
+                    "https://invidious.jing.rocks",
+                    "https://invidious.nerdvpn.de",
+                    "https://iv.melmac.space"
+                )
+
+                for (instance in invidiousInstances) {
+                    try {
+                        val apiReq = Request.Builder()
+                            .url("$instance/api/v1/videos/$videoId")
+                            .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
+                            .build()
+                        client.newCall(apiReq).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val respStr = resp.body?.string().orEmpty()
+                                val json = JSONObject(respStr)
+                                val formatStreams = json.optJSONArray("formatStreams")
+                                if (formatStreams != null && formatStreams.length() > 0) {
+                                    for (i in 0 until formatStreams.length()) {
+                                        val item = formatStreams.getJSONObject(i)
+                                        val streamUrl = item.optString("url", "")
+                                        val quality = item.optString("qualityLabel", "720p")
+                                        val container = item.optString("container", "mp4")
+                                        if (streamUrl.isNotBlank() && container.contains("mp4", ignoreCase = true)) {
+                                            val fullUrl = if (streamUrl.startsWith("/")) "$instance$streamUrl" else streamUrl
+                                            formats.add(
+                                                YouTubeVideoFormat(
+                                                    formatId = quality.replace(" ", "_"),
+                                                    label = "MP4 Video ($quality)",
+                                                    resolution = quality,
+                                                    ext = "mp4",
+                                                    isAudioOnly = false,
+                                                    approximateSize = item.optString("size", "Video HD"),
+                                                    directUrl = fullUrl
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    if (formats.isNotEmpty()) break
+                }
+            }
+
+            // Step 4: Try Cobalt API
+            if (formats.isEmpty()) {
+                val cobaltEndpoints = listOf(
+                    "https://api.cobalt.tools",
+                    "https://co.wuk.sh"
+                )
+                for (endpoint in cobaltEndpoints) {
+                    try {
+                        val payload = JSONObject().apply {
+                            put("url", "https://www.youtube.com/watch?v=$videoId")
+                            put("videoQuality", "720")
+                        }
+                        val cobaltReq = Request.Builder()
+                            .url("$endpoint/")
+                            .header("Accept", "application/json")
+                            .header("Content-Type", "application/json")
+                            .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
+                            .post(payload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                            .build()
+
+                        client.newCall(cobaltReq).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string().orEmpty()
+                                val json = JSONObject(body)
+                                val streamUrl = json.optString("url", "")
+                                if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                                    formats.add(
+                                        YouTubeVideoFormat(
+                                            formatId = "720p",
+                                            label = "MP4 Video HD (720p)",
+                                            resolution = "1280x720",
+                                            ext = "mp4",
+                                            isAudioOnly = false,
+                                            approximateSize = "Video HD",
+                                            directUrl = streamUrl
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    if (formats.isNotEmpty()) break
+                }
+            }
+
+            // Step 5: Try loader.to conversion polling
             if (formats.isEmpty()) {
                 val direct720 = resolveLoaderToDirectUrl(videoId, "720")
                 val direct360 = resolveLoaderToDirectUrl(videoId, "360")
@@ -208,7 +328,7 @@ object YouTubeDownloaderService {
                 }
             }
 
-            // Fallback formats using high-speed verified CDN stream proxies
+            // Step 6: Direct stream proxies fallback
             if (formats.isEmpty()) {
                 val directProxy720 = "https://co.wuk.sh/api/stream?url=https://www.youtube.com/watch?v=$videoId&quality=720"
                 val directProxy360 = "https://co.wuk.sh/api/stream?url=https://www.youtube.com/watch?v=$videoId&quality=360"
@@ -268,10 +388,6 @@ object YouTubeDownloaderService {
         }
     }
 
-    /**
-     * Resolves the real direct binary video URL from loader.to by querying its conversion API,
-     * polling the progress until a true binary CDN download link is obtained.
-     */
     private suspend fun resolveLoaderToDirectUrl(videoId: String, format: String): String? = withContext(Dispatchers.IO) {
         try {
             val startUrl = "https://loader.to/ajax/download.php?button=1&start=1&end=1&format=$format&url=${Uri.encode("https://www.youtube.com/watch?v=$videoId")}"
@@ -293,7 +409,6 @@ object YouTubeDownloaderService {
 
             if (taskId.isNullOrBlank()) return@withContext null
 
-            // Poll up to 4 times (max 4 seconds) for the finished download_url
             for (i in 0 until 4) {
                 delay(1000)
                 val pollUrl = "https://loader.to/ajax/progress.php?id=$taskId"
@@ -319,38 +434,33 @@ object YouTubeDownloaderService {
     }
 
     /**
-     * Downloads the chosen format via Android's DownloadManager with full notifications,
-     * enforcing genuine MP4 MIME type and saving directly into the user's Downloads folder.
+     * Enqueues real-time in-app streaming download with 0-100% progress and speed counter.
      */
     fun enqueueDownload(
         context: Context,
         format: YouTubeVideoFormat,
         videoTitle: String,
         videoId: String
-    ): Long {
+    ) {
         val safeTitle = videoTitle
             .replace("[^a-zA-Z0-9\\-_\\s]".toRegex(), "")
             .trim()
             .replace("\\s+".toRegex(), "_")
-            .take(30)
+            .take(28)
             .ifEmpty { "YT_$videoId" }
 
         val mime = if (format.isAudioOnly) "audio/mpeg" else "video/mp4"
         val fileName = "${safeTitle}_${format.formatId}.${format.ext}"
 
-        return VideoDownloadHelper.enqueueNativeVideoDownload(
+        AppDownloadManager.startDownload(
             context = context,
             directUrl = format.directUrl,
             suggestedFileName = fileName,
             title = videoTitle.take(35),
-            description = "Mengunduh ${format.label}...",
             mimeType = mime
         )
     }
 
-    /**
-     * Opens YouTube Video in external YouTube app or Web Browser.
-     */
     fun openInYouTube(context: Context, videoId: String) {
         try {
             val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
@@ -365,9 +475,6 @@ object YouTubeDownloaderService {
         }
     }
 
-    /**
-     * Share YouTube link to other apps.
-     */
     fun shareVideo(context: Context, videoId: String, title: String) {
         try {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {

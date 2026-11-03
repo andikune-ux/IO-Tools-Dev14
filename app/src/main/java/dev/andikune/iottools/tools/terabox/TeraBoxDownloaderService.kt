@@ -4,10 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import dev.andikune.iottools.tools.common.AppDownloadManager
 import dev.andikune.iottools.tools.common.VideoDownloadHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.regex.Pattern
 
@@ -26,13 +29,6 @@ object TeraBoxDownloaderService {
 
     private val client by lazy { VideoDownloadHelper.client }
 
-    /**
-     * Extracts TeraBox share ID / short key from:
-     * - https://terabox.com/s/1xyzABC
-     * - https://www.teraboxapp.com/s/1xyzABC
-     * - https://1024tera.com/s/1xyzABC
-     * - https://teraboxlink.com/s/1xyzABC
-     */
     fun extractShareId(rawUrl: String): String? {
         val clean = rawUrl.trim()
         val patterns = listOf(
@@ -155,8 +151,34 @@ object TeraBoxDownloaderService {
                 } catch (_: Exception) {}
             }
 
-            // If no genuine stream URL could be resolved, fail explicitly.
-            // NEVER generate a dummy .zip or .txt landing page!
+            // Endpoint 4: TeraDL API
+            if (!resolved || downloadUrl.isBlank()) {
+                try {
+                    val reqPayload = JSONObject().apply {
+                        put("url", clean)
+                    }
+                    val req4 = Request.Builder()
+                        .url("https://teradl-api.dapuntaratya.com/generate_file")
+                        .header("Content-Type", "application/json")
+                        .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
+                        .post(reqPayload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                        .build()
+                    client.newCall(req4).execute().use { resp4 ->
+                        if (resp4.isSuccessful) {
+                            val body4 = resp4.body?.string().orEmpty()
+                            val json4 = JSONObject(body4)
+                            val dlink = json4.optString("download_url", "")
+                            if (dlink.isNotBlank()) {
+                                downloadUrl = dlink
+                                if (fileName.isBlank()) fileName = json4.optString("file_name", "")
+                                fileSize = json4.optLong("size", fileSize)
+                                resolved = true
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
             if (!resolved || downloadUrl.isBlank()) {
                 return@withContext Result.failure(
                     IllegalStateException(
@@ -204,31 +226,27 @@ object TeraBoxDownloaderService {
     }
 
     /**
-     * Enqueues real TeraBox video download via Android DownloadManager with .mp4 video MIME type.
+     * Enqueues real TeraBox video download via AppDownloadManager with 0-100% progress and speed counter.
      */
     fun enqueueDownload(
         context: Context,
         fileInfo: TeraBoxFileInfo
-    ): Long {
+    ) {
         val safeName = fileInfo.fileName
             .replace("[\\\\/:*?\"<>|]".toRegex(), "_")
             .ifEmpty { "TeraBox_${fileInfo.shareId}.mp4" }
 
         val mime = if (safeName.endsWith(".mp4", ignoreCase = true)) "video/mp4" else "application/octet-stream"
 
-        return VideoDownloadHelper.enqueueNativeVideoDownload(
+        AppDownloadManager.startDownload(
             context = context,
             directUrl = fileInfo.downloadUrl,
             suggestedFileName = safeName,
             title = safeName.take(35),
-            description = "Mengunduh Video TeraBox (${fileInfo.fileSizeFormatted})...",
             mimeType = mime
         )
     }
 
-    /**
-     * Share direct download link
-     */
     fun shareLink(context: Context, fileInfo: TeraBoxFileInfo) {
         try {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {

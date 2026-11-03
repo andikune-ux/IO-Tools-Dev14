@@ -81,6 +81,9 @@ object VideoDownloadHelper {
      * Enqueues a verified video download using Android's native DownloadManager.
      * Configures proper MIME type (video/mp4), public directory, and media scanner.
      */
+    /**
+     * Enqueues video download using AppDownloadManager for real-time 0-100% progress and speed tracking.
+     */
     fun enqueueNativeVideoDownload(
         context: Context,
         directUrl: String,
@@ -89,59 +92,14 @@ object VideoDownloadHelper {
         description: String = "Mengunduh file video MP4...",
         mimeType: String = "video/mp4"
     ): Long {
-        try {
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                ?: throw IllegalStateException("DownloadManager tidak tersedia di HP.")
-
-            val safeTitle = suggestedFileName
-                .replace("[\\\\/:*?\"<>|]".toRegex(), "_")
-                .trim()
-                .ifEmpty { "Video_${System.currentTimeMillis()}" }
-
-            val finalFileName = if (safeTitle.endsWith(".mp4", ignoreCase = true) ||
-                safeTitle.endsWith(".mp3", ignoreCase = true) ||
-                safeTitle.endsWith(".m4a", ignoreCase = true) ||
-                safeTitle.endsWith(".mkv", ignoreCase = true)
-            ) {
-                safeTitle
-            } else {
-                "$safeTitle.mp4"
-            }
-
-            val uri = Uri.parse(directUrl)
-            val request = DownloadManager.Request(uri).apply {
-                setTitle(title.take(35))
-                setDescription(description)
-                setMimeType(mimeType)
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                addRequestHeader("User-Agent", DEFAULT_USER_AGENT)
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, finalFileName)
-            }
-
-            val downloadId = downloadManager.enqueue(request)
-            Toast.makeText(
-                context,
-                "✓ Memulai unduhan: $finalFileName\nTersimpan di folder Download.",
-                Toast.LENGTH_LONG
-            ).show()
-
-            return downloadId
-        } catch (e: Exception) {
-            // Fallback: Open directly in browser if DownloadManager encounters restrictive proxy headers
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(directUrl)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                Toast.makeText(context, "Membuka link unduhan via Browser...", Toast.LENGTH_SHORT).show()
-                return 0L
-            } catch (err: Exception) {
-                Toast.makeText(context, "Gagal mengunduh: ${err.message}", Toast.LENGTH_SHORT).show()
-                return -1L
-            }
-        }
+        AppDownloadManager.startDownload(
+            context = context,
+            directUrl = directUrl,
+            suggestedFileName = suggestedFileName,
+            title = title,
+            mimeType = mimeType
+        )
+        return 1L
     }
 
     /**

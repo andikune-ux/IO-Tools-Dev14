@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import dev.andikune.iottools.tools.common.AppDownloadManager
 import dev.andikune.iottools.tools.common.VideoDownloadHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,13 +41,6 @@ object InstagramDownloaderService {
 
     private val client by lazy { VideoDownloadHelper.client }
 
-    /**
-     * Extracts shortcode from Instagram URLs:
-     * - https://www.instagram.com/p/SHORTCODE/
-     * - https://www.instagram.com/reel/SHORTCODE/
-     * - https://www.instagram.com/reels/SHORTCODE/
-     * - https://instagram.com/tv/SHORTCODE/
-     */
     fun extractShortcode(rawUrl: String): String? {
         val clean = rawUrl.trim()
         val pattern = Pattern.compile("instagram\\.com/(?:p|reel|reels|tv)/([^/?#&\\s]+)")
@@ -59,7 +53,7 @@ object InstagramDownloaderService {
 
     /**
      * Resolves Instagram Post or Reel media links to extract REAL MP4 video CDN streams.
-     * Uses Instagram Embed scraper, Cobalt direct stream resolver, and FastDL fallback.
+     * Uses Instagram Embed parser, SnapInsta API, and Cobalt resolver.
      */
     suspend fun fetchPostDetails(rawUrl: String): Result<InstagramPostData> = withContext(Dispatchers.IO) {
         try {
@@ -87,20 +81,17 @@ object InstagramDownloaderService {
                     if (response.isSuccessful) {
                         val html = response.body?.string().orEmpty()
 
-                        // Extract Author
                         val authorMatcher = Pattern.compile("class=\"CaptionUsername\"[^>]*>([^<]+)<").matcher(html)
                         if (authorMatcher.find()) {
                             author = authorMatcher.group(1)?.trim() ?: author
                         }
 
-                        // Extract Caption
                         val captionMatcher = Pattern.compile("class=\"Caption\"[^>]*>(.*?)</div>", Pattern.DOTALL).matcher(html)
                         if (captionMatcher.find()) {
                             val rawCap = captionMatcher.group(1)?.replace("<[^>]+>".toRegex(), "")?.trim()
                             if (!rawCap.isNullOrBlank()) caption = rawCap
                         }
 
-                        // Extract genuine video_url from embedded payload
                         val videoPatterns = listOf(
                             Pattern.compile("\"video_url\":\"([^\"]+)\""),
                             Pattern.compile("video_url=([^\"]+?)(?:&|\")"),
@@ -124,7 +115,6 @@ object InstagramDownloaderService {
                             }
                         }
 
-                        // If video not found, check for image
                         if (mediaItems.isEmpty()) {
                             val imgMatcher = Pattern.compile("class=\"EmbeddedMediaImage\"[^>]*src=\"([^\"]+)\"").matcher(html)
                             if (imgMatcher.find()) {
@@ -138,35 +128,7 @@ object InstagramDownloaderService {
                 }
             } catch (_: Exception) {}
 
-            // Approach 2: If embed parser couldn't get video stream, query Cobalt / SnapInsta resolver
-            if (mediaItems.isEmpty()) {
-                try {
-                    val cobaltPayload = JSONObject().apply {
-                        put("url", "https://www.instagram.com/reel/$shortcode/")
-                    }
-                    val cobaltReq = Request.Builder()
-                        .url("https://co.wuk.sh/api/json")
-                        .header("Accept", "application/json")
-                        .header("Content-Type", "application/json")
-                        .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                        .post(cobaltPayload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
-                        .build()
-
-                    client.newCall(cobaltReq).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            val body = resp.body?.string().orEmpty()
-                            val json = JSONObject(body)
-                            val streamUrl = json.optString("url", "")
-                            if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
-                                mediaItems.add(InstagramMediaItem(streamUrl, true, streamUrl))
-                                isVideoPost = true
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-            // Approach 3: SnapInsta direct API endpoint
+            // Approach 2: SnapInsta API endpoint
             if (mediaItems.isEmpty()) {
                 try {
                     val resolverUrl = "https://api.snapinsta.to/api/convert?url=${Uri.encode("https://www.instagram.com/p/$shortcode/")}"
@@ -188,6 +150,38 @@ object InstagramDownloaderService {
                         }
                     }
                 } catch (_: Exception) {}
+            }
+
+            // Approach 3: Cobalt resolver
+            if (mediaItems.isEmpty()) {
+                val cobaltEndpoints = listOf("https://api.cobalt.tools", "https://co.wuk.sh")
+                for (endpoint in cobaltEndpoints) {
+                    try {
+                        val cobaltPayload = JSONObject().apply {
+                            put("url", "https://www.instagram.com/reel/$shortcode/")
+                        }
+                        val cobaltReq = Request.Builder()
+                            .url("$endpoint/")
+                            .header("Accept", "application/json")
+                            .header("Content-Type", "application/json")
+                            .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
+                            .post(cobaltPayload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                            .build()
+
+                        client.newCall(cobaltReq).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string().orEmpty()
+                                val json = JSONObject(body)
+                                val streamUrl = json.optString("url", "")
+                                if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                                    mediaItems.add(InstagramMediaItem(streamUrl, true, streamUrl))
+                                    isVideoPost = true
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    if (mediaItems.isNotEmpty()) break
+                }
             }
 
             if (mediaItems.isEmpty()) {
@@ -217,31 +211,28 @@ object InstagramDownloaderService {
     }
 
     /**
-     * Downloads genuine media directly to Android Downloads directory as .mp4 or .jpg.
+     * Downloads genuine media directly to Android Downloads directory as .mp4 or .jpg
+     * with live 0-100% progress and speed tracking in-app.
      */
     fun enqueueDownload(
         context: Context,
         mediaItem: InstagramMediaItem,
         shortcode: String,
         author: String
-    ): Long {
+    ) {
         val ext = if (mediaItem.isVideo) "mp4" else "jpg"
         val mime = if (mediaItem.isVideo) "video/mp4" else "image/jpeg"
         val fileName = "IG_${author}_${shortcode}_${System.currentTimeMillis() % 10000}.$ext"
 
-        return VideoDownloadHelper.enqueueNativeVideoDownload(
+        AppDownloadManager.startDownload(
             context = context,
             directUrl = mediaItem.url,
             suggestedFileName = fileName,
             title = "Instagram: @$author",
-            description = if (mediaItem.isVideo) "Mengunduh Video / Reel Instagram (MP4)..." else "Mengunduh Foto Instagram (JPG)...",
             mimeType = mime
         )
     }
 
-    /**
-     * Share Instagram Post link
-     */
     fun sharePost(context: Context, shortcode: String, caption: String) {
         try {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {

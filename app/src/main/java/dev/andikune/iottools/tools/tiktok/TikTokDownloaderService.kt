@@ -126,9 +126,7 @@ object TikTokDownloaderService {
 
     /**
      * Downloads the real media file (Video MP4 without watermark or Audio MP3)
-     * using Android's native DownloadManager.
-     * The file is saved directly into the user's public Downloads directory
-     * and shows a system notification on completion.
+     * using AppDownloadManager with 0-100% progress and speed counter.
      */
     fun startDownload(
         context: Context,
@@ -136,15 +134,13 @@ object TikTokDownloaderService {
         fileName: String,
         title: String,
         isAudio: Boolean
-    ): Long {
+    ) {
         val mime = if (isAudio) "audio/mpeg" else "video/mp4"
-        val desc = if (isAudio) "Mengunduh Audio MP3 TikTok..." else "Mengunduh Video TikTok Asli (No Watermark)..."
-        return dev.andikune.iottools.tools.common.VideoDownloadHelper.enqueueNativeVideoDownload(
+        dev.andikune.iottools.tools.common.AppDownloadManager.startDownload(
             context = context,
             directUrl = url,
             suggestedFileName = fileName,
             title = title,
-            description = desc,
             mimeType = mime
         )
     }

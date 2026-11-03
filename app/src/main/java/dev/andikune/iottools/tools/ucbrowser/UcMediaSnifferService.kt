@@ -228,9 +228,9 @@ object UcMediaSnifferService {
     }
 
     /**
-     * Downloads genuine sniffed media via Android's native DownloadManager.
+     * Downloads genuine sniffed media via AppDownloadManager with 0-100% progress.
      */
-    fun enqueueDownload(context: Context, item: SniffedMediaItem): Long {
+    fun enqueueDownload(context: Context, item: SniffedMediaItem) {
         val ext = if (item.isStreamHls) "m3u8" else "mp4"
         val mime = if (item.isStreamHls) "application/x-mpegURL" else "video/mp4"
 
@@ -239,12 +239,11 @@ object UcMediaSnifferService {
             .ifEmpty { "Video_${System.currentTimeMillis()}" }
         val finalFileName = if (safeName.endsWith(".$ext", ignoreCase = true)) safeName else "$safeName.$ext"
 
-        return VideoDownloadHelper.enqueueNativeVideoDownload(
+        dev.andikune.iottools.tools.common.AppDownloadManager.startDownload(
             context = context,
             directUrl = item.url,
             suggestedFileName = finalFileName,
             title = finalFileName.take(35),
-            description = "Mengunduh dari ${item.sourceDomain} (${item.format})...",
             mimeType = mime
         )
     }

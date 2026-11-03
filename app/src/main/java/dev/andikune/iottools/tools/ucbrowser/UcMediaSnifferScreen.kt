@@ -119,6 +119,11 @@ fun UcMediaSnifferScreen() {
             )
         }
 
+        // Live 0-100% In-App Download Progress & Speed Card
+        item {
+            DownloadProgressCard()
+        }
+
         // Input Card
         item {
             CyberCard(borderColor = AccentCyan) {
