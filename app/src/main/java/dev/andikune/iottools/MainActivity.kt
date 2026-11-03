@@ -42,7 +42,11 @@ import dev.andikune.iottools.tools.network.NetworkTools
 import dev.andikune.iottools.tools.pdf.PdfTools
 import dev.andikune.iottools.tools.privacy.PrivacyTools
 import dev.andikune.iottools.tools.qr.QrBarcodeTools
+import dev.andikune.iottools.tools.instagram.InstagramDownloaderScreen
+import dev.andikune.iottools.tools.terabox.TeraBoxDownloaderScreen
 import dev.andikune.iottools.tools.tiktok.TikTokDownloaderScreen
+import dev.andikune.iottools.tools.ucbrowser.UcMediaSnifferScreen
+import dev.andikune.iottools.tools.youtube.YouTubeDownloaderScreen
 import dev.andikune.iottools.ui.components.CyberTerminalHeader
 import dev.andikune.iottools.ui.theme.*
 
@@ -67,6 +71,10 @@ enum class MainNavigationTab(val label: String, val icon: ImageVector) {
 
 enum class ToolCategory(val label: String, val description: String, val icon: ImageVector, val color: Color) {
     TIKTOK("TikTok Downloader", "Unduh Video HD Tanpa Watermark & MP3", Icons.Default.CloudDownload, AccentRose),
+    YOUTUBE("YouTube Downloader", "Video MP4 720p/360p & Audio MP3", Icons.Default.VideoLibrary, AccentRose),
+    INSTAGRAM("Instagram Reels", "Unduh Reels & Foto Resolusi Asli", Icons.Default.CameraAlt, AccentPurple),
+    TERABOX("TeraBox Direct", "Bypass Limit & Download Cloud File", Icons.Default.CloudSync, AccentAmber),
+    UC_SNIFFER("UC Media Sniffer", "Ekstrak Link Video (MP4/M3U8) dari Web", Icons.Default.TravelExplore, AccentCyan),
     QR_BARCODE("QR & Barcode", "Generator, Code128, Scanner", Icons.Default.QrCode, AccentCyan),
     IMAGE("Studio Gambar", "Compress, Resize, Convert, EXIF", Icons.Default.Image, AccentCyan),
     PDF("Dokumen PDF", "Merge, Split, Protect, Rotate", Icons.Default.PictureAsPdf, AccentAmber),
@@ -135,6 +143,10 @@ fun MainAppScreen() {
                     } else {
                         when (category) {
                             ToolCategory.TIKTOK -> TikTokDownloaderScreen()
+                            ToolCategory.YOUTUBE -> YouTubeDownloaderScreen()
+                            ToolCategory.INSTAGRAM -> InstagramDownloaderScreen()
+                            ToolCategory.TERABOX -> TeraBoxDownloaderScreen()
+                            ToolCategory.UC_SNIFFER -> UcMediaSnifferScreen()
                             ToolCategory.QR_BARCODE -> QrBarcodeTools()
                             ToolCategory.IMAGE -> ImageTools()
                             ToolCategory.PDF -> PdfTools()
@@ -254,7 +266,7 @@ fun ModernToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
     ) {
         CyberTerminalHeader(
             title = "All-in-One Toolkit",
-            subtitle = "7 Modul Utilitas Premium Berstandar Offline-First",
+            subtitle = "12 Modul Utilitas & Media Downloader Pro",
             statusText = "READY",
             statusColor = AccentEmerald
         )
