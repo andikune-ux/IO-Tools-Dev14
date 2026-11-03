@@ -1,0 +1,6 @@
+{
+  "name": "iD-Tools Dev14.Apk",
+  "description": "Cyberpunk Hacker Neon All-in-One Toolkit and Web-to-APK Builder engine with granular permission toggle system, crypto tools, and custom keystore generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
