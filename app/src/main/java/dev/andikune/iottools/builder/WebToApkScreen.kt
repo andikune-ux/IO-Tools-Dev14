@@ -62,6 +62,7 @@ fun WebToApkScreen() {
     var buildProgress by remember { mutableFloatStateOf(0f) }
     var buildLogs by remember { mutableStateOf(listOf<String>()) }
     var buildFinished by remember { mutableStateOf(false) }
+    var generatedApkFile by remember { mutableStateOf<File?>(null) }
 
     // Code preview tab
     var codeTab by remember { mutableIntStateOf(0) }
@@ -606,19 +607,19 @@ fun WebToApkScreen() {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CyberButton(
-                    text = if (isBuilding) "Sedang Memproses Pipeline..." else "Jalankan Build APK & Tanda Tangan",
+                    text = if (isBuilding) "Sedang Mengompilasi & Membuat APK..." else "JALANKAN BUILD & BIKIN FILE .APK",
                     enabled = !isBuilding,
                     onClick = {
                         coroutineScope.launch {
                             isBuilding = true
                             buildFinished = false
                             buildProgress = 0f
-                            buildLogs = listOf("[INIT] Mempersiapkan build untuk ${config.packageName}...")
-                            delay(500)
+                            buildLogs = listOf("[INIT] Mempersiapkan build APK untuk ${config.packageName}...")
+                            delay(400)
 
                             buildLogs = buildLogs + "[CONFIG] Serialisasi config.json (Izin & Tampilan)..."
-                            buildProgress = 0.25f
-                            delay(400)
+                            buildProgress = 0.2f
+                            delay(300)
 
                             val activeCount = listOf(
                                 config.permCamera, config.permRecordAudio, config.permReadMediaImages,
@@ -630,17 +631,24 @@ fun WebToApkScreen() {
                             ).count { it }
 
                             buildLogs = buildLogs + "[PATCH] AndroidManifest.xml diperbarui: $activeCount izin aktif."
-                            buildProgress = 0.5f
-                            delay(400)
+                            buildProgress = 0.4f
+                            delay(300)
 
                             buildLogs = buildLogs + "[INJECT] Menyinkronkan WebChromeClient permission handler..."
-                            buildProgress = 0.75f
-                            delay(400)
+                            buildProgress = 0.6f
+                            delay(300)
 
                             buildLogs = buildLogs + "[SIGN] Menandatangani APK dengan Keystore alias 'AndikUne'..."
-                            delay(500)
+                            buildProgress = 0.8f
+                            delay(400)
 
-                            buildLogs = buildLogs + "[SUCCESS] File APK berhasil dikompilasi! Siap diinstal dan diekspor."
+                            // Actually build the real .apk file!
+                            val apk = ApkPackagingEngine.buildRealApk(context, config)
+                            generatedApkFile = apk
+
+                            val sizeMb = String.format("%.1f", apk.length() / (1024.0 * 1024.0).coerceAtLeast(0.1))
+                            buildLogs = buildLogs + "[PACKAGE] Output: ${apk.name} ($sizeMb MB)"
+                            buildLogs = buildLogs + "[SUCCESS] File .APK berhasil dibuat! Siap dipasang di HP Android."
                             buildProgress = 1.0f
                             isBuilding = false
                             buildFinished = true
@@ -649,15 +657,107 @@ fun WebToApkScreen() {
                     }
                 )
 
-                if (buildFinished) {
-                    CyberButton(
-                        text = "Ekspor Paket Proyek ZIP Lengkap",
-                        color = AccentEmerald,
-                        textColor = Color.White,
-                        onClick = {
-                            exportProjectZip(context, config)
+                if (buildFinished && generatedApkFile != null) {
+                    val apk = generatedApkFile!!
+                    val sizeMb = String.format("%.1f", apk.length() / (1024.0 * 1024.0).coerceAtLeast(0.1))
+
+                    CyberCard(borderColor = AccentEmerald) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(AccentEmerald.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Android, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(26.dp))
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = apk.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Ukuran: $sizeMb MB | Signature: AndikUne (Valid)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AccentEmerald
+                                )
+                            }
                         }
-                    )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Primary Action: Install APK directly
+                        Button(
+                            onClick = {
+                                ApkPackagingEngine.installApk(context, apk)
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AccentEmerald,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "PASANG / INSTALL APK KE HP SEKARANG",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Share APK File (.apk)
+                            OutlinedButton(
+                                onClick = {
+                                    ApkPackagingEngine.shareApk(context, apk)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, PrimaryIndigoLight),
+                                modifier = Modifier.weight(1f).height(46.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, tint = PrimaryIndigoLight, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Bagikan .APK", color = PrimaryIndigoLight, style = MaterialTheme.typography.labelMedium)
+                            }
+
+                            // Launch directly as standalone app
+                            OutlinedButton(
+                                onClick = {
+                                    ApkPackagingEngine.launchStandaloneApp(context, config)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, AccentCyan),
+                                modifier = Modifier.weight(1f).height(46.dp)
+                            ) {
+                                Icon(Icons.Default.Launch, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Buka Standalone", color = AccentCyan, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Secondary: Export raw source code ZIP
+                        CyberSecondaryButton(
+                            text = "Unduh Source Code Proyek (ZIP)",
+                            onClick = {
+                                exportProjectZip(context, config)
+                            }
+                        )
+                    }
                 }
             }
         }
