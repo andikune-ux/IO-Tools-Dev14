@@ -103,8 +103,8 @@ fun TeraBoxDownloaderScreen() {
         item {
             CyberTerminalHeader(
                 title = "TERABOX DOWNLOADER",
-                subtitle = "Bypass Limitasi & Unduh File TeraBox / 1024tera Langsung",
-                statusText = "BYPASS READY",
+                subtitle = "Ekstrak & Unduh Video Asli (MP4) dari Link TeraBox / 1024tera",
+                statusText = "VIDEO READY",
                 statusColor = AccentAmber
             )
         }
@@ -348,7 +348,7 @@ fun TeraBoxDownloaderScreen() {
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("UNDUH FILE SEKARANG", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("UNDUH VIDEO ASLI (MP4)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

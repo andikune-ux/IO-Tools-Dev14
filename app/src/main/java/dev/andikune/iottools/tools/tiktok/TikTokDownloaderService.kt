@@ -137,33 +137,16 @@ object TikTokDownloaderService {
         title: String,
         isAudio: Boolean
     ): Long {
-        try {
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                ?: throw IllegalStateException("DownloadManager tidak tersedia di perangkat ini.")
-
-            val uri = Uri.parse(url)
-            val request = DownloadManager.Request(uri).apply {
-                setTitle(title.take(40))
-                setDescription(if (isAudio) "Mengunduh Audio MP3 TikTok..." else "Mengunduh Video TikTok (No Watermark)...")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                
-                // Save to public Downloads directory so it is visible in Gallery / File Manager
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            }
-
-            val downloadId = downloadManager.enqueue(request)
-            Toast.makeText(
-                context,
-                "✓ Unduhan dimulai! Tersimpan di folder Download: $fileName",
-                Toast.LENGTH_LONG
-            ).show()
-            return downloadId
-        } catch (e: Exception) {
-            Toast.makeText(context, "Gagal memulai unduhan: ${e.message}", Toast.LENGTH_SHORT).show()
-            return -1L
-        }
+        val mime = if (isAudio) "audio/mpeg" else "video/mp4"
+        val desc = if (isAudio) "Mengunduh Audio MP3 TikTok..." else "Mengunduh Video TikTok Asli (No Watermark)..."
+        return dev.andikune.iottools.tools.common.VideoDownloadHelper.enqueueNativeVideoDownload(
+            context = context,
+            directUrl = url,
+            suggestedFileName = fileName,
+            title = title,
+            description = desc,
+            mimeType = mime
+        )
     }
 
     /**

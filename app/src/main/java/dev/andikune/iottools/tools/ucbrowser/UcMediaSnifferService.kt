@@ -1,19 +1,16 @@
 package dev.andikune.iottools.tools.ucbrowser
 
-import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Environment
 import android.webkit.URLUtil
 import android.widget.Toast
+import dev.andikune.iottools.tools.common.VideoDownloadHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
 import java.net.URL
-import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 data class SniffedMediaItem(
@@ -34,21 +31,14 @@ data class SniffingResult(
 
 object UcMediaSnifferService {
 
-    private val client by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
-    }
+    private val client by lazy { VideoDownloadHelper.client }
 
     private const val MOBILE_USER_AGENT =
-        "Mozilla/5.0 (Linux; U; Android 14; id-id; Pixel 8 Pro Build/UQ1A) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36 UCBrowser/13.4.0.1306 Mobile"
+        "Mozilla/5.0 (Linux; U; Android 14; id-id; Pixel 8 Pro Build/UQ1A) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0 Mobile Safari/537.36 UCBrowser/13.4.0.1306 Mobile"
 
     /**
-     * Crawls target webpage and sniffs out hidden media URLs (.mp4, .m3u8, .webm, audio).
-     * Replicates the classic UC Browser Sniffer engine by parsing HTML, <video> tags,
-     * JavaScript sources, JSON payloads, and embedded iframes.
+     * Crawls target webpage and sniffs out hidden genuine video streams (.mp4, .m3u8, .webm).
+     * Filters out tracking scripts, ads, and HTML wrappers to ensure only playable videos are listed.
      */
     suspend fun sniffWebpage(rawUrl: String): Result<SniffingResult> = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
@@ -89,7 +79,7 @@ object UcMediaSnifferService {
                         format = directFormat,
                         title = URLUtil.guessFileName(urlString, null, contentType),
                         isStreamHls = directFormat == "M3U8",
-                        approximateSize = "Direct Stream",
+                        approximateSize = "Direct Stream Video",
                         sourceDomain = host
                     )
                 )
@@ -131,19 +121,19 @@ object UcMediaSnifferService {
                     val rawMatch = matcher.group(1) ?: continue
                     val cleanMatch = rawMatch.replace("\\/", "/").trim()
                     val absoluteUrl = resolveAbsoluteUrl(urlString, cleanMatch)
-                    if (absoluteUrl != null && isMediaUrl(absoluteUrl)) {
+                    if (absoluteUrl != null && isGenuineVideoUrl(absoluteUrl)) {
                         detectedUrls.add(absoluteUrl)
                     }
                 }
             }
 
-            // Also check for embedded YouTube / Vimeo / DailyMotion iframes
+            // Also check for embedded video iframes
             val iframeMatcher = Pattern.compile("<iframe[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
             while (iframeMatcher.find()) {
                 val rawSrc = iframeMatcher.group(1) ?: continue
                 val cleanSrc = rawSrc.replace("\\/", "/").trim()
                 val absSrc = resolveAbsoluteUrl(urlString, cleanSrc)
-                if (absSrc != null && (absSrc.contains("youtube.com") || absSrc.contains("player.vimeo.com") || absSrc.contains("dailymotion.com"))) {
+                if (absSrc != null && (absSrc.contains("youtube.com/embed") || absSrc.contains("player.vimeo.com") || absSrc.contains("dailymotion.com/embed"))) {
                     detectedUrls.add(absSrc)
                 }
             }
@@ -151,21 +141,24 @@ object UcMediaSnifferService {
             val mediaList = detectedUrls.mapIndexed { index, mediaUrl ->
                 val format = when {
                     mediaUrl.contains(".m3u8") -> "M3U8 (HLS)"
-                    mediaUrl.contains(".mp4") -> "MP4"
-                    mediaUrl.contains(".webm") -> "WEBM"
-                    mediaUrl.contains("youtube.com") -> "YouTube Embed"
+                    mediaUrl.contains(".mp4") -> "MP4 Video"
+                    mediaUrl.contains(".webm") -> "WEBM Video"
+                    mediaUrl.contains("youtube.com") -> "YouTube Video Embed"
                     else -> "VIDEO STREAM"
                 }
 
                 val mediaHost = try { URI(mediaUrl).host ?: host } catch (_: Exception) { host }
-                val guessedName = URLUtil.guessFileName(mediaUrl, null, null)
+                var guessedName = URLUtil.guessFileName(mediaUrl, null, null)
+                if (guessedName.endsWith(".bin") || guessedName.length < 5) {
+                    guessedName = "Video_${index + 1}.mp4"
+                }
 
                 SniffedMediaItem(
                     url = mediaUrl,
                     format = format,
-                    title = if (guessedName.endsWith(".bin") || guessedName.length < 5) "Media Stream #${index + 1}" else guessedName,
+                    title = guessedName,
                     isStreamHls = mediaUrl.contains(".m3u8"),
-                    approximateSize = if (format.contains("M3U8")) "Live HLS Stream" else "Direct Video",
+                    approximateSize = if (format.contains("M3U8")) "Live HLS Stream" else "Video Asli",
                     sourceDomain = mediaHost
                 )
             }
@@ -173,7 +166,7 @@ object UcMediaSnifferService {
             if (mediaList.isEmpty()) {
                 return@withContext Result.failure(
                     IllegalStateException(
-                        "Tidak ditemukan media (.mp4, .m3u8, video tag) pada halaman ini. Pastikan halaman memiliki player video aktif atau coba link streaming langsung."
+                        "Tidak ditemukan stream video asli (.mp4, .m3u8) pada halaman ini. Pastikan halaman memiliki player video aktif atau coba link video langsung."
                     )
                 )
             }
@@ -191,8 +184,20 @@ object UcMediaSnifferService {
         }
     }
 
-    private fun isMediaUrl(url: String): Boolean {
+    private fun isGenuineVideoUrl(url: String): Boolean {
         val lower = url.lowercase()
+
+        // Discard ad networks and tracking pixels
+        if (lower.contains("doubleclick") ||
+            lower.contains("googleads") ||
+            lower.contains("facebook.com/tr") ||
+            lower.contains("analytics") ||
+            lower.contains("pixel") ||
+            lower.contains("adservice")
+        ) {
+            return false
+        }
+
         return lower.contains(".mp4") ||
                 lower.contains(".m3u8") ||
                 lower.contains(".webm") ||
@@ -223,49 +228,24 @@ object UcMediaSnifferService {
     }
 
     /**
-     * Downloads sniffed media via Android's DownloadManager.
+     * Downloads genuine sniffed media via Android's native DownloadManager.
      */
     fun enqueueDownload(context: Context, item: SniffedMediaItem): Long {
-        try {
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                ?: throw IllegalStateException("DownloadManager tidak tersedia.")
+        val ext = if (item.isStreamHls) "m3u8" else "mp4"
+        val mime = if (item.isStreamHls) "application/x-mpegURL" else "video/mp4"
 
-            val ext = if (item.isStreamHls) "m3u8" else "mp4"
-            val safeName = item.title
-                .replace("[\\\\/:*?\"<>|]".toRegex(), "_")
-                .ifEmpty { "Media_${System.currentTimeMillis()}" }
-            val finalFileName = if (safeName.endsWith(".$ext")) safeName else "$safeName.$ext"
+        val safeName = item.title
+            .replace("[\\\\/:*?\"<>|]".toRegex(), "_")
+            .ifEmpty { "Video_${System.currentTimeMillis()}" }
+        val finalFileName = if (safeName.endsWith(".$ext", ignoreCase = true)) safeName else "$safeName.$ext"
 
-            val uri = Uri.parse(item.url)
-            val request = DownloadManager.Request(uri).apply {
-                setTitle(finalFileName.take(35))
-                setDescription("Mengunduh dari ${item.sourceDomain} (${item.format})...")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, finalFileName)
-            }
-
-            val id = downloadManager.enqueue(request)
-            Toast.makeText(
-                context,
-                "✓ Memulai unduhan: $finalFileName\nDisimpan di folder Download.",
-                Toast.LENGTH_LONG
-            ).show()
-            return id
-        } catch (e: Exception) {
-            // Fallback: Open in external browser/player
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(item.url)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                Toast.makeText(context, "Membuka link media via browser...", Toast.LENGTH_SHORT).show()
-                return 0L
-            } catch (err: Exception) {
-                Toast.makeText(context, "Gagal mengunduh: ${err.message}", Toast.LENGTH_SHORT).show()
-                return -1L
-            }
-        }
+        return VideoDownloadHelper.enqueueNativeVideoDownload(
+            context = context,
+            directUrl = item.url,
+            suggestedFileName = finalFileName,
+            title = finalFileName.take(35),
+            description = "Mengunduh dari ${item.sourceDomain} (${item.format})...",
+            mimeType = mime
+        )
     }
 }

@@ -84,4 +84,12 @@ class ExampleRobolectricTest {
     val id2 = TeraBoxDownloaderService.extractShareId("https://1024tera.com/s/1xyz9876543")
     assertNotNull(id2)
   }
+
+  @Test
+  fun testVideoDownloadHelperValidation() {
+    val helper = dev.andikune.iottools.tools.common.VideoDownloadHelper
+    assertNotNull(helper)
+    assertNotNull(helper.DEFAULT_USER_AGENT)
+    assertTrue(helper.DEFAULT_USER_AGENT.contains("Android"))
+  }
 }

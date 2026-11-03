@@ -693,6 +693,30 @@ fun WebToApkScreen() {
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // Info Guidance for "Ada masalah saat mengurai paket"
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = PrimaryIndigo.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, PrimaryIndigo.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = PrimaryIndigoLight, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Jika HP Anda menampilkan 'Ada masalah saat mengurai paket' saat menginstal APK langsung, gunakan opsi 'TERIMA BERSIH' di bawah (otomatis pasang ikon mandiri di Layar Utama HP tanpa bentrok tanda tangan), atau unduh 'PROJECT STANDALONE (.ZIP)'!",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextPrimary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
                         // Method 1: Terima Bersih (Pin to Homescreen + Launch standalone app immediately)
                         Button(
                             onClick = {
