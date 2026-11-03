@@ -404,8 +404,9 @@ private fun getLocalIpAddresses(): List<String> {
             val addresses = iface.inetAddresses
             while (addresses.hasMoreElements()) {
                 val addr = addresses.nextElement()
-                if (!addr.isLoopbackAddress && addr.hostAddress.indexOf(':') < 0) {
-                    results.add("${iface.name}: ${addr.hostAddress}")
+                val host = addr.hostAddress
+                if (!addr.isLoopbackAddress && host != null && !host.contains(':')) {
+                    results.add("${iface.name}: $host")
                 }
             }
         }

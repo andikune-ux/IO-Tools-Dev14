@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -123,13 +124,14 @@ fun MainAppScreen() {
                 }
 
                 MainNavigationTab.ALL_TOOLS -> {
-                    if (selectedCategory == null) {
+                    val category = selectedCategory
+                    if (category == null) {
                         ModernToolsGridScreen(onSelectCategory = { cat ->
                             triggerHaptic(context)
                             selectedCategory = cat
                         })
                     } else {
-                        when (selectedCategory) {
+                        when (category) {
                             ToolCategory.QR_BARCODE -> QrBarcodeTools()
                             ToolCategory.IMAGE -> ImageTools()
                             ToolCategory.PDF -> PdfTools()
@@ -137,7 +139,6 @@ fun MainAppScreen() {
                             ToolCategory.NETWORK -> NetworkTools()
                             ToolCategory.PRIVACY -> PrivacyTools()
                             ToolCategory.MEDIA -> MediaTools()
-                            null -> {}
                         }
                     }
                 }
@@ -176,7 +177,7 @@ fun ModernAppTopBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (selectedCategory != null) {
                     IconButton(onClick = onBackClicked, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                 } else {

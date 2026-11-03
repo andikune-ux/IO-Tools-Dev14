@@ -29,11 +29,12 @@ jobs:
       - name: Grant Execute Permission to Gradle
         run: chmod +x gradlew || true
 
-      - name: Generate Official AndikUne Keystore
+      - name: Generate Keystores (Release & Debug)
         run: |
+          # 1. Generate release keystore for alias 'upload' (CN: Andik Une)
           keytool -genkey -v \
-            -keystore app/andikune-release.jks \
-            -alias AndikUne \
+            -keystore "${{ github.workspace }}/my-upload-key.jks" \
+            -alias upload \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
@@ -41,19 +42,40 @@ jobs:
             -storepass AndikUne123456 \
             -keypass AndikUne123456
 
-      - name: Build Release APK
+          # 2. Generate debug keystore for debugConfig fallback
+          keytool -genkey -v \
+            -keystore "${{ github.workspace }}/debug.keystore" \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US" \
+            -storepass android \
+            -keypass android
+
+          echo "[+] Keystore my-upload-key.jks dan debug.keystore berhasil dibuat!"
+
+      - name: Build APK with Gradle
         env:
-          ANDIKUNE_STORE_PASSWORD: AndikUne123456
-          ANDIKUNE_KEY_PASSWORD: AndikUne123456
-        run: gradle assembleRelease --stacktrace || gradle assembleDebug --stacktrace
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: AndikUne123456
+          KEY_PASSWORD: AndikUne123456
+        run: |
+          # Build Release APK
+          gradle assembleRelease --stacktrace
 
       - name: Locate Output APK
         id: find_apk
         run: |
           APK_PATH=$(find app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: File APK tidak ditemukan!"
+            exit 1
+          fi
           echo "Found APK at: $APK_PATH"
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           cp "$APK_PATH" "iD-Tools-Dev14-Release.apk"
+          ls -lh "iD-Tools-Dev14-Release.apk"
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
@@ -71,11 +93,11 @@ jobs:
           body: |
             ### 🚀 iD-Tools Dev14.Apk - Official Release Build
             - **Package**: `dev.andikune.iottools`
-            - **Signature**: Alias `AndikUne` (Anti-'App Not Installed' Protection)
+            - **Signature**: Identitas `AndikUne` (Anti-'App Not Installed' Protection)
             - **Build**: Auto-compiled by GitHub Actions
 
-            #### 📲 Cara Instalasi:
-            1. Unduh file `iD-Tools-Dev14-Release.apk` di bawah ini.
+            #### 📲 Cara Instalasi di HP Android:
+            1. Unduh file `iD-Tools-Dev14-Release.apk` di bawah.
             2. Buka file APK pada HP Android Anda dan klik **Install**.
           files: iD-Tools-Dev14-Release.apk
         env:
