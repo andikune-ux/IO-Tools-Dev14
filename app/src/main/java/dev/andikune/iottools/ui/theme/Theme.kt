@@ -1,7 +1,6 @@
 package dev.andikune.iottools.ui.theme
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -10,26 +9,26 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val HackerColorScheme = darkColorScheme(
-    primary = NeonRed,
-    onPrimary = CyberBlack,
-    primaryContainer = NeonRedDim,
-    onPrimaryContainer = NeonRedGlow,
-    secondary = NeonCyan,
-    onSecondary = CyberBlack,
-    secondaryContainer = NeonCyanDim,
-    onSecondaryContainer = NeonCyan,
-    tertiary = MatrixGreen,
-    onTertiary = CyberBlack,
-    background = CyberBlack,
-    onBackground = TerminalText,
-    surface = CyberDark,
-    onSurface = TerminalText,
-    surfaceVariant = CyberCard,
-    onSurfaceVariant = TerminalDim,
-    outline = CyberCardBorder,
-    error = NeonRedGlow,
-    onError = CyberBlack
+private val ModernStudioColorScheme = darkColorScheme(
+    primary = PrimaryIndigo,
+    onPrimary = TextPrimary,
+    primaryContainer = SlateSurface,
+    onPrimaryContainer = PrimaryIndigoLight,
+    secondary = AccentEmerald,
+    onSecondary = SlateCanvas,
+    secondaryContainer = SlateSurface,
+    onSecondaryContainer = AccentEmerald,
+    tertiary = AccentCyan,
+    onTertiary = SlateCanvas,
+    background = SlateCanvas,
+    onBackground = TextPrimary,
+    surface = SlateElevated,
+    onSurface = TextPrimary,
+    surfaceVariant = SlateSurface,
+    onSurfaceVariant = TextSecondary,
+    outline = SlateBorder,
+    error = AccentRose,
+    onError = TextPrimary
 )
 
 @Composable
@@ -40,15 +39,15 @@ fun IDToolsTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = CyberBlack.toArgb()
-            window.navigationBarColor = CyberBlack.toArgb()
+            window.statusBarColor = SlateCanvas.toArgb()
+            window.navigationBarColor = SlateCanvas.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
         }
     }
 
     MaterialTheme(
-        colorScheme = HackerColorScheme,
+        colorScheme = ModernStudioColorScheme,
         typography = AppTypography,
         content = content
     )

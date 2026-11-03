@@ -8,6 +8,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import dev.andikune.iottools.R
 
+// Modern Clean Sans-Serif Typography for UI
+val PlusJakartaSans = FontFamily(
+    Font(R.font.plus_jakarta_sans, FontWeight.Normal)
+)
+
+// Monospace reserved exclusively for code, hashes, URLs, and logs
 val JetBrainsMono = FontFamily(
     Font(R.font.jetbrains_mono, FontWeight.Normal)
 )
@@ -18,66 +24,66 @@ val ShareTechMono = FontFamily(
 
 val AppTypography = Typography(
     displayLarge = TextStyle(
-        fontFamily = ShareTechMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.Bold,
-        fontSize = 32.sp,
-        lineHeight = 38.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
+        letterSpacing = (-0.5).sp
     ),
     displayMedium = TextStyle(
-        fontFamily = ShareTechMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.Bold,
-        fontSize = 26.sp,
-        lineHeight = 32.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-0.25).sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = ShareTechMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 26.sp,
-        letterSpacing = 0.5.sp
+        letterSpacing = (-0.15).sp
     ),
     titleLarge = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.Bold,
-        fontSize = 18.sp,
+        fontSize = 17.sp,
         lineHeight = 24.sp,
-        letterSpacing = 0.25.sp
+        letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
-        fontFamily = JetBrainsMono,
-        fontWeight = FontWeight.Medium,
+        fontFamily = PlusJakartaSans,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.15.sp
+        lineHeight = 22.sp,
+        letterSpacing = 0.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        letterSpacing = 0.25.sp
+        letterSpacing = 0.1.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.25.sp
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.1.sp
     ),
     labelLarge = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
         lineHeight = 18.sp,
-        letterSpacing = 0.5.sp
+        letterSpacing = 0.2.sp
     ),
     labelSmall = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = PlusJakartaSans,
         fontWeight = FontWeight.Medium,
-        fontSize = 10.sp,
-        lineHeight = 14.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
+        letterSpacing = 0.3.sp
     )
 )

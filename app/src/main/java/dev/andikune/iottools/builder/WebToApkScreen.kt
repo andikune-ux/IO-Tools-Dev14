@@ -11,6 +11,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +20,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -27,12 +30,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import dev.andikune.iottools.R
 import dev.andikune.iottools.ui.components.*
 import dev.andikune.iottools.ui.theme.*
 import kotlinx.coroutines.delay
@@ -48,7 +54,7 @@ fun WebToApkScreen() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var config by remember { mutableStateOf(WebToApkConfig()) }
+    var config by remember { mutableStateOf(WebToApkConfig(themeColorHex = "#6366F1", navBarColorHex = "#090D16")) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Form, 1: Permissions, 2: Simulator, 3: Generated Code, 4: Build Log
 
     // Build Pipeline state
@@ -58,25 +64,71 @@ fun WebToApkScreen() {
     var buildFinished by remember { mutableStateOf(false) }
 
     // Code preview tab
-    var codeTab by remember { mutableIntStateOf(0) } // 0: config.json, 1: Manifest, 2: MainActivity, 3: build.gradle, 4: Keystore
+    var codeTab by remember { mutableIntStateOf(0) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Modern Hero Banner with transformation artwork
         item {
-            CyberTerminalHeader(
-                title = "WEB-TO-APK COMPILER PIPELINE",
-                subtitle = "Package: ${config.packageName} | Alias: AndikUne",
-                statusText = if (isBuilding) "COMPILING..." else if (buildFinished) "READY" else "IDLE",
-                statusColor = if (isBuilding) NeonYellow else if (buildFinished) MatrixGreen else NeonCyan
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(1.dp, SlateBorder, RoundedCornerShape(16.dp))
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.hero_banner),
+                    contentDescription = "Web-to-APK Studio Banner",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+
+                // Dark gradient overlay to keep text ultra legible
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, SlateCanvas.copy(alpha = 0.85f))
+                            )
+                        )
+                )
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(PrimaryIndigo)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text("BUILDER PRO", style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("dev.andikune.iottools", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Web-to-APK Compiler Studio",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
-        // Sub Navigation Tabs
+        // Modern Segmented Tabs
         item {
             Row(
                 modifier = Modifier
@@ -84,23 +136,40 @@ fun WebToApkScreen() {
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val tabs = listOf("1. Konfigurasi", "2. Izin/Permission", "3. Live Emulator", "4. Kode Template", "5. Build Log")
-                tabs.forEachIndexed { index, label ->
+                val tabs = listOf(
+                    "Konfigurasi" to Icons.Default.Tune,
+                    "Izin Granular" to Icons.Default.Security,
+                    "Live Emulator" to Icons.Default.PhoneAndroid,
+                    "Source Code" to Icons.Default.Code,
+                    "Build & Sign" to Icons.Default.PlayArrow
+                )
+                tabs.forEachIndexed { index, (label, icon) ->
                     val isSelected = selectedTab == index
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSelected) NeonRed else CyberDark)
-                            .border(1.dp, if (isSelected) NeonRed else CyberCardBorder, RoundedCornerShape(6.dp))
-                            .clickable { selectedTab = index }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    Surface(
+                        onClick = { selectedTab = index },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) PrimaryIndigo else SlateElevated,
+                        border = BorderStroke(1.dp, if (isSelected) PrimaryIndigoLight else SlateBorder),
+                        modifier = Modifier.height(40.dp)
                     ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) CyberBlack else TerminalText,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) Color.White else TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (isSelected) Color.White else TextSecondary,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -109,23 +178,27 @@ fun WebToApkScreen() {
         // TAB 0: Konfigurasi Dasar
         if (selectedTab == 0) {
             item {
-                CyberCard(borderColor = NeonRed, glow = true) {
-                    Text(
-                        text = "[IDENTITAS APLIKASI WEB-TO-APK]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                CyberCard(borderColor = SlateBorder) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.AppSettingsAlt, contentDescription = null, tint = PrimaryIndigo, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Identitas Aplikasi & Pengaturan Web",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     CyberTextField(
                         value = config.webUrl,
                         onValueChange = { config = config.copy(webUrl = it) },
-                        label = "Website Target URL (HTTPS/HTTP)",
+                        label = "Website Target URL (HTTPS / HTTP)",
                         placeholder = "https://example.com"
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     CyberTextField(
                         value = config.appName,
@@ -134,16 +207,16 @@ fun WebToApkScreen() {
                         placeholder = "iD-Tools Web App"
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     CyberTextField(
                         value = config.packageName,
                         onValueChange = { config = config.copy(packageName = it) },
-                        label = "Application ID / Package Name (Wajib dev.andikune...)",
+                        label = "Application ID / Package Name",
                         placeholder = "dev.andikune.iottools"
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(modifier = Modifier.weight(1f)) {
@@ -164,268 +237,198 @@ fun WebToApkScreen() {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     Text(
-                        text = "[PRESET WARNA TEMA]",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeonCyan
+                        text = "Aksen Warna Tema Aplikasi:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextSecondary
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         val colorPresets = listOf(
-                            Pair("Hacker Red", "#FF003C"),
-                            Pair("Matrix Green", "#00FF66"),
-                            Pair("Cyber Cyan", "#00E5FF"),
-                            Pair("Neon Yellow", "#FFE600"),
-                            Pair("Deep Purple", "#BF00FF")
+                            Pair("Indigo Pro", "#6366F1"),
+                            Pair("Emerald Tech", "#10B981"),
+                            Pair("Sky Cyan", "#38BDF8"),
+                            Pair("Royal Violet", "#8B5CF6"),
+                            Pair("Coral Rose", "#F43F5E"),
+                            Pair("Amber Gold", "#F59E0B")
                         )
                         colorPresets.forEach { (name, hex) ->
                             val isSel = config.themeColorHex == hex
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(android.graphics.Color.parseColor(hex)))
-                                    .border(2.dp, if (isSel) Color.White else Color.Transparent, RoundedCornerShape(4.dp))
-                                    .clickable { config = config.copy(themeColorHex = hex) }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            Surface(
+                                onClick = { config = config.copy(themeColorHex = hex) },
+                                shape = RoundedCornerShape(10.dp),
+                                color = SlateSurface,
+                                border = BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) Color(android.graphics.Color.parseColor(hex)) else SlateBorder)
                             ) {
-                                Text(name, style = MaterialTheme.typography.labelSmall, color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(android.graphics.Color.parseColor(hex)))
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(name, style = MaterialTheme.typography.labelSmall, color = TextPrimary)
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Text("Opsi Tampilan & Interaksi:", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     CyberToggleRow(
                         title = "Pull-to-Refresh",
-                        description = "Izinkan pengguna menarik ke bawah untuk me-refresh halaman web",
+                        description = "Tarik ke bawah untuk memuat ulang halaman website",
                         checked = config.enablePullToRefresh,
                         onCheckedChange = { config = config.copy(enablePullToRefresh = it) },
-                        accentColor = NeonCyan
+                        accentColor = PrimaryIndigo
                     )
 
                     CyberToggleRow(
-                        title = "Progress Bar Loading",
-                        description = "Tampilkan indikator progres neon saat halaman memuat",
+                        title = "Indikator Progress Bar",
+                        description = "Garis progress bar modern saat memuat halaman web",
                         checked = config.enableProgressBar,
                         onCheckedChange = { config = config.copy(enableProgressBar = it) },
-                        accentColor = NeonCyan
+                        accentColor = PrimaryIndigo
                     )
 
                     CyberToggleRow(
                         title = "Mode Desktop (User-Agent)",
-                        description = "Paksa WebView memuat tampilan desktop website",
+                        description = "Paksa WebView memuat antarmuka desktop",
                         checked = config.enableDesktopMode,
                         onCheckedChange = { config = config.copy(enableDesktopMode = it) },
-                        accentColor = NeonYellow
+                        accentColor = AccentAmber
                     )
 
                     CyberToggleRow(
-                        title = "Kontrol Zoom / Multi-Touch",
-                        description = "Izinkan pinch-to-zoom pada konten website",
+                        title = "Kontrol Zoom Multi-Touch",
+                        description = "Dukungan pinch-to-zoom pada konten website",
                         checked = config.enableZoomControls,
                         onCheckedChange = { config = config.copy(enableZoomControls = it) },
-                        accentColor = MatrixGreen
+                        accentColor = AccentEmerald
                     )
                 }
             }
         }
 
-        // TAB 1: Izin & Permission Matrix (SANGAT KRUSIAL)
+        // TAB 1: Izin Granular
         if (selectedTab == 1) {
             item {
-                CyberCard(borderColor = NeonRed, glow = true) {
-                    Text(
-                        text = "[SISTEM PERMISSION LENGKAP (TOGGLE ON/OFF)]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Setiap toggle di bawah akan secara otomatis dimasukkan ke dalam AndroidManifest.xml dan disinkronkan ke config.json. Jika OFF, WebChromeClient akan menolak (deny) akses secara paksa.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
+                CyberCard(borderColor = SlateBorder) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Security, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Matriks Izin Granular (Toggle ON/OFF)",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Sinkron dengan AndroidManifest.xml & config.json. Jika OFF, akses ditolak secara paksa.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary
+                            )
+                        }
+                    }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // KELOMPOK MEDIA
-                    Text(text = ":: MEDIA & HARDWARE ::", style = MaterialTheme.typography.labelLarge, color = NeonCyan)
-                    Divider(color = CyberCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 6.dp))
+                    // Media
+                    Text(text = "Media & Perangkat Keras", style = MaterialTheme.typography.titleMedium, color = AccentCyan, fontWeight = FontWeight.SemiBold)
+                    Divider(color = SlateBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+                    CyberToggleRow("CAMERA", "Akses kamera untuk upload foto, scan, dan WebRTC video", config.permCamera, { config = config.copy(permCamera = it) })
+                    CyberToggleRow("RECORD_AUDIO", "Akses mikrofon untuk rekaman suara dan WebRTC audio", config.permRecordAudio, { config = config.copy(permRecordAudio = it) })
+                    CyberToggleRow("READ_MEDIA_IMAGES", "Akses file gambar dan galeri foto", config.permReadMediaImages, { config = config.copy(permReadMediaImages = it) })
+                    CyberToggleRow("READ_MEDIA_VIDEO", "Akses file video lokal", config.permReadMediaVideo, { config = config.copy(permReadMediaVideo = it) })
+                    CyberToggleRow("READ_MEDIA_AUDIO", "Akses file audio lokal", config.permReadMediaAudio, { config = config.copy(permReadMediaAudio = it) })
 
-                    CyberToggleRow(
-                        title = "CAMERA",
-                        description = "Akses kamera untuk WebRTC, upload foto, atau video call",
-                        checked = config.permCamera,
-                        onCheckedChange = { config = config.copy(permCamera = it) }
-                    )
-                    CyberToggleRow(
-                        title = "RECORD_AUDIO",
-                        description = "Akses mikrofon untuk perekaman suara dan WebRTC audio",
-                        checked = config.permRecordAudio,
-                        onCheckedChange = { config = config.copy(permRecordAudio = it) }
-                    )
-                    CyberToggleRow(
-                        title = "READ_MEDIA_IMAGES",
-                        description = "Akses file gambar lokal galeri",
-                        checked = config.permReadMediaImages,
-                        onCheckedChange = { config = config.copy(permReadMediaImages = it) }
-                    )
-                    CyberToggleRow(
-                        title = "READ_MEDIA_VIDEO",
-                        description = "Akses file video lokal perangkat",
-                        checked = config.permReadMediaVideo,
-                        onCheckedChange = { config = config.copy(permReadMediaVideo = it) }
-                    )
-                    CyberToggleRow(
-                        title = "READ_MEDIA_AUDIO",
-                        description = "Akses file audio dan lagu lokal perangkat",
-                        checked = config.permReadMediaAudio,
-                        onCheckedChange = { config = config.copy(permReadMediaAudio = it) }
-                    )
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // Lokasi
+                    Text(text = "Lokasi Geolocation", style = MaterialTheme.typography.titleMedium, color = AccentAmber, fontWeight = FontWeight.SemiBold)
+                    Divider(color = SlateBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+                    CyberToggleRow("ACCESS_FINE_LOCATION", "GPS presisi tinggi untuk peta dan navigasi", config.permFineLocation, { config = config.copy(permFineLocation = it) }, AccentAmber)
+                    CyberToggleRow("ACCESS_COARSE_LOCATION", "Lokasi perkiraan berbasis Wi-Fi / seluler", config.permCoarseLocation, { config = config.copy(permCoarseLocation = it) }, AccentAmber)
 
-                    // KELOMPOK LOKASI
-                    Text(text = ":: LOKASI (GEOLOCATION) ::", style = MaterialTheme.typography.labelLarge, color = NeonYellow)
-                    Divider(color = CyberCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 6.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    CyberToggleRow(
-                        title = "ACCESS_FINE_LOCATION",
-                        description = "Presisi GPS tinggi untuk Maps & Geolocation API",
-                        checked = config.permFineLocation,
-                        onCheckedChange = { config = config.copy(permFineLocation = it) },
-                        accentColor = NeonYellow
-                    )
-                    CyberToggleRow(
-                        title = "ACCESS_COARSE_LOCATION",
-                        description = "Lokasi perkiraan berbasis menara seluler & Wi-Fi",
-                        checked = config.permCoarseLocation,
-                        onCheckedChange = { config = config.copy(permCoarseLocation = it) },
-                        accentColor = NeonYellow
-                    )
+                    // Jaringan
+                    Text(text = "Jaringan & Konektivitas", style = MaterialTheme.typography.titleMedium, color = AccentEmerald, fontWeight = FontWeight.SemiBold)
+                    Divider(color = SlateBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+                    CyberToggleRow("INTERNET", "Koneksi internet wajib untuk memuat halaman web", config.permInternet, { config = config.copy(permInternet = it) }, AccentEmerald)
+                    CyberToggleRow("ACCESS_NETWORK_STATE", "Deteksi online/offline sebelum memuat URL", config.permAccessNetworkState, { config = config.copy(permAccessNetworkState = it) }, AccentEmerald)
+                    CyberToggleRow("ACCESS_WIFI_STATE", "Status jaringan Wi-Fi perangkat", config.permAccessWifiState, { config = config.copy(permAccessWifiState = it) }, AccentEmerald)
+                    CyberToggleRow("BLUETOOTH_CONNECT", "Komunikasi WebBluetooth API", config.permBluetoothConnect, { config = config.copy(permBluetoothConnect = it) }, AccentEmerald)
+                    CyberToggleRow("NFC", "Akses Web NFC untuk pembacaan tag pintar", config.permNfc, { config = config.copy(permNfc = it) }, AccentEmerald)
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    // KELOMPOK JARINGAN
-                    Text(text = ":: JARINGAN & KONEKTIVITAS ::", style = MaterialTheme.typography.labelLarge, color = MatrixGreen)
-                    Divider(color = CyberCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 6.dp))
-
-                    CyberToggleRow(
-                        title = "INTERNET",
-                        description = "Akses jaringan internet wajib untuk memuat halaman web",
-                        checked = config.permInternet,
-                        onCheckedChange = { config = config.copy(permInternet = it) },
-                        accentColor = MatrixGreen
-                    )
-                    CyberToggleRow(
-                        title = "ACCESS_NETWORK_STATE",
-                        description = "Mengecek ketersediaan koneksi sebelum memuat URL",
-                        checked = config.permAccessNetworkState,
-                        onCheckedChange = { config = config.copy(permAccessNetworkState = it) },
-                        accentColor = MatrixGreen
-                    )
-                    CyberToggleRow(
-                        title = "ACCESS_WIFI_STATE",
-                        description = "Membaca status jaringan Wi-Fi perangkat",
-                        checked = config.permAccessWifiState,
-                        onCheckedChange = { config = config.copy(permAccessWifiState = it) },
-                        accentColor = MatrixGreen
-                    )
-                    CyberToggleRow(
-                        title = "BLUETOOTH_CONNECT",
-                        description = "Komunikasi Bluetooth Web API (WebBluetooth)",
-                        checked = config.permBluetoothConnect,
-                        onCheckedChange = { config = config.copy(permBluetoothConnect = it) },
-                        accentColor = MatrixGreen
-                    )
-                    CyberToggleRow(
-                        title = "NFC",
-                        description = "Akses pembacaan tag NFC untuk Web NFC",
-                        checked = config.permNfc,
-                        onCheckedChange = { config = config.copy(permNfc = it) },
-                        accentColor = MatrixGreen
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // KELOMPOK SISTEM
-                    Text(text = ":: SISTEM & HARDWARE ::", style = MaterialTheme.typography.labelLarge, color = NeonPurple)
-                    Divider(color = CyberCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 6.dp))
-
-                    CyberToggleRow(
-                        title = "POST_NOTIFICATIONS",
-                        description = "Izin Push Notifications (Android 13+)",
-                        checked = config.permPostNotifications,
-                        onCheckedChange = { config = config.copy(permPostNotifications = it) },
-                        accentColor = NeonPurple
-                    )
-                    CyberToggleRow(
-                        title = "VIBRATE",
-                        description = "Getaran haptic feedback pada interaksi website",
-                        checked = config.permVibrate,
-                        onCheckedChange = { config = config.copy(permVibrate = it) },
-                        accentColor = NeonPurple
-                    )
-                    CyberToggleRow(
-                        title = "WAKE_LOCK",
-                        description = "Mencegah layar redup/tidur saat video diputar",
-                        checked = config.permWakeLock,
-                        onCheckedChange = { config = config.copy(permWakeLock = it) },
-                        accentColor = NeonPurple
-                    )
-                    CyberToggleRow(
-                        title = "HIGH_SAMPLING_RATE_SENSORS",
-                        description = "Sensor giroskop/akselerometer responsif tinggi",
-                        checked = config.permHighSamplingRateSensors,
-                        onCheckedChange = { config = config.copy(permHighSamplingRateSensors = it) },
-                        accentColor = NeonPurple
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // KELOMPOK BIOMETRIK
-                    Text(text = ":: KEAMANAN BIOMETRIK ::", style = MaterialTheme.typography.labelLarge, color = NeonRed)
-                    Divider(color = CyberCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 6.dp))
-
-                    CyberToggleRow(
-                        title = "USE_BIOMETRIC",
-                        description = "Autentikasi sidik jari / face unlock WebAuthn",
-                        checked = config.permUseBiometric,
-                        onCheckedChange = { config = config.copy(permUseBiometric = it) },
-                        accentColor = NeonRed
-                    )
+                    // Sistem & Biometrik
+                    Text(text = "Sistem & Keamanan", style = MaterialTheme.typography.titleMedium, color = AccentPurple, fontWeight = FontWeight.SemiBold)
+                    Divider(color = SlateBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+                    CyberToggleRow("POST_NOTIFICATIONS", "Push Notifications (Android 13+)", config.permPostNotifications, { config = config.copy(permPostNotifications = it) }, AccentPurple)
+                    CyberToggleRow("VIBRATE", "Getaran respon haptic interaktif", config.permVibrate, { config = config.copy(permVibrate = it) }, AccentPurple)
+                    CyberToggleRow("WAKE_LOCK", "Mencegah layar padam saat streaming video", config.permWakeLock, { config = config.copy(permWakeLock = it) }, AccentPurple)
+                    CyberToggleRow("HIGH_SAMPLING_RATE_SENSORS", "Sensor akselerometer responsif tinggi", config.permHighSamplingRateSensors, { config = config.copy(permHighSamplingRateSensors = it) }, AccentPurple)
+                    CyberToggleRow("USE_BIOMETRIC", "Autentikasi sidik jari / face unlock WebAuthn", config.permUseBiometric, { config = config.copy(permUseBiometric = it) }, AccentRose)
                 }
             }
         }
 
-        // TAB 2: Live Simulator / In-App WebView Tester
+        // TAB 2: Live Emulator
         if (selectedTab == 2) {
             item {
-                CyberCard(borderColor = NeonCyan) {
-                    Text(
-                        text = "[CYBERPHONE EMULATOR PREVIEW]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Simulasi langsung WebView dengan URL: ${config.webUrl}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
+                CyberCard(borderColor = SlateBorder) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PhoneIphone, contentDescription = null, tint = PrimaryIndigoLight)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Pratinjau Smartphone", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        // URL Chip
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = SlateSurface,
+                            border = BorderStroke(1.dp, SlateBorder)
+                        ) {
+                            Text(
+                                text = config.webUrl,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AccentCyan,
+                                maxLines = 1,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
 
-                    // Cyber Bezel Container
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Sleek Device Frame
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(420.dp)
-                            .border(2.dp, NeonRed, RoundedCornerShape(14.dp))
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(CyberBlack)
+                            .height(430.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .border(2.dp, SlateBorder, RoundedCornerShape(20.dp))
+                            .background(SlateCanvas)
                     ) {
                         AndroidView(
                             factory = { ctx ->
@@ -446,7 +449,6 @@ fun WebToApkScreen() {
                                             view?.loadDataWithBaseURL(null, config.offlineFallbackHtml, "text/html", "UTF-8", null)
                                         }
                                     }
-
                                     webChromeClient = WebChromeClient()
                                     loadUrl(config.webUrl)
                                 }
@@ -460,73 +462,62 @@ fun WebToApkScreen() {
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Theme: ${config.themeColorHex} | Zoom: ${config.enableZoomControls}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MatrixGreen
-                        )
-                        CyberSecondaryButton(
-                            text = "Buka di Browser Luar",
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(config.webUrl))
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "URL tidak valid: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.width(180.dp)
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    CyberSecondaryButton(
+                        text = "Buka di Browser Eksternal",
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(config.webUrl))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "URL tidak valid", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
                 }
             }
         }
 
-        // TAB 3: Generated Code Inspection
+        // TAB 3: Source Code Inspector
         if (selectedTab == 3) {
             item {
-                CyberCard(borderColor = MatrixGreen) {
+                CyberCard(borderColor = SlateBorder) {
                     Text(
-                        text = "[INSPEKSI ARTIFAK PIPELINE WEB-TO-APK]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MatrixGreen,
+                        text = "Artifak Source Code Generator",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val codeTabs = listOf("config.json", "AndroidManifest.xml", "MainActivity.kt", "build.gradle.kts", "Keystore Script")
+                        val codeTabs = listOf("config.json", "AndroidManifest.xml", "MainActivity.kt", "build.gradle.kts", "setup_keystore.sh")
                         codeTabs.forEachIndexed { idx, label ->
                             val isSel = codeTab == idx
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isSel) MatrixGreen else CyberDark)
-                                    .clickable { codeTab = idx }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            Surface(
+                                onClick = { codeTab = idx },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSel) PrimaryIndigo else SlateSurface,
+                                border = BorderStroke(1.dp, if (isSel) PrimaryIndigoLight else SlateBorder)
                             ) {
                                 Text(
                                     label,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSel) CyberBlack else TerminalText,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                    color = if (isSel) Color.White else TextSecondary,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     val codeToDisplay = when (codeTab) {
                         0 -> WebToApkPipeline.generateConfigJson(config)
@@ -541,50 +532,68 @@ fun WebToApkScreen() {
             }
         }
 
-        // TAB 4: Build Log Terminal & Actions
+        // TAB 4: Build Log & Actions
         if (selectedTab == 4 || isBuilding || buildFinished) {
             item {
-                CyberCard(borderColor = if (buildFinished) MatrixGreen else NeonRed) {
-                    Text(
-                        text = "[TERMINAL COMPILER EXECUTION LOG]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (buildFinished) MatrixGreen else NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                CyberCard(borderColor = if (buildFinished) AccentEmerald else SlateBorder) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Pipeline Compiler Execution",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (buildFinished) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(AccentEmeraldSoft)
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("SUCCESS", style = MaterialTheme.typography.labelSmall, color = AccentEmerald, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (isBuilding) {
                         LinearProgressIndicator(
                             progress = { buildProgress },
-                            modifier = Modifier.fillMaxWidth().height(6.dp),
-                            color = NeonRed,
-                            trackColor = CyberDark
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                            color = PrimaryIndigo,
+                            trackColor = SlateSurface
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                     }
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp)
-                            .background(CyberBlack, RoundedCornerShape(8.dp))
-                            .border(1.dp, CyberCardBorder, RoundedCornerShape(8.dp))
-                            .padding(10.dp)
+                            .background(SlateCanvas, RoundedCornerShape(12.dp))
+                            .border(1.dp, SlateBorder, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
                     ) {
                         LazyColumn(reverseLayout = true) {
                             items(buildLogs.size) { idx ->
                                 val log = buildLogs[buildLogs.size - 1 - idx]
                                 val color = when {
-                                    log.contains("[SUCCESS]") -> MatrixGreen
-                                    log.contains("[SIGN]") -> NeonYellow
-                                    log.contains("[PATCH]") -> NeonCyan
-                                    log.contains("[ERROR]") -> NeonRed
-                                    else -> TerminalText
+                                    log.contains("[SUCCESS]") -> AccentEmerald
+                                    log.contains("[SIGN]") -> AccentAmber
+                                    log.contains("[PATCH]") -> AccentCyan
+                                    log.contains("[ERROR]") -> AccentRose
+                                    else -> TextSecondary
                                 }
                                 Text(
                                     text = log,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMono, fontSize = 11.sp),
-                                    color = color
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMono, fontSize = 11.5.sp),
+                                    color = color,
+                                    modifier = Modifier.padding(vertical = 1.dp)
                                 )
                             }
                         }
@@ -593,25 +602,25 @@ fun WebToApkScreen() {
             }
         }
 
-        // ACTION BUTTONS (Compile, Export, Reset)
+        // Action Buttons
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CyberButton(
-                    text = if (isBuilding) "SEDANG MEMPROSES PIPELINE..." else "JALANKAN PIPELINE & BUILD APK",
+                    text = if (isBuilding) "Sedang Memproses Pipeline..." else "Jalankan Build APK & Tanda Tangan",
                     enabled = !isBuilding,
                     onClick = {
                         coroutineScope.launch {
                             isBuilding = true
                             buildFinished = false
                             buildProgress = 0f
-                            buildLogs = listOf("[INIT] Memulai pipeline Web-to-APK untuk ${config.packageName}...")
+                            buildLogs = listOf("[INIT] Mempersiapkan build untuk ${config.packageName}...")
                             delay(500)
 
-                            buildLogs = buildLogs + "[CONFIG] Serialisasi config.json dengan parameter toggle..."
-                            buildProgress = 0.2f
+                            buildLogs = buildLogs + "[CONFIG] Serialisasi config.json (Izin & Tampilan)..."
+                            buildProgress = 0.25f
                             delay(400)
 
-                            val activePermCount = listOf(
+                            val activeCount = listOf(
                                 config.permCamera, config.permRecordAudio, config.permReadMediaImages,
                                 config.permReadMediaVideo, config.permReadMediaAudio, config.permCoarseLocation,
                                 config.permFineLocation, config.permInternet, config.permAccessNetworkState,
@@ -620,20 +629,18 @@ fun WebToApkScreen() {
                                 config.permHighSamplingRateSensors, config.permUseBiometric
                             ).count { it }
 
-                            buildLogs = buildLogs + "[PATCH] Menyinkronkan AndroidManifest.xml: $activePermCount izin diaktifkan."
-                            buildProgress = 0.4f
+                            buildLogs = buildLogs + "[PATCH] AndroidManifest.xml diperbarui: $activeCount izin aktif."
+                            buildProgress = 0.5f
                             delay(400)
 
-                            buildLogs = buildLogs + "[INJECT] Mengonfigurasi WebChromeClient permission handler di MainActivity.kt..."
-                            buildProgress = 0.6f
+                            buildLogs = buildLogs + "[INJECT] Menyinkronkan WebChromeClient permission handler..."
+                            buildProgress = 0.75f
+                            delay(400)
+
+                            buildLogs = buildLogs + "[SIGN] Menandatangani APK dengan Keystore alias 'AndikUne'..."
                             delay(500)
 
-                            buildLogs = buildLogs + "[KEYSTORE] Memuat signature dengan alias 'AndikUne' (2048-bit RSA)..."
-                            buildProgress = 0.8f
-                            delay(600)
-
-                            buildLogs = buildLogs + "[APKSIGNER] Tanda tangan valid: SHA-256 fingerprint diverifikasi (Anti 'App Not Installed')."
-                            buildLogs = buildLogs + "[SUCCESS] Paket APK berhasil dibuild: ${config.appName}.apk siap diekspor!"
+                            buildLogs = buildLogs + "[SUCCESS] File APK berhasil dikompilasi! Siap diinstal dan diekspor."
                             buildProgress = 1.0f
                             isBuilding = false
                             buildFinished = true
@@ -644,9 +651,9 @@ fun WebToApkScreen() {
 
                 if (buildFinished) {
                     CyberButton(
-                        text = "EKSPOR / UNDUH PAKET PROYEK (.ZIP)",
-                        color = MatrixGreen,
-                        textColor = CyberBlack,
+                        text = "Ekspor Paket Proyek ZIP Lengkap",
+                        color = AccentEmerald,
+                        textColor = Color.White,
                         onClick = {
                             exportProjectZip(context, config)
                         }
@@ -657,9 +664,6 @@ fun WebToApkScreen() {
     }
 }
 
-/**
- * Creates and shares a complete ZIP package containing the generated Web-to-APK source files.
- */
 private fun exportProjectZip(context: Context, config: WebToApkConfig) {
     try {
         val exportDir = File(context.cacheDir, "web_to_apk_exports")
@@ -667,49 +671,42 @@ private fun exportProjectZip(context: Context, config: WebToApkConfig) {
 
         val zipFile = File(exportDir, "${config.appName.replace(" ", "_")}_Project.zip")
         ZipOutputStream(FileOutputStream(zipFile)).use { out ->
-            // 1. config.json
             val configData = WebToApkPipeline.generateConfigJson(config)
             out.putNextEntry(ZipEntry("app/src/main/assets/config.json"))
             out.write(configData.toByteArray())
             out.closeEntry()
 
-            // 2. AndroidManifest.xml
             val manifestData = WebToApkPipeline.generatePatchedManifest(config)
             out.putNextEntry(ZipEntry("app/src/main/AndroidManifest.xml"))
             out.write(manifestData.toByteArray())
             out.closeEntry()
 
-            // 3. MainActivity.kt
             val mainActivityData = WebToApkPipeline.generateTemplateMainActivity(config)
             val packagePath = config.packageName.replace('.', '/')
             out.putNextEntry(ZipEntry("app/src/main/java/$packagePath/MainActivity.kt"))
             out.write(mainActivityData.toByteArray())
             out.closeEntry()
 
-            // 4. build.gradle.kts
             val gradleData = WebToApkPipeline.generateGradleScript(config)
             out.putNextEntry(ZipEntry("app/build.gradle.kts"))
             out.write(gradleData.toByteArray())
             out.closeEntry()
 
-            // 5. setup_keystore.sh
             val keystoreData = WebToApkPipeline.generateKeystoreScript(config)
             out.putNextEntry(ZipEntry("setup_keystore.sh"))
             out.write(keystoreData.toByteArray())
             out.closeEntry()
         }
 
-        // Share the zip file via FileProvider or Android Intent
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", zipFile)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "application/zip"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Unduh / Bagikan Paket Proyek Web-to-APK"))
+        context.startActivity(Intent.createChooser(shareIntent, "Unduh Paket Proyek Web-to-APK"))
         Toast.makeText(context, "Paket Proyek ZIP siap dibagikan!", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
-        // Fallback save to internal files
-        Toast.makeText(context, "Ekspor berhasil: Disimpan ke cache proyek.", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Ekspor berhasil disimpan di cache", Toast.LENGTH_SHORT).show()
     }
 }

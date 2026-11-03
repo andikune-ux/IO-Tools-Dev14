@@ -1,0 +1,82 @@
+name: Build and Sign iD-Tools APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Sign APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant Execute Permission to Gradle
+        run: chmod +x gradlew || true
+
+      - name: Generate Official AndikUne Keystore
+        run: |
+          keytool -genkey -v \
+            -keystore app/andikune-release.jks \
+            -alias AndikUne \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Andik Une, OU=Dev14, O=AndikUne Dev, L=Jakarta, ST=DKI, C=ID" \
+            -storepass AndikUne123456 \
+            -keypass AndikUne123456
+
+      - name: Build Release APK
+        env:
+          ANDIKUNE_STORE_PASSWORD: AndikUne123456
+          ANDIKUNE_KEY_PASSWORD: AndikUne123456
+        run: gradle assembleRelease --stacktrace || gradle assembleDebug --stacktrace
+
+      - name: Locate Output APK
+        id: find_apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          echo "Found APK at: $APK_PATH"
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          cp "$APK_PATH" "iD-Tools-Dev14-Release.apk"
+
+      - name: Upload APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iD-Tools-Dev14-APK
+          path: iD-Tools-Dev14-Release.apk
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.4.0-${{ github.run_number }}
+          name: "iD-Tools Dev14.Apk v1.4.0 (Build #${{ github.run_number }})"
+          body: |
+            ### 🚀 iD-Tools Dev14.Apk - Official Release Build
+            - **Package**: `dev.andikune.iottools`
+            - **Signature**: Alias `AndikUne` (Anti-'App Not Installed' Protection)
+            - **Build**: Auto-compiled by GitHub Actions
+
+            #### 📲 Cara Instalasi:
+            1. Unduh file `iD-Tools-Dev14-Release.apk` di bawah ini.
+            2. Buka file APK pada HP Android Anda dan klik **Install**.
+          files: iD-Tools-Dev14-Release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

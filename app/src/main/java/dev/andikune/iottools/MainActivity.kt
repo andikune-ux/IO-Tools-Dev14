@@ -10,10 +10,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,9 +24,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,19 +58,19 @@ class MainActivity : ComponentActivity() {
 
 enum class MainNavigationTab(val label: String, val icon: ImageVector) {
     WEB_TO_APK("Web-to-APK", Icons.Default.Build),
-    ALL_TOOLS("All Tools", Icons.Default.Apps),
-    KEYSTORE("Keystore Guide", Icons.Default.VpnKey),
-    TERMINAL("Terminal", Icons.Default.Terminal)
+    ALL_TOOLS("Toolkit Pro", Icons.Default.GridView),
+    KEYSTORE("Keystore & CI", Icons.Default.VpnKey),
+    TERMINAL("Console", Icons.Default.Terminal)
 }
 
 enum class ToolCategory(val label: String, val description: String, val icon: ImageVector, val color: Color) {
-    QR_BARCODE("QR & Barcode", "Generator, Scanner, Batch Gen", Icons.Default.QrCode, NeonRed),
-    IMAGE("Gambar (Image)", "Compress, Resize, Convert, EXIF", Icons.Default.Image, NeonCyan),
-    PDF("Dokumen PDF", "Merge, Split, Protect, Rotate", Icons.Default.PictureAsPdf, NeonRed),
-    DATA_HASH("File & Hash", "MD5, SHA-256, Base64, URL", Icons.Default.DataObject, MatrixGreen),
-    NETWORK("Network Recon", "IP, DNS, Live Ping, SSL", Icons.Default.Wifi, NeonCyan),
-    PRIVACY("Privacy & 2FA", "Password, Notes, Authenticator", Icons.Default.Security, NeonPurple),
-    MEDIA("Audio / Video", "Trim, Extract Audio, GIF", Icons.Default.VideoLibrary, NeonYellow)
+    QR_BARCODE("QR & Barcode", "Generator, Code128, Scanner", Icons.Default.QrCode, AccentRose),
+    IMAGE("Studio Gambar", "Compress, Resize, Convert, EXIF", Icons.Default.Image, AccentCyan),
+    PDF("Dokumen PDF", "Merge, Split, Protect, Rotate", Icons.Default.PictureAsPdf, AccentAmber),
+    DATA_HASH("File & Hash", "SHA-256, MD5, Base64, Rename", Icons.Default.DataObject, AccentEmerald),
+    NETWORK("Network Recon", "IP Lookup, DNS, Live Ping, SSL", Icons.Default.Wifi, PrimaryIndigoLight),
+    PRIVACY("Privacy Vault", "Password, Notes, 2FA Authenticator", Icons.Default.Security, AccentPurple),
+    MEDIA("Audio & Video", "Trim, Extract MP3, Video ke GIF", Icons.Default.VideoLibrary, AccentAmber)
 }
 
 @Composable
@@ -75,7 +79,6 @@ fun MainAppScreen() {
     var currentTab by remember { mutableStateOf(MainNavigationTab.WEB_TO_APK) }
     var selectedCategory by remember { mutableStateOf<ToolCategory?>(null) }
 
-    // Handle back button when inside a specific tool
     BackHandler(enabled = selectedCategory != null || currentTab != MainNavigationTab.WEB_TO_APK) {
         if (selectedCategory != null) {
             selectedCategory = null
@@ -87,11 +90,18 @@ fun MainAppScreen() {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack),
-        containerColor = CyberBlack,
+            .background(SlateCanvas),
+        containerColor = SlateCanvas,
         contentWindowInsets = WindowInsets.safeDrawing,
+        topBar = {
+            ModernAppTopBar(
+                currentTab = currentTab,
+                selectedCategory = selectedCategory,
+                onBackClicked = { selectedCategory = null }
+            )
+        },
         bottomBar = {
-            CyberBottomNavigation(
+            ModernBottomNavigation(
                 currentTab = currentTab,
                 onTabSelected = { tab ->
                     triggerHaptic(context)
@@ -105,7 +115,7 @@ fun MainAppScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(CyberBlack)
+                .background(SlateCanvas)
         ) {
             when (currentTab) {
                 MainNavigationTab.WEB_TO_APK -> {
@@ -114,7 +124,7 @@ fun MainAppScreen() {
 
                 MainNavigationTab.ALL_TOOLS -> {
                     if (selectedCategory == null) {
-                        ToolsGridScreen(onSelectCategory = { cat ->
+                        ModernToolsGridScreen(onSelectCategory = { cat ->
                             triggerHaptic(context)
                             selectedCategory = cat
                         })
@@ -137,7 +147,7 @@ fun MainAppScreen() {
                 }
 
                 MainNavigationTab.TERMINAL -> {
-                    TerminalConsoleScreen()
+                    ModernTerminalScreen()
                 }
             }
         }
@@ -145,41 +155,129 @@ fun MainAppScreen() {
 }
 
 @Composable
-fun ToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
+fun ModernAppTopBar(
+    currentTab: MainNavigationTab,
+    selectedCategory: ToolCategory?,
+    onBackClicked: () -> Unit
+) {
+    Surface(
+        color = SlateCanvas,
+        tonalElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorderSubtle),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selectedCategory != null) {
+                    IconButton(onClick = onBackClicked, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SlateSurface)
+                            .border(1.dp, SlateBorder, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_app_logo),
+                            contentDescription = "App Icon",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
+
+                Column {
+                    Text(
+                        text = selectedCategory?.label ?: "iD-Tools Dev14",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "dev.andikune.iottools",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            // Status Pill
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(AccentEmeraldSoft)
+                    .border(1.dp, AccentEmerald.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(AccentEmerald)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "v1.4 Pro",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AccentEmerald,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ModernToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp)
     ) {
         CyberTerminalHeader(
-            title = "ALL-IN-ONE CYBER TOOLKIT",
-            subtitle = "7 Modul Utilitas Utama | Offline-First Engine",
-            statusText = "7 MODULES",
-            statusColor = MatrixGreen
+            title = "All-in-One Toolkit",
+            subtitle = "7 Modul Utilitas Premium Berstandar Offline-First",
+            statusText = "READY",
+            statusColor = AccentEmerald
         )
 
         Spacer(modifier = Modifier.height(14.dp))
 
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(ToolCategory.values().size) { idx ->
                 val cat = ToolCategory.values()[idx]
-                Box(
+                Surface(
+                    onClick = { onSelectCategory(cat) },
+                    shape = RoundedCornerShape(16.dp),
+                    color = SlateElevated,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder),
+                    tonalElevation = 2.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(130.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(CyberCard)
-                        .border(1.dp, cat.color.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                        .clickable { onSelectCategory(cat) }
-                        .padding(12.dp)
+                        .height(140.dp)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp),
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
@@ -187,17 +285,26 @@ fun ToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = cat.icon,
-                                contentDescription = cat.label,
-                                tint = cat.color,
-                                modifier = Modifier.size(28.dp)
-                            )
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(cat.color)
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(cat.color.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = cat.icon,
+                                    contentDescription = cat.label,
+                                    tint = cat.color,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
 
@@ -205,16 +312,16 @@ fun ToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
                             Text(
                                 text = cat.label,
                                 style = MaterialTheme.typography.titleMedium,
-                                color = TerminalText,
+                                color = TextPrimary,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                fontSize = 14.sp
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = cat.description,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = TerminalDim,
-                                fontSize = 10.sp,
+                                color = TextSecondary,
+                                fontSize = 11.sp,
                                 maxLines = 1
                             )
                         }
@@ -226,16 +333,15 @@ fun ToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
 }
 
 @Composable
-fun TerminalConsoleScreen() {
+fun ModernTerminalScreen() {
     var commandInput by remember { mutableStateOf("help") }
     var terminalLogs by remember {
         mutableStateOf(
             listOf(
-                "[BOOT] iD-Tools Dev14.Apk Initialized.",
-                "[KERNEL] Linux Android Sandbox v36.0",
-                "[IDENTITY] Package: dev.andikune.iottools",
-                "[SIGNATURE] Alias: AndikUne (Verified)",
-                "[READY] Type 'help', 'status', 'ping', or 'clear' to execute."
+                "[SYSTEM] iD-Tools Dev14 Pro Environment Loaded.",
+                "[IDENTITY] Package: dev.andikune.iottools | Keystore: Alias 'AndikUne'",
+                "[WORKFLOW] GitHub Actions CI/CD Configured (.github/workflows/build-apk.yml)",
+                "[STATUS] All 7 Tool Engines Active. Type 'help' to view commands."
             )
         )
     }
@@ -243,69 +349,74 @@ fun TerminalConsoleScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp)
     ) {
         CyberTerminalHeader(
-            title = "ROOT TERMINAL CLI",
-            subtitle = "Console Shell Emulator | dev.andikune.iottools",
-            statusText = "ROOT ACCESS",
-            statusColor = NeonRed
+            title = "Developer Console",
+            subtitle = "Status Kernel & CLI Emulator | dev.andikune.iottools",
+            statusText = "ONLINE",
+            statusColor = PrimaryIndigoLight
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(CyberDark, RoundedCornerShape(8.dp))
-                .border(1.dp, NeonRed.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                .padding(12.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(SlateElevated)
+                .border(1.dp, SlateBorder, RoundedCornerShape(14.dp))
+                .padding(14.dp)
         ) {
             androidx.compose.foundation.lazy.LazyColumn(reverseLayout = true) {
                 items(terminalLogs.size) { index ->
                     val line = terminalLogs[terminalLogs.size - 1 - index]
+                    val color = when {
+                        line.startsWith(">") -> AccentCyan
+                        line.contains("[STATUS]") || line.contains("[WORKFLOW]") -> AccentEmerald
+                        line.contains("[SYSTEM]") -> PrimaryIndigoLight
+                        else -> TextPrimary
+                    }
                     Text(
                         text = line,
                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMono, fontSize = 12.sp),
-                        color = if (line.startsWith(">")) NeonCyan else if (line.contains("[READY]") || line.contains("OK")) MatrixGreen else TerminalText,
-                        modifier = Modifier.padding(vertical = 1.dp)
+                        color = color,
+                        modifier = Modifier.padding(vertical = 2.dp)
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("> ", style = MaterialTheme.typography.titleMedium, color = NeonRed, fontWeight = FontWeight.Bold)
             dev.andikune.iottools.ui.components.CyberTextField(
                 value = commandInput,
                 onValueChange = { commandInput = it },
-                label = "Perintah Terminal",
+                label = "Terminal Command",
                 modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             dev.andikune.iottools.ui.components.CyberButton(
-                text = "EXEC",
-                modifier = Modifier.width(80.dp),
+                text = "KIRIM",
+                modifier = Modifier.width(90.dp),
                 onClick = {
                     val cmd = commandInput.trim().lowercase()
                     val reply = when (cmd) {
-                        "help" -> "Commands: help, status, config, keystore, clear, uname, ping"
-                        "status" -> "System OK. 7 Tools Loaded. Web-to-APK Compiler Standby."
-                        "config" -> "Target Package: dev.andikune.iottools | Permissions: Granular"
-                        "keystore" -> "Keystore: andikune-release.jks | Alias: AndikUne | RSA 2048"
-                        "uname" -> "Linux dev14-android 6.1.0 #1 SMP PREEMPT"
+                        "help" -> "Commands: help, status, workflow, keystore, clear, ping"
+                        "status" -> "System OK. 7 Tools Standby. Web-to-APK Compiler Ready."
+                        "workflow" -> "GitHub Actions: .github/workflows/build-apk.yml (Auto Build & Release)"
+                        "keystore" -> "Keystore: andikune-release.jks | Alias: AndikUne (2048-bit RSA)"
                         "clear" -> {
                             terminalLogs = emptyList()
                             ""
                         }
-                        else -> "Command not found: $cmd. Ketik 'help'."
+                        else -> "Perintah tidak ditemukan: $cmd. Ketik 'help'."
                     }
                     if (reply.isNotEmpty()) {
                         terminalLogs = terminalLogs + "> $commandInput" + reply
@@ -318,14 +429,14 @@ fun TerminalConsoleScreen() {
 }
 
 @Composable
-fun CyberBottomNavigation(
+fun ModernBottomNavigation(
     currentTab: MainNavigationTab,
     onTabSelected: (MainNavigationTab) -> Unit
 ) {
     Surface(
-        color = CyberDark,
-        tonalElevation = 8.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+        color = SlateElevated,
+        tonalElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorderSubtle),
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
@@ -333,34 +444,42 @@ fun CyberBottomNavigation(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             MainNavigationTab.values().forEach { tab ->
                 val isSelected = currentTab == tab
-                val color = if (isSelected) NeonRed else TerminalDim
+                val color = if (isSelected) PrimaryIndigoLight else TextMuted
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable { onTabSelected(tab) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    Icon(
-                        imageVector = tab.icon,
-                        contentDescription = tab.label,
-                        tint = color,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) PrimaryIndigo.copy(alpha = 0.15f) else Color.Transparent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = tab.icon,
+                            contentDescription = tab.label,
+                            tint = if (isSelected) PrimaryIndigo else TextMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = tab.label,
                         style = MaterialTheme.typography.labelSmall,
                         color = color,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
                 }
             }
@@ -372,10 +491,10 @@ private fun triggerHaptic(context: Context) {
     try {
         val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE))
+            vibrator?.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE))
         } else {
             @Suppress("DEPRECATION")
-            vibrator?.vibrate(20)
+            vibrator?.vibrate(15)
         }
     } catch (_: Exception) {}
 }

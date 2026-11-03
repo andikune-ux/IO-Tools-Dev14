@@ -5,11 +5,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -22,56 +29,89 @@ fun KeystoreGuideScreen() {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
             CyberTerminalHeader(
-                title = "KEYSTORE SETUP & SIGNATURE GUIDE",
-                subtitle = "Alias: 'AndikUne' | Anti-'App Not Installed' Protection",
-                statusText = "SECURED",
-                statusColor = MatrixGreen
+                title = "Keystore & CI/CD Workflow",
+                subtitle = "Alias: 'AndikUne' | GitHub Actions Auto-Build & Install",
+                statusText = "VERIFIED",
+                statusColor = AccentEmerald
             )
         }
 
+        // Section 1: GitHub Actions CI/CD Workflow
         item {
-            CyberCard(borderColor = NeonRed, glow = true) {
+            CyberCard(borderColor = SlateBorder) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = PrimaryIndigoLight, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "1. GitHub Actions Auto-Build (.github/workflows/build-apk.yml)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "[1. MENGAPA BISA TERJADI 'APP NOT INSTALLED'?]",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = NeonRed,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Android OS memiliki sistem proteksi ketat (Package Signature Verification). Ketika Anda meng-update aplikasi, Android membandingkan sertifikat digital APK baru dengan APK yang sudah terpasang.\n\n" +
-                            "Masalah terjadi jika:\n" +
-                            "• Keystore berbeda atau alias berubah di versi berikutnya.\n" +
-                            "• Menggunakan debug key bawaan IDE untuk versi rilis.\n" +
-                            "• Skema tanda tangan V1/V2 tidak konsisten.\n\n" +
-                            "Solusi: Buat keystore permanen dengan alias 'AndikUne' dan gunakan signingConfig yang konsisten pada setiap build.",
+                    text = "Workflow CI/CD otomatis telah disiapkan di dalam proyek:\n" +
+                            "• Otomatis berjalan setiap ada git push ke branch 'main' atau 'master'.\n" +
+                            "• Mengompilasi kode sumber Android dan menandatangani APK dengan alias 'AndikUne'.\n" +
+                            "• Menghasilkan file APK siap instal yang langsung dapat diunduh dari menu Artifacts atau GitHub Releases!\n\n" +
+                            "Langkah Push ke GitHub:\n" +
+                            "1. Di pojok kanan atas AI Studio, klik tombol 'Push to GitHub' atau 'Export to GitHub'.\n" +
+                            "2. Masuk ke tab 'Actions' di repositori GitHub Anda.\n" +
+                            "3. Workflow 'Build and Sign iD-Tools APK' akan berjalan otomatis.\n" +
+                            "4. Setelah selesai (centang hijau), unduh 'iD-Tools-Dev14-Release.apk' dan pasang langsung di HP Anda!",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TerminalText
+                    color = TextSecondary
                 )
             }
         }
 
+        // Section 2: Mengapa App Not Installed Terjadi
         item {
-            CyberCard(borderColor = NeonCyan) {
+            CyberCard(borderColor = SlateBorder) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Security, contentDescription = null, tint = AccentRose, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "2. Anti 'App Not Installed' Protection",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "[2. PERINTAH PEMBUATAN KEYSTORE RESMI]",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = NeonCyan,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Jalankan perintah keytool ini di terminal komputer Anda untuk membuat keystore dengan alias 'AndikUne':",
+                    text = "Android OS memeriksa Package Signature sebelum mengizinkan pembaruan aplikasi. Kesalahan 'App not installed' terjadi jika:\n" +
+                            "• Menggunakan keystore berbeda di versi update berikutnya.\n" +
+                            "• Menggunakan debug key bawaan IDE untuk rilis publik.\n" +
+                            "• Alias sertifikat berubah.\n\n" +
+                            "Solusi: Gunakan keystore permanen dengan alias 'AndikUne' secara konsisten pada setiap build.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TerminalDim
+                    color = TextSecondary
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+
+        // Section 3: Perintah Keytool
+        item {
+            CyberCard(borderColor = SlateBorder) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.VpnKey, contentDescription = null, tint = AccentAmber, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "3. Pembuatan Keystore Lokal (Alias: AndikUne)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
 
                 val keytoolCommand = """
 keytool -genkey -v \
@@ -89,21 +129,16 @@ keytool -genkey -v \
             }
         }
 
+        // Section 4: Gradle Config
         item {
-            CyberCard(borderColor = MatrixGreen) {
+            CyberCard(borderColor = SlateBorder) {
                 Text(
-                    text = "[3. KONFIGURASI SIGNING DI BUILD.GRADLE.KTS]",
+                    text = "4. Konfigurasi signingConfig di Gradle",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MatrixGreen,
+                    color = TextPrimary,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Masukkan blok signingConfig berikut ke dalam app/build.gradle.kts proyek Anda agar Gradle otomatis menandatangani APK saat proses build:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TerminalDim
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 val gradleConfig = """
 android {
@@ -128,50 +163,10 @@ android {
             v2SigningEnabled = true
         }
     }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("andikuneRelease")
-        }
-        debug {
-            // Gunakan signingConfig yang sama untuk update debug -> release tanpa uninstal
-            signingConfig = signingConfigs.getByName("andikuneRelease")
-        }
-    }
 }
                 """.trimIndent()
 
                 CyberCodeBox(code = gradleConfig)
-            }
-        }
-
-        item {
-            CyberCard(borderColor = NeonYellow) {
-                Text(
-                    text = "[4. CARA VERIFIKASI TANDA TANGAN (FINGERPRINT)]",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = NeonYellow,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Untuk memeriksa apakah APK memiliki tanda tangan yang sesuai:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TerminalDim
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val verifyCommand = """
-# Periksa sertifikat di dalam Keystore:
-keytool -list -v -keystore andikune-release.jks -alias AndikUne
-
-# Periksa signature pada APK hasil build:
-apksigner verify --verbose --print-certs app-release.apk
-                """.trimIndent()
-
-                CyberCodeBox(code = verifyCommand)
             }
         }
     }
