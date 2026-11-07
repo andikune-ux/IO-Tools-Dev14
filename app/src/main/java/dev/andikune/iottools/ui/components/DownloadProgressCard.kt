@@ -134,15 +134,26 @@ fun DownloadProgressCard(
                 // Progress Bar (0 - 100%)
                 if (downloadState.status == DownloadStatus.DOWNLOADING || downloadState.status == DownloadStatus.CONNECTING) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        LinearProgressIndicator(
-                            progress = { downloadState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            color = AccentCyan,
-                            trackColor = SlateCanvas
-                        )
+                        if (downloadState.indeterminate || downloadState.totalBytesFormatted.contains("tidak diketahui", ignoreCase = true)) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = AccentCyan,
+                                trackColor = SlateCanvas
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { downloadState.progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = AccentCyan,
+                                trackColor = SlateCanvas
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -203,7 +214,9 @@ fun DownloadProgressCard(
 
                 // Completed Card
                 if (downloadState.status == DownloadStatus.COMPLETED) {
+                    val downloadedUri = downloadState.downloadedUri
                     val downloadedFile = downloadState.downloadedFile
+                    val displayName = downloadState.downloadedName.ifEmpty { downloadedFile?.name ?: downloadState.fileName }
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -217,7 +230,7 @@ fun DownloadProgressCard(
                                 Icon(Icons.Default.Folder, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Tersimpan di: Download/${downloadedFile?.name ?: ""}\nVideo dapat langsung diputar di Galeri HP.",
+                                    text = "Tersimpan di Download/IO-Tools/$displayName\nFile sudah terdaftar di MediaStore dan siap diputar.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = AccentEmerald,
                                     fontSize = 11.sp
@@ -231,9 +244,15 @@ fun DownloadProgressCard(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (downloadedFile != null) {
+                            if (downloadedUri != null || downloadedFile != null) {
                                 Button(
-                                    onClick = { AppDownloadManager.playDownloadedVideo(context, downloadedFile) },
+                                    onClick = {
+                                        if (downloadedUri != null) {
+                                            AppDownloadManager.playDownloadedVideo(context, downloadedUri)
+                                        } else if (downloadedFile != null) {
+                                            AppDownloadManager.playDownloadedVideo(context, downloadedFile)
+                                        }
+                                    },
                                     modifier = Modifier.weight(1.3f),
                                     shape = RoundedCornerShape(8.dp),
                                     colors = ButtonDefaults.buttonColors(
@@ -243,11 +262,17 @@ fun DownloadProgressCard(
                                 ) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("PUTAR VIDEO", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("PUTAR FILE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
 
                                 OutlinedButton(
-                                    onClick = { AppDownloadManager.shareDownloadedVideo(context, downloadedFile) },
+                                    onClick = {
+                                        if (downloadedUri != null) {
+                                            AppDownloadManager.shareDownloadedVideo(context, downloadedUri)
+                                        } else if (downloadedFile != null) {
+                                            AppDownloadManager.shareDownloadedVideo(context, downloadedFile)
+                                        }
+                                    },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(8.dp),
                                     border = BorderStroke(1.dp, SlateBorder)

@@ -43,6 +43,7 @@ import dev.andikune.iottools.ui.components.*
 import dev.andikune.iottools.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
@@ -62,7 +63,7 @@ fun WebToApkScreen() {
     var buildProgress by remember { mutableFloatStateOf(0f) }
     var buildLogs by remember { mutableStateOf(listOf<String>()) }
     var buildFinished by remember { mutableStateOf(false) }
-    var generatedApkFile by remember { mutableStateOf<File?>(null) }
+    var generatedBundle by remember { mutableStateOf<ApkPackagingEngine.ProjectBundle?>(null) }
 
     // Code preview tab
     var codeTab by remember { mutableIntStateOf(0) }
@@ -120,7 +121,7 @@ fun WebToApkScreen() {
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Web-to-APK Compiler Studio",
+                        text = "Web App Project Studio",
                         style = MaterialTheme.typography.headlineMedium,
                         color = TextPrimary,
                         fontWeight = FontWeight.Bold
@@ -140,9 +141,9 @@ fun WebToApkScreen() {
                 val tabs = listOf(
                     "Konfigurasi" to Icons.Default.Tune,
                     "Izin Granular" to Icons.Default.Security,
-                    "Live Emulator" to Icons.Default.PhoneAndroid,
+                    "Live Preview" to Icons.Default.PhoneAndroid,
                     "Source Code" to Icons.Default.Code,
-                    "Build & Sign" to Icons.Default.PlayArrow
+                    "Build Project" to Icons.Default.PlayArrow
                 )
                 tabs.forEachIndexed { index, (label, icon) ->
                     val isSelected = selectedTab == index
@@ -318,6 +319,28 @@ fun WebToApkScreen() {
                         checked = config.enableZoomControls,
                         onCheckedChange = { config = config.copy(enableZoomControls = it) },
                         accentColor = AccentEmerald
+                    )
+
+                    CyberToggleRow(
+                        title = "Hapus Cache Saat Keluar",
+                        description = "Bersihkan cache dan data WebStorage ketika aplikasi ditutup",
+                        checked = config.clearCacheOnExit,
+                        onCheckedChange = { config = config.copy(clearCacheOnExit = it) },
+                        accentColor = AccentRose
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    CyberTextField(
+                        value = config.userAgentOverride,
+                        onValueChange = { config = config.copy(userAgentOverride = it) },
+                        label = "Custom User-Agent (opsional)",
+                        placeholder = "Kosongkan untuk User-Agent default perangkat"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Jika diisi, nilai ini menggantikan Mode Desktop. Berguna untuk situs yang memblokir WebView.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
                     )
                 }
             }
@@ -607,59 +630,49 @@ fun WebToApkScreen() {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CyberButton(
-                    text = if (isBuilding) "Sedang Mengompilasi & Membuat APK..." else "JALANKAN BUILD & BIKIN FILE .APK",
+                    text = if (isBuilding) "Menyiapkan project..." else "BUILD PROJECT & BUAT SHORTCUT",
                     enabled = !isBuilding,
                     onClick = {
                         coroutineScope.launch {
                             isBuilding = true
                             buildFinished = false
                             buildProgress = 0f
-                            buildLogs = listOf("[INIT] Mempersiapkan build APK untuk ${config.packageName}...")
-                            delay(400)
-
-                            buildLogs = buildLogs + "[CONFIG] Serialisasi config.json (Izin & Tampilan)..."
-                            buildProgress = 0.2f
-                            delay(300)
-
-                            val activeCount = listOf(
-                                config.permCamera, config.permRecordAudio, config.permReadMediaImages,
-                                config.permReadMediaVideo, config.permReadMediaAudio, config.permCoarseLocation,
-                                config.permFineLocation, config.permInternet, config.permAccessNetworkState,
-                                config.permAccessWifiState, config.permBluetoothConnect, config.permNfc,
-                                config.permPostNotifications, config.permVibrate, config.permWakeLock,
-                                config.permHighSamplingRateSensors, config.permUseBiometric
-                            ).count { it }
-
-                            buildLogs = buildLogs + "[PATCH] AndroidManifest.xml diperbarui: $activeCount izin aktif."
-                            buildProgress = 0.4f
-                            delay(300)
-
-                            buildLogs = buildLogs + "[INJECT] Menyinkronkan WebChromeClient permission handler..."
-                            buildProgress = 0.6f
-                            delay(300)
-
-                            buildLogs = buildLogs + "[SIGN] Menandatangani APK dengan Keystore alias 'AndikUne'..."
-                            buildProgress = 0.8f
-                            delay(400)
-
-                            // Actually build the real .apk file!
-                            val apk = ApkPackagingEngine.buildRealApk(context, config)
-                            generatedApkFile = apk
-
-                            val sizeMb = String.format("%.1f", apk.length() / (1024.0 * 1024.0).coerceAtLeast(0.1))
-                            buildLogs = buildLogs + "[PACKAGE] Output: ${apk.name} ($sizeMb MB)"
-                            buildLogs = buildLogs + "[SUCCESS] File .APK berhasil dibuat! Siap dipasang di HP Android."
-                            buildProgress = 1.0f
-                            isBuilding = false
-                            buildFinished = true
-                            selectedTab = 4
+                            generatedBundle = null
+                            buildLogs = listOf("[INIT] Memvalidasi konfigurasi ${config.packageName}...")
+                            delay(250)
+                            try {
+                                buildLogs = buildLogs + "[VALIDATE] URL, package name, nama aplikasi..."
+                                buildProgress = 0.2f
+                                delay(150)
+                                buildLogs = buildLogs + "[PATCH] Menyiapkan manifest, izin, dan config.json..."
+                                buildProgress = 0.45f
+                                delay(150)
+                                buildLogs = buildLogs + "[GENERATE] Menulis source code, Gradle, ikon, dan workflow CI..."
+                                buildProgress = 0.7f
+                                val bundle = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    ApkPackagingEngine.exportStandaloneProjectZip(context, config)
+                                }
+                                generatedBundle = bundle
+                                val size = String.format("%.1f", bundle.sizeBytes / (1024.0 * 1024.0).coerceAtLeast(0.1))
+                                buildLogs = buildLogs + "[PACKAGE] ${bundle.displayName} ($size MB)"
+                                buildLogs = buildLogs + "[DOWNLOAD] ZIP juga disimpan di Download/IO-Tools bila penyimpanan mengizinkan."
+                                buildLogs = buildLogs + "[SUCCESS] Project nyata siap di-build menjadi APK via Gradle/Android Studio/CI."
+                                buildProgress = 1f
+                                buildFinished = true
+                                selectedTab = 4
+                            } catch (e: Exception) {
+                                buildLogs = buildLogs + "[ERROR] ${e.message ?: "Gagal membuat project"}"
+                                buildProgress = 1f
+                            } finally {
+                                isBuilding = false
+                            }
                         }
                     }
                 )
 
-                if (buildFinished && generatedApkFile != null) {
-                    val apk = generatedApkFile!!
-                    val sizeMb = String.format("%.1f", apk.length() / (1024.0 * 1024.0).coerceAtLeast(0.1))
+                if (buildFinished && generatedBundle != null) {
+                    val bundle = generatedBundle!!
+                    val sizeMb = String.format("%.1f", bundle.sizeBytes / (1024.0 * 1024.0).coerceAtLeast(0.1))
 
                     CyberCard(borderColor = AccentEmerald) {
                         Row(
@@ -673,41 +686,37 @@ fun WebToApkScreen() {
                                     .background(AccentEmerald.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.Android, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(26.dp))
+                                Icon(Icons.Default.FolderZip, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(26.dp))
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = apk.name,
+                                    text = bundle.displayName,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Ukuran: $sizeMb MB | Signature: AndikUne (Valid)",
+                                    text = "Project ZIP nyata • $sizeMb MB",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = AccentEmerald
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                        // Info Guidance for "Ada masalah saat mengurai paket"
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = PrimaryIndigo.copy(alpha = 0.12f),
                             border = BorderStroke(1.dp, PrimaryIndigo.copy(alpha = 0.35f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Info, contentDescription = null, tint = PrimaryIndigoLight, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Jika HP Anda menampilkan 'Ada masalah saat mengurai paket' saat menginstal APK langsung, gunakan opsi 'TERIMA BERSIH' di bawah (otomatis pasang ikon mandiri di Layar Utama HP tanpa bentrok tanda tangan), atau unduh 'PROJECT STANDALONE (.ZIP)'!",
+                                    text = "APK tidak dibuat di dalam HP karena compiler Android (aapt2, D8, signing tool) tidak tersedia. Project ZIP ini benar-benar bisa di-build menjadi APK installable dengan Gradle, Android Studio, atau GitHub Actions.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextPrimary,
                                     fontSize = 11.sp
@@ -717,154 +726,72 @@ fun WebToApkScreen() {
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Method 1: Terima Bersih (Pin to Homescreen + Launch standalone app immediately)
                         Button(
                             onClick = {
                                 ApkPackagingEngine.installTerimaBersih(context, config)
                             },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AccentEmerald,
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald, contentColor = Color.White),
+                            modifier = Modifier.fillMaxWidth().height(56.dp)
                         ) {
                             Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    "PASANG & BUKA SEKARANG (TERIMA BERSIH)",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "1-Klik buat ikon di HP & langsung jalankan aplikasi",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.5.sp,
-                                    color = Color.White.copy(alpha = 0.92f)
-                                )
+                                Text("BUAT IKON LAYAR UTAMA & BUKA", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text("Shortcut nyata ke WebView fullscreen, bukan APK palsu", style = MaterialTheme.typography.labelSmall, fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.92f))
                             }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Method 2: Standalone Android Studio Project (.ZIP) - 100% Berdiri Sendiri
                         Button(
-                            onClick = {
-                                val zip = ApkPackagingEngine.exportStandaloneProjectZip(context, config)
-                                Toast.makeText(context, "✓ Berhasil! Project ZIP tersimpan di Download: ${zip.name}", Toast.LENGTH_LONG).show()
-                                ApkPackagingEngine.shareApk(context, zip)
-                            },
+                            onClick = { ApkPackagingEngine.shareBundle(context, bundle) },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = PrimaryIndigo,
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo, contentColor = Color.White),
+                            modifier = Modifier.fillMaxWidth().height(56.dp)
                         ) {
-                            Icon(Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(22.dp))
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    "EKSPOR PROJECT STANDALONE (.ZIP)",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "Project Android Studio lengkap siap build mandiri di PC / Termux / CI",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.5.sp,
-                                    color = Color.White.copy(alpha = 0.92f)
-                                )
+                                Text("BAGIKAN / SIMPAN PROJECT ZIP", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text("Buka di Android Studio atau kirim ke PC/Termux/CI", style = MaterialTheme.typography.labelSmall, fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.92f))
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Method 3: System Package Installer (.apk)
-                        CyberSecondaryButton(
-                            text = "Instal Berkas .APK Asli (Package Installer)",
-                            onClick = {
-                                ApkPackagingEngine.installApk(context, apk)
-                            }
-                        )
 
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            // Share APK File (.apk)
                             OutlinedButton(
-                                onClick = {
-                                    ApkPackagingEngine.shareApk(context, apk)
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, PrimaryIndigoLight),
-                                modifier = Modifier.weight(1f).height(46.dp)
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = null, tint = PrimaryIndigoLight, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Bagikan .APK", color = PrimaryIndigoLight, style = MaterialTheme.typography.labelMedium)
-                            }
-
-                            // Launch directly as standalone app
-                            OutlinedButton(
-                                onClick = {
-                                    ApkPackagingEngine.launchStandaloneApp(context, config)
-                                },
+                                onClick = { ApkPackagingEngine.launchStandaloneApp(context, config) },
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, AccentCyan),
                                 modifier = Modifier.weight(1f).height(46.dp)
                             ) {
                                 Icon(Icons.Default.Launch, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Buka Langsung", color = AccentCyan, style = MaterialTheme.typography.labelMedium)
+                                Text("Buka WebView", color = AccentCyan, style = MaterialTheme.typography.labelMedium)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(config.webUrl))) }
+                                        .onFailure { Toast.makeText(context, "URL tidak valid", Toast.LENGTH_SHORT).show() }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, PrimaryIndigoLight),
+                                modifier = Modifier.weight(1f).height(46.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, tint = PrimaryIndigoLight, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Buka Browser", color = PrimaryIndigoLight, style = MaterialTheme.typography.labelMedium)
                             }
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        // Parse Error Guide Box
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(SlateSurface)
-                                .border(1.dp, SlateBorder, RoundedCornerShape(10.dp))
-                                .padding(12.dp)
-                        ) {
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Info, contentDescription = null, tint = AccentAmber, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        "Solusi 'Ada masalah saat mengurai paket'",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = AccentAmber
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "Jika installer Android memunculkan 'Gagal Mengurai Paket', hal ini disebabkan bentrok nama paket (package conflict) dengan aplikasi iD-Tools yang sedang berjalan di HP Anda. Cukup tekan tombol 'PASANG KE LAYAR UTAMA' di atas untuk memasang aplikasi secara instan ke menu HP tanpa bentrok!",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Secondary: Export raw source code ZIP
-                        CyberSecondaryButton(
-                            text = "Unduh Source Code Proyek (ZIP)",
-                            onClick = {
-                                exportProjectZip(context, config)
-                            }
+                        Text(
+                            "Cara build APK: ekstrak ZIP → buka di Android Studio → Build APK, atau jalankan `gradle assembleRelease`, atau push ke GitHub dan unduh artifact dari Actions.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            fontSize = 11.sp
                         )
                     }
                 }
@@ -875,47 +802,10 @@ fun WebToApkScreen() {
 
 private fun exportProjectZip(context: Context, config: WebToApkConfig) {
     try {
-        val exportDir = File(context.cacheDir, "web_to_apk_exports")
-        if (!exportDir.exists()) exportDir.mkdirs()
-
-        val zipFile = File(exportDir, "${config.appName.replace(" ", "_")}_Project.zip")
-        ZipOutputStream(FileOutputStream(zipFile)).use { out ->
-            val configData = WebToApkPipeline.generateConfigJson(config)
-            out.putNextEntry(ZipEntry("app/src/main/assets/config.json"))
-            out.write(configData.toByteArray())
-            out.closeEntry()
-
-            val manifestData = WebToApkPipeline.generatePatchedManifest(config)
-            out.putNextEntry(ZipEntry("app/src/main/AndroidManifest.xml"))
-            out.write(manifestData.toByteArray())
-            out.closeEntry()
-
-            val mainActivityData = WebToApkPipeline.generateTemplateMainActivity(config)
-            val packagePath = config.packageName.replace('.', '/')
-            out.putNextEntry(ZipEntry("app/src/main/java/$packagePath/MainActivity.kt"))
-            out.write(mainActivityData.toByteArray())
-            out.closeEntry()
-
-            val gradleData = WebToApkPipeline.generateGradleScript(config)
-            out.putNextEntry(ZipEntry("app/build.gradle.kts"))
-            out.write(gradleData.toByteArray())
-            out.closeEntry()
-
-            val keystoreData = WebToApkPipeline.generateKeystoreScript(config)
-            out.putNextEntry(ZipEntry("setup_keystore.sh"))
-            out.write(keystoreData.toByteArray())
-            out.closeEntry()
-        }
-
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", zipFile)
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/zip"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(shareIntent, "Unduh Paket Proyek Web-to-APK"))
-        Toast.makeText(context, "Paket Proyek ZIP siap dibagikan!", Toast.LENGTH_SHORT).show()
+        val bundle = ApkPackagingEngine.exportStandaloneProjectZip(context, config)
+        ApkPackagingEngine.shareBundle(context, bundle)
+        Toast.makeText(context, "Project ZIP siap: ${bundle.displayName}", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {
-        Toast.makeText(context, "Ekspor berhasil disimpan di cache", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Gagal membuat ZIP: ${e.message}", Toast.LENGTH_LONG).show()
     }
 }

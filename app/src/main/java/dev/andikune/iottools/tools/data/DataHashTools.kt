@@ -3,9 +3,12 @@ package dev.andikune.iottools.tools.data
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.util.Base64
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,8 +26,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.documentfile.provider.DocumentFile
 import dev.andikune.iottools.ui.components.*
 import dev.andikune.iottools.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -84,6 +91,31 @@ fun DataHashTools() {
         if (activeSubTool == 0) {
             item {
                 var hashInput by remember { mutableStateOf("AndikUne-Dev14-Signature") }
+                var hashedFileName by remember { mutableStateOf("") }
+                var hashedFileSize by remember { mutableLongStateOf(0L) }
+                var fileHashes by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+                var isHashingFile by remember { mutableStateOf(false) }
+                val hashScope = rememberCoroutineScope()
+
+                val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) {
+                        hashScope.launch {
+                            isHashingFile = true
+                            fileHashes = emptyList()
+                            hashedFileName = DocumentFile.fromSingleUri(context, uri)?.name
+                                ?: uri.lastPathSegment.orEmpty()
+                            hashedFileSize = DocumentFile.fromSingleUri(context, uri)?.length() ?: 0L
+                            fileHashes = withContext(Dispatchers.IO) {
+                                runCatching { calculateFileDigests(context, uri) }
+                                    .getOrElse { error ->
+                                        Toast.makeText(context, "Gagal membaca file: ${error.message}", Toast.LENGTH_LONG).show()
+                                        emptyList()
+                                    }
+                            }
+                            isHashingFile = false
+                        }
+                    }
+                }
 
                 val md5Hash = remember(hashInput) { calculateDigest("MD5", hashInput) }
                 val sha1Hash = remember(hashInput) { calculateDigest("SHA-1", hashInput) }
@@ -118,6 +150,46 @@ fun DataHashTools() {
                     HashResultRow(context, "SHA-1 (Legacy Signatures)", sha1Hash, NeonYellow)
                     HashResultRow(context, "CRC-32 (File Checksum)", crc32Hash, MatrixGreen)
                     HashResultRow(context, "SHA-512 (High Security)", sha512Hash.take(32) + "...", NeonPurple)
+
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(
+                        "[HASH FILE STREAMING]",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NeonCyan,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Hitung checksum file nyata tanpa memuat seluruh isi ke RAM. Cocok untuk APK, ZIP, firmware, dan dokumen besar.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TerminalDim
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    CyberButton(
+                        text = if (isHashingFile) "MENGHITUNG CHECKSUM..." else "PILIH FILE UNTUK DI-HASH",
+                        enabled = !isHashingFile,
+                        color = NeonCyan,
+                        onClick = { filePicker.launch(arrayOf("*/*")) }
+                    )
+                    if (hashedFileName.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            "File: $hashedFileName (${formatFileSize(hashedFileSize)})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TerminalText
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        fileHashes.forEachIndexed { index, (label, value) ->
+                            val accent = when (index) {
+                                0 -> NeonRed
+                                1 -> NeonCyan
+                                2 -> NeonYellow
+                                3 -> MatrixGreen
+                                else -> NeonPurple
+                            }
+                            HashResultRow(context, label, value, accent)
+                        }
+                    }
                 }
             }
         }
@@ -239,50 +311,145 @@ fun DataHashTools() {
             }
         }
 
-        // TOOL 3: Batch Rename
+        // TOOL 3: Batch Rename (real SAF operation)
         if (activeSubTool == 3) {
             item {
+                val scope = rememberCoroutineScope()
                 var prefix by remember { mutableStateOf("IDTOOLS_") }
                 var suffix by remember { mutableStateOf("_2026") }
                 var startNumber by remember { mutableStateOf("1") }
-                val sampleFiles = listOf("photo1.jpg", "document.pdf", "scan_qr.png", "release.apk")
+                var folderUri by remember { mutableStateOf<Uri?>(null) }
+                var folderName by remember { mutableStateOf("") }
+                var files by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
+                var busy by remember { mutableStateOf(false) }
+                var status by remember { mutableStateOf<String?>(null) }
 
-                CyberCard(borderColor = NeonRed) {
+                fun loadFolder(uri: Uri) {
+                    val doc = DocumentFile.fromTreeUri(context, uri)
+                    if (doc == null || !doc.isDirectory) {
+                        status = "Folder tidak dapat dibuka."
+                        return
+                    }
+                    folderUri = uri
+                    folderName = doc.name ?: "Folder"
+                    files = doc.listFiles().filter { it.isFile }.sortedBy { it.name?.lowercase() ?: "" }
+                    status = if (files.isEmpty()) "Folder tidak berisi file." else "${files.size} file ditemukan."
+                }
+
+                val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                    if (uri != null) {
+                        runCatching {
+                            context.contentResolver.takePersistableUriPermission(
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            )
+                        }
+                        loadFolder(uri)
+                    }
+                }
+
+                fun targetName(original: String, index: Int): String {
+                    val ext = original.substringAfterLast('.', "")
+                    val number = (startNumber.toIntOrNull() ?: 1) + index
+                    val base = "$prefix${String.format("%03d", number)}$suffix"
+                    return if (ext.isNotBlank()) "$base.$ext" else base
+                }
+
+                CyberCard(borderColor = AccentRose) {
+                    Text("Batch File Renamer (SAF)", color = AccentRose, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "[BATCH FILE RENAMER SIMULATOR]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
+                        "Pilih folder melalui Storage Access Framework. Aplikasi hanya dapat mengubah file di folder yang Anda izinkan.",
+                        color = TextSecondary,
+                        fontSize = 11.sp
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-
+                    Spacer(modifier = Modifier.height(12.dp))
+                    CyberSecondaryButton(
+                        text = if (folderUri == null) "PILIH FOLDER" else "GANTI FOLDER: $folderName",
+                        onClick = { picker.launch(null) }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(modifier = Modifier.weight(1f)) {
-                            CyberTextField(value = prefix, onValueChange = { prefix = it }, label = "Awalan (Prefix)")
+                            CyberTextField(value = prefix, onValueChange = { prefix = it }, label = "Awalan")
                         }
                         Box(modifier = Modifier.weight(1f)) {
-                            CyberTextField(value = suffix, onValueChange = { suffix = it }, label = "Akhiran (Suffix)")
+                            CyberTextField(value = suffix, onValueChange = { suffix = it }, label = "Akhiran")
                         }
                     }
-
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CyberTextField(value = startNumber, onValueChange = { startNumber = it.filter { c -> c.isDigit() } }, label = "Nomor awal")
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Hasil Pratinjau Rename Berurutan:", style = MaterialTheme.typography.labelSmall, color = TerminalDim)
-                    Spacer(modifier = Modifier.height(6.dp))
 
-                    sampleFiles.forEachIndexed { index, original ->
-                        val ext = original.substringAfterLast('.', "")
-                        val newName = "$prefix${String.format("%03d", (startNumber.toIntOrNull() ?: 1) + index)}$suffix.$ext"
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .background(CyberDark, RoundedCornerShape(6.dp))
-                                .padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(original, style = MaterialTheme.typography.bodyMedium, color = TerminalDim)
-                            Text("➔ $newName", style = MaterialTheme.typography.bodyMedium, color = MatrixGreen, fontWeight = FontWeight.Bold)
+                    if (files.isNotEmpty()) {
+                        Text("Pratinjau (${files.size} file)", color = TextSecondary, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        files.take(25).forEachIndexed { index, file ->
+                            val original = file.name ?: "(tanpa nama)"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .background(SlateSurface, RoundedCornerShape(6.dp))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    original,
+                                    color = TextMuted,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    "→ ${targetName(original, index)}",
+                                    color = AccentEmerald,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
                         }
+                        if (files.size > 25) {
+                            Text("... dan ${files.size - 25} file lainnya", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    CyberButton(
+                        text = if (busy) "MENGUBAH NAMA..." else "UBAH NAMA SEMUA FILE",
+                        enabled = !busy && files.isNotEmpty(),
+                        color = AccentRose,
+                        onClick = {
+                            val currentUri = folderUri ?: return@CyberButton
+                            busy = true
+                            status = null
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    var success = 0
+                                    var failed = 0
+                                    files.forEachIndexed { index, file ->
+                                        val original = file.name ?: return@forEachIndexed
+                                        val newName = targetName(original, index)
+                                        if (newName == original) {
+                                            success++
+                                        } else if (runCatching { file.renameTo(newName) }.getOrDefault(false)) {
+                                            success++
+                                        } else {
+                                            failed++
+                                        }
+                                    }
+                                    success to failed
+                                }
+                                busy = false
+                                loadFolder(currentUri)
+                                status = "Selesai: ${result.first} berhasil, ${result.second} gagal."
+                            }
+                        }
+                    )
+
+                    if (status != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(status!!, color = if (status!!.startsWith("Selesai")) AccentEmerald else TextSecondary, fontSize = 12.sp)
                     }
                 }
             }
@@ -328,4 +495,41 @@ private fun calculateDigest(algorithm: String, input: String): String {
     val md = MessageDigest.getInstance(algorithm)
     val bytes = md.digest(input.toByteArray())
     return bytes.joinToString("") { "%02x".format(it) }
+}
+
+private fun calculateFileDigests(context: Context, uri: Uri): List<Pair<String, String>> {
+    val digests = linkedMapOf(
+        "SHA-256 (File)" to MessageDigest.getInstance("SHA-256"),
+        "MD5 (File)" to MessageDigest.getInstance("MD5"),
+        "SHA-1 (File)" to MessageDigest.getInstance("SHA-1"),
+        "SHA-512 (File)" to MessageDigest.getInstance("SHA-512")
+    )
+    val crc = CRC32()
+    val input = context.contentResolver.openInputStream(uri)
+        ?: throw IllegalStateException("File tidak dapat dibuka.")
+    input.use { stream ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = stream.read(buffer)
+            if (read <= 0) break
+            digests.values.forEach { it.update(buffer, 0, read) }
+            crc.update(buffer, 0, read)
+        }
+    }
+    val rows = digests.map { (label, digest) ->
+        label to digest.digest().joinToString("") { "%02x".format(it) }
+    }
+    return rows + ("CRC-32 (File)" to java.lang.Long.toHexString(crc.value).uppercase())
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1024 && unit < units.lastIndex) {
+        value /= 1024
+        unit++
+    }
+    return if (unit == 0) "${bytes} B" else String.format(java.util.Locale.US, "%.2f %s", value, units[unit])
 }

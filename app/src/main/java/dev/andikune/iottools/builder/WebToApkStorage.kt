@@ -68,10 +68,12 @@ object WebToApkStorage {
                 permWakeLock = system?.optBoolean("WAKE_LOCK", false) == true,
                 permHighSamplingRateSensors = system?.optBoolean("HIGH_SAMPLING_RATE_SENSORS", false) == true,
                 permUseBiometric = biometric?.optBoolean("USE_BIOMETRIC", false) == true,
-                enablePullToRefresh = display?.optBoolean("pullToRefresh", true) ?: true,
-                enableProgressBar = display?.optBoolean("progressBar", true) ?: true,
-                enableDesktopMode = display?.optBoolean("desktopMode", false) == true,
-                enableZoomControls = display?.optBoolean("zoomControls", true) ?: true
+                enablePullToRefresh = display?.optBoolean("pullToRefresh", json.optBoolean("enablePullToRefresh", true)) ?: true,
+                enableProgressBar = display?.optBoolean("progressBar", json.optBoolean("enableProgressBar", true)) ?: true,
+                enableDesktopMode = display?.optBoolean("desktopMode", json.optBoolean("desktopMode", false)) == true,
+                enableZoomControls = display?.optBoolean("zoomControls", json.optBoolean("zoomControls", true)) ?: true,
+                clearCacheOnExit = display?.optBoolean("clearCacheOnExit", json.optBoolean("clearCacheOnExit", false)) == true,
+                userAgentOverride = json.optString("userAgentOverride", "")
             )
         } catch (_: Exception) {
             null

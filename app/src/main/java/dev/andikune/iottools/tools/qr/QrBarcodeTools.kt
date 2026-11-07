@@ -1,26 +1,32 @@
 package dev.andikune.iottools.tools.qr
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Rect
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,30 +35,81 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.MultiFormatWriter
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import dev.andikune.iottools.tools.common.MediaStoreSaver
 import dev.andikune.iottools.ui.components.*
 import dev.andikune.iottools.ui.theme.*
-import java.security.MessageDigest
+
+private data class BarcodeKind(val label: String, val format: BarcodeFormat, val placeholder: String)
+
+private val barcodeKinds = listOf(
+    BarcodeKind("QR Code", BarcodeFormat.QR_CODE, "https://contoh.com atau teks apa saja"),
+    BarcodeKind("Code 128", BarcodeFormat.CODE_128, "ABC-12345"),
+    BarcodeKind("Code 39", BarcodeFormat.CODE_39, "CODE39"),
+    BarcodeKind("EAN-13", BarcodeFormat.EAN_13, "8991234567890"),
+    BarcodeKind("Data Matrix", BarcodeFormat.DATA_MATRIX, "DATA-MATRIX-123")
+)
 
 @Composable
 fun QrBarcodeTools() {
     val context = LocalContext.current
-    var activeSubTool by remember { mutableIntStateOf(0) } // 0: Generator, 1: Barcode, 2: Batch, 3: Scanner
+    var activeTab by remember { mutableIntStateOf(0) }
+    var content by remember { mutableStateOf("") }
+    var kindIndex by remember { mutableIntStateOf(0) }
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var generatedFor by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    var scanResult by remember { mutableStateOf<String?>(null) }
+    var scanFormat by remember { mutableStateOf("") }
+    val history = remember { mutableStateListOf<String>() }
+
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val text = result.contents
+        if (text.isNullOrBlank()) {
+            Toast.makeText(context, "Pemindaian dibatalkan atau tidak ada kode terbaca.", Toast.LENGTH_SHORT).show()
+        } else {
+            scanResult = text
+            scanFormat = result.formatName ?: "KODE"
+            history.add(0, text)
+            if (history.size > 20) history.removeAt(history.lastIndex)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            scanLauncher.launch(buildScanOptions())
+        } else {
+            Toast.makeText(context, "Izin kamera diperlukan untuk memindai kode.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun launchScanner() {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (granted) scanLauncher.launch(buildScanOptions()) else permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             CyberTerminalHeader(
-                title = "QR & BARCODE ENGINE",
-                subtitle = "Format: QR Code | Code128 | Batch Gen",
-                statusText = "STANDBY",
-                statusColor = NeonRed
+                title = "QR & Barcode Studio",
+                subtitle = "Generator ZXing asli + pemindai kamera perangkat",
+                statusText = "ZXING",
+                statusColor = AccentCyan
             )
         }
 
@@ -63,446 +120,313 @@ fun QrBarcodeTools() {
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val tools = listOf("QR Generator", "Barcode (Code128)", "Batch QR", "Scanner")
-                tools.forEachIndexed { index, name ->
-                    val isSel = activeSubTool == index
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSel) NeonRed else CyberDark)
-                            .border(1.dp, if (isSel) NeonRed else CyberCardBorder, RoundedCornerShape(6.dp))
-                            .clickable { activeSubTool = index }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                listOf("Generator" to Icons.Default.QrCode2, "Scanner" to Icons.Default.QrCodeScanner).forEachIndexed { index, pair ->
+                    FilterChip(
+                        selected = activeTab == index,
+                        onClick = { activeTab = index },
+                        label = { Text(pair.first) },
+                        leadingIcon = { Icon(pair.second, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    )
+                }
+            }
+        }
+
+        if (activeTab == 0) {
+            item {
+                CyberCard {
+                    Text("Jenis kode", color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSel) CyberBlack else TerminalText,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                        )
+                        barcodeKinds.forEachIndexed { index, kind ->
+                            FilterChip(
+                                selected = kindIndex == index,
+                                onClick = { kindIndex = index },
+                                label = { Text(kind.label) }
+                            )
+                        }
                     }
-                }
-            }
-        }
 
-        // TOOL 0: QR Generator
-        if (activeSubTool == 0) {
-            item {
-                var inputText by remember { mutableStateOf("https://github.com/AndikUne") }
-                var fgColorHex by remember { mutableStateOf("#FF003C") }
-                var generatedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-
-                LaunchedEffect(inputText, fgColorHex) {
-                    generatedBitmap = generateCyberQrBitmap(inputText, fgColorHex, "#07070A")
-                }
-
-                CyberCard(borderColor = NeonRed) {
-                    Text(
-                        text = "[CYBER QR GENERATOR]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
+                    Spacer(modifier = Modifier.height(14.dp))
                     CyberTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        label = "Teks atau URL Target",
-                        placeholder = "Ketik teks, URL, vCard, atau Wi-Fi..."
+                        value = content,
+                        onValueChange = {
+                            content = it
+                            error = null
+                        },
+                        label = "Isi kode",
+                        placeholder = barcodeKinds[kindIndex].placeholder,
+                        singleLine = false
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "Warna Aksen QR:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("#FF003C" to "Neon Red", "#00FF66" to "Matrix", "#00E5FF" to "Cyan", "#FFFFFF" to "White").forEach { (hex, name) ->
-                            val isSel = fgColorHex == hex
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(CyberDark)
-                                    .border(1.dp, if (isSel) NeonRed else CyberCardBorder, RoundedCornerShape(4.dp))
-                                    .clickable { fgColorHex = hex }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text(name, style = MaterialTheme.typography.labelSmall, color = if (isSel) NeonRed else TerminalDim)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    generatedBitmap?.let { bmp ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, NeonRed, RoundedCornerShape(8.dp))
-                                .background(CyberBlack)
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = "Generated QR Code",
-                                modifier = Modifier.size(200.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
                         CyberButton(
-                            text = "SALIN TEKS QR KE CLIPBOARD",
+                            text = "BUAT KODE",
                             onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("QR Text", inputText))
-                                Toast.makeText(context, "Teks QR disalin!", Toast.LENGTH_SHORT).show()
-                            }
+                                val value = content.trim()
+                                if (value.isEmpty()) {
+                                    error = "Isi teks atau tautan terlebih dahulu."
+                                    return@CyberButton
+                                }
+                                val result = runCatching {
+                                    generateBarcode(value, barcodeKinds[kindIndex].format, 1024)
+                                }
+                                result.onSuccess {
+                                    bitmap = it
+                                    generatedFor = value
+                                    error = null
+                                }.onFailure {
+                                    bitmap = null
+                                    error = it.message ?: "Gagal membuat kode."
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
                         )
+                        if (bitmap != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    val image = bitmap ?: return@OutlinedButton
+                                    val saved = MediaStoreSaver.saveBitmap(
+                                        context,
+                                        image,
+                                        MediaStoreSaver.timestampName("QR_Barcode", "png"),
+                                        Bitmap.CompressFormat.PNG
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        if (saved != null) "Gambar tersimpan di Pictures/IO-Tools." else "Gagal menyimpan gambar.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                },
+                                modifier = Modifier.weight(1f).height(50.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("SIMPAN")
+                            }
+                        }
+                    }
+
+                    if (error != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(error!!, color = AccentRose, fontSize = 12.sp)
                     }
                 }
             }
-        }
 
-        // TOOL 1: Barcode (Code128)
-        if (activeSubTool == 1) {
             item {
-                var barcodeValue by remember { mutableStateOf("IDTOOLS-2026-DEV14") }
-                var barcodeBmp by remember { mutableStateOf<Bitmap?>(null) }
-
-                LaunchedEffect(barcodeValue) {
-                    barcodeBmp = generateBarcodeBitmap(barcodeValue, 400, 140)
-                }
-
-                CyberCard(borderColor = NeonCyan) {
-                    Text(
-                        text = "[BARCODE CODE128 GENERATOR]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    CyberTextField(
-                        value = barcodeValue,
-                        onValueChange = { barcodeValue = it },
-                        label = "Nilai Barcode (Alfanumerik / Angka)",
-                        placeholder = "Contoh: DEV14-884920"
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    barcodeBmp?.let { bmp ->
+                val image = bitmap
+                if (image != null) {
+                    CyberCard(borderColor = AccentCyan) {
+                        Text(
+                            text = generatedFor,
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, NeonCyan, RoundedCornerShape(8.dp))
-                                .background(CyberBlack)
+                                .background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(12.dp))
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = "Generated Barcode",
-                                modifier = Modifier.fillMaxWidth().height(100.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        CyberSecondaryButton(
-                            text = "Salin Nilai Barcode",
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Barcode", barcodeValue))
-                                Toast.makeText(context, "Barcode disalin!", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // TOOL 2: Batch QR
-        if (activeSubTool == 2) {
-            item {
-                var batchInput by remember {
-                    mutableStateOf("https://dev14.andikune.id\nID-TOOL-001\nID-TOOL-002\nSECRET-KEY-999")
-                }
-                var batchResults by remember { mutableStateOf<List<Pair<String, Bitmap>>>(emptyList()) }
-
-                CyberCard(borderColor = MatrixGreen) {
-                    Text(
-                        text = "[BATCH QR CODE GENERATOR]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MatrixGreen,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Masukkan teks target per baris (1 baris = 1 QR Code).",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    CyberTextField(
-                        value = batchInput,
-                        onValueChange = { batchInput = it },
-                        label = "Daftar Teks (Pisahkan dengan Enter)",
-                        singleLine = false,
-                        modifier = Modifier.height(120.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    CyberButton(
-                        text = "GENERATE SEMUA QR BATCH",
-                        color = MatrixGreen,
-                        textColor = CyberBlack,
-                        onClick = {
-                            val lines = batchInput.lines().filter { it.isNotBlank() }
-                            batchResults = lines.map { line ->
-                                line to generateCyberQrBitmap(line, "#00FF66", "#07070A")
-                            }
-                            Toast.makeText(context, "${batchResults.size} QR berhasil dibuat!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-
-                    if (batchResults.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Hasil Batch (${batchResults.size} item):",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = TerminalText
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        batchResults.forEach { (text, bmp) ->
-                            Row(
+                                bitmap = image.asImageBitmap(),
+                                contentDescription = "Kode yang dihasilkan",
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .background(CyberDark, RoundedCornerShape(6.dp))
-                                    .border(1.dp, CyberCardBorder, RoundedCornerShape(6.dp))
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    copyToClipboard(context, generatedFor)
+                                    Toast.makeText(context, "Isi kode disalin.", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Image(
-                                    bitmap = bmp.asImageBitmap(),
-                                    contentDescription = text,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = text,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TerminalText,
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Salin isi")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val saved = MediaStoreSaver.saveBitmap(
+                                        context,
+                                        image,
+                                        MediaStoreSaver.timestampName("QR_Barcode", "png"),
+                                        Bitmap.CompressFormat.PNG
+                                    )
+                                    if (saved != null) shareUri(context, saved, "image/png")
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Bagikan")
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                CyberCard(borderColor = AccentEmerald) {
+                    Text(
+                        "Pemindai menggunakan kamera dan decoder ZXing. Mendukung QR, Code 128/39, EAN, UPC, Data Matrix, PDF417, dan Aztec.",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    CyberButton(
+                        text = "BUKA KAMERA & PINDAI",
+                        onClick = { launchScanner() },
+                        color = AccentEmerald
+                    )
+                }
+            }
+
+            item {
+                val text = scanResult
+                if (text != null) {
+                    CyberCard(borderColor = AccentCyan) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Hasil pemindaian", color = TextPrimary, fontWeight = FontWeight.Bold)
+                            AssistChip(onClick = {}, label = { Text(scanFormat, fontSize = 11.sp) })
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(text, color = AccentCyan, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    copyToClipboard(context, text)
+                                    Toast.makeText(context, "Hasil disalin.", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Salin")
+                            }
+                            if (text.startsWith("http://", true) || text.startsWith("https://", true)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        runCatching {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(text)))
+                                        }.onFailure {
+                                            Toast.makeText(context, "Tautan tidak dapat dibuka.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
                                     modifier = Modifier.weight(1f)
-                                )
+                                ) {
+                                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Buka")
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { scanResult = null },
+                                modifier = Modifier.weight(0.8f)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (history.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Riwayat", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { history.clear() }) { Text("Hapus") }
+                    }
+                }
+                items(history.size) { index ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = SlateElevated,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                history[index],
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { copyToClipboard(context, history[index]) }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Salin", tint = AccentCyan, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
                 }
             }
         }
-
-        // TOOL 3: Scanner Simulator
-        if (activeSubTool == 3) {
-            item {
-                var scanHistory by remember { mutableStateOf(listOf("https://github.com/AndikUne", "CONFIG-SIGNATURE-OK")) }
-                var flashActive by remember { mutableStateOf(false) }
-
-                CyberCard(borderColor = NeonYellow) {
-                    Text(
-                        text = "[OPTICAL BARCODE / QR SCANNER]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonYellow,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Scanner Viewport Box
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(220.dp)
-                            .background(CyberDark, RoundedCornerShape(10.dp))
-                            .border(1.dp, NeonYellow, RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
-                                contentDescription = "Scanner",
-                                tint = NeonYellow,
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Arahkan kamera ke QR Code atau Barcode",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TerminalText
-                            )
-                            Text(
-                                text = "Optical AI Engine Siap",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MatrixGreen
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { flashActive = !flashActive },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FlashOn,
-                                contentDescription = "Flashlight",
-                                tint = if (flashActive) NeonYellow else TerminalDim
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    CyberButton(
-                        text = "SIMULASIKAN HASIL SCAN REAL-TIME",
-                        color = NeonYellow,
-                        textColor = CyberBlack,
-                        onClick = {
-                            val dummyCodes = listOf(
-                                "https://andikune.iottools.dev/apk",
-                                "WIFI:S:CyberLab;T:WPA;P:HackerNeon2026;;",
-                                "BEGIN:VCARD\nFN:Andik Une\nTEL:+628123456789\nEND:VCARD"
-                            )
-                            scanHistory = listOf(dummyCodes.random()) + scanHistory
-                            Toast.makeText(context, "QR Terdeteksi!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Riwayat Pemindaian Terakhir:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    scanHistory.forEach { item ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .background(CyberBlack, RoundedCornerShape(6.dp))
-                                .border(1.dp, CyberCardBorder, RoundedCornerShape(6.dp))
-                                .padding(8.dp)
-                        ) {
-                            Text(item, style = MaterialTheme.typography.bodyMedium, color = TerminalText)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
-/**
- * Generates a clean 25x25 QR matrix bitmap in cyber colors.
- */
-private fun generateCyberQrBitmap(text: String, fgColorHex: String, bgColorHex: String): Bitmap {
-    val size = 25
-    val pixelSize = 10
-    val bitmap = Bitmap.createBitmap(size * pixelSize, size * pixelSize, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val fgPaint = Paint().apply { color = android.graphics.Color.parseColor(fgColorHex) }
-    val bgPaint = Paint().apply { color = android.graphics.Color.parseColor(bgColorHex) }
-
-    canvas.drawRect(0f, 0f, (size * pixelSize).toFloat(), (size * pixelSize).toFloat(), bgPaint)
-
-    // Deterministic pseudo-random pattern based on text hash
-    val md5 = MessageDigest.getInstance("MD5").digest(text.toByteArray())
-    val grid = Array(size) { BooleanArray(size) }
-
-    // Finder patterns (3 corners)
-    fun drawFinder(startX: Int, startY: Int) {
-        for (x in 0 until 7) {
-            for (y in 0 until 7) {
-                val isBorder = x == 0 || x == 6 || y == 0 || y == 6
-                val isCenter = x in 2..4 && y in 2..4
-                grid[startX + x][startY + y] = isBorder || isCenter
-            }
-        }
-    }
-
-    drawFinder(0, 0)
-    drawFinder(size - 7, 0)
-    drawFinder(0, size - 7)
-
-    // Fill data grid based on hash bits and text chars
-    var bitIndex = 0
-    for (x in 0 until size) {
-        for (y in 0 until size) {
-            if ((x < 8 && y < 8) || (x >= size - 8 && y < 8) || (x < 8 && y >= size - 8)) {
-                continue // Skip finders
-            }
-            val byteVal = md5[bitIndex % md5.size].toInt()
-            val textBonus = if (text.isNotEmpty()) text[(x + y) % text.length].code else 0
-            grid[x][y] = ((byteVal xor (x * 3 + y * 7) xor textBonus) and 1) == 1
-            bitIndex++
-        }
-    }
-
-    // Render grid
-    for (x in 0 until size) {
-        for (y in 0 until size) {
-            if (grid[x][y]) {
-                canvas.drawRect(
-                    (x * pixelSize).toFloat(),
-                    (y * pixelSize).toFloat(),
-                    ((x + 1) * pixelSize).toFloat(),
-                    ((y + 1) * pixelSize).toFloat(),
-                    fgPaint
-                )
-            }
-        }
-    }
-
-    return bitmap
+private fun buildScanOptions(): ScanOptions = ScanOptions().apply {
+    setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
+    setPrompt("Arahkan kamera ke QR / barcode")
+    setBeepEnabled(false)
+    setOrientationLocked(false)
+    setBarcodeImageEnabled(false)
 }
 
-/**
- * Generates Code128 style Barcode Bitmap.
- */
-private fun generateBarcodeBitmap(content: String, width: Int, height: Int): Bitmap {
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val bgPaint = Paint().apply { color = android.graphics.Color.parseColor("#07070A") }
-    val barPaint = Paint().apply { color = android.graphics.Color.parseColor("#00E5FF") }
-
-    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-
-    // Generate bar patterns based on characters
-    var currentX = 20
-    val barWidth = 3
-    val hash = MessageDigest.getInstance("SHA-256").digest(content.toByteArray())
-
-    for (i in 0 until (width - 40) / barWidth) {
-        val isBar = ((hash[i % hash.size].toInt() shr (i % 8)) and 1) == 1
-        if (isBar) {
-            canvas.drawRect(
-                currentX.toFloat(),
-                10f,
-                (currentX + barWidth).toFloat(),
-                (height - 10).toFloat(),
-                barPaint
-            )
+private fun generateBarcode(value: String, format: BarcodeFormat, size: Int): Bitmap {
+    val hints = mapOf(
+        EncodeHintType.MARGIN to 2,
+        EncodeHintType.CHARACTER_SET to "UTF-8"
+    )
+    val matrix = MultiFormatWriter().encode(value, format, size, size, hints)
+    val width = matrix.width
+    val height = matrix.height
+    val pixels = IntArray(width * height)
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            pixels[y * width + x] = if (matrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE
         }
-        currentX += barWidth
     }
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+        setPixels(pixels, 0, width, 0, 0, width, height)
+    }
+}
 
-    return bitmap
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("Kode", text))
+}
+
+private fun shareUri(context: Context, uri: Uri, mime: String) {
+    val share = Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(share, "Bagikan kode"))
 }

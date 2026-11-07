@@ -66,7 +66,9 @@ object UcMediaSnifferService {
 
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
-                return@withContext Result.failure(IllegalStateException("HTTP ${response.code}: Gagal membuka website."))
+                val code = response.code
+                response.close()
+                return@withContext Result.failure(IllegalStateException("HTTP $code: Gagal membuka website."))
             }
 
             val contentType = response.header("Content-Type", "") ?: ""
@@ -83,6 +85,7 @@ object UcMediaSnifferService {
                         sourceDomain = host
                     )
                 )
+                response.close()
                 return@withContext Result.success(
                     SniffingResult(
                         targetUrl = urlString,

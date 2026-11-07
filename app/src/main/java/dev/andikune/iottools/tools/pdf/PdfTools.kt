@@ -1,51 +1,120 @@
 package dev.andikune.iottools.tools.pdf
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.graphics.pdf.PdfDocument
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.andikune.iottools.tools.common.MediaStoreSaver
 import dev.andikune.iottools.ui.components.*
 import dev.andikune.iottools.ui.theme.*
-import java.io.File
-import java.io.FileOutputStream
+import kotlinx.coroutines.launch
 
 @Composable
 fun PdfTools() {
     val context = LocalContext.current
-    var activeSubTool by remember { mutableIntStateOf(0) } // 0: Merge, 1: Split, 2: Compress, 3: Rotate, 4: Protect
+    val scope = rememberCoroutineScope()
+    var activeSubTool by remember { mutableIntStateOf(0) }
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    val mergeUris = remember { mutableStateListOf<Uri>() }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var lastOutputs by remember { mutableStateOf<List<Uri>>(emptyList()) }
+
+    var pageRange by remember { mutableStateOf("") }
+    var rotateDegrees by remember { mutableIntStateOf(90) }
+    var userPassword by remember { mutableStateOf("") }
+    var ownerPassword by remember { mutableStateOf("") }
+    var compressProfile by remember { mutableIntStateOf(1) }
+
+    val singlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedUri = uri
+            status = null
+            error = null
+            lastOutputs = emptyList()
+        }
+    }
+    val mergePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            mergeUris.clear()
+            mergeUris.addAll(uris)
+            status = null
+            error = null
+            lastOutputs = emptyList()
+        }
+    }
+
+    fun sourceName(uri: Uri?): String =
+        uri?.let { MediaStoreSaver.displayName(context, it) } ?: "Belum ada file"
+
+    fun outputBase(uri: Uri?): String =
+        sourceName(uri).substringBeforeLast('.', "dokumen").ifBlank { "dokumen" }
+
+    fun runOperation(block: suspend () -> List<Uri>) {
+        if (busy) return
+        busy = true
+        error = null
+        status = null
+        lastOutputs = emptyList()
+        scope.launch {
+            try {
+                val outputs = block()
+                lastOutputs = outputs
+                status = if (outputs.size == 1) {
+                    "Selesai. File disimpan di Download/IO-Tools/${MediaStoreSaver.displayName(context, outputs.first()) ?: ""}"
+                } else {
+                    "Selesai. ${outputs.size} file PDF disimpan di Download/IO-Tools."
+                }
+            } catch (e: Exception) {
+                error = e.message ?: "Operasi PDF gagal."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    val subtools = listOf(
+        "Gabung" to Icons.Default.CallMerge,
+        "Pisah" to Icons.Default.CallSplit,
+        "Putar" to Icons.Default.RotateRight,
+        "Kunci" to Icons.Default.Lock,
+        "Kompres" to Icons.Default.Compress
+    )
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             CyberTerminalHeader(
-                title = "CYBER PDF OPERATIONS",
-                subtitle = "Merge | Split | Compress | Rotate | Protect",
-                statusText = "LOADED",
-                statusColor = NeonRed
+                title = "Dokumen PDF",
+                subtitle = "Pemrosesan lokal nyata dengan PDFBox-Android",
+                statusText = "OFFLINE",
+                statusColor = AccentAmber
             )
         }
 
@@ -56,280 +125,279 @@ fun PdfTools() {
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val tools = listOf("Gabung (Merge)", "Pisah (Split)", "Kompres PDF", "Putar (Rotate)", "Proteksi Password")
-                tools.forEachIndexed { index, name ->
-                    val isSel = activeSubTool == index
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSel) NeonRed else CyberDark)
-                            .border(1.dp, if (isSel) NeonRed else CyberCardBorder, RoundedCornerShape(6.dp))
-                            .clickable { activeSubTool = index }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSel) CyberBlack else TerminalText,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                subtools.forEachIndexed { index, pair ->
+                    FilterChip(
+                        selected = activeSubTool == index,
+                        onClick = {
+                            activeSubTool = index
+                            status = null
+                            error = null
+                            lastOutputs = emptyList()
+                        },
+                        label = { Text(pair.first) },
+                        leadingIcon = { Icon(pair.second, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    )
+                }
+            }
+        }
+
+        item {
+            CyberCard(borderColor = if (activeSubTool == 3) AccentAmber else SlateBorder) {
+                if (activeSubTool == 0) {
+                    Text("Gabungkan PDF", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Pilih dua file atau lebih. Urutan pilihan akan dipertahankan.", color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    CyberSecondaryButton(
+                        text = if (mergeUris.isEmpty()) "PILIH FILE PDF" else "PILIH ULANG (${mergeUris.size} FILE)",
+                        onClick = { mergePicker.launch(arrayOf("application/pdf")) }
+                    )
+                    if (mergeUris.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        mergeUris.forEachIndexed { index, uri ->
+                            Text(
+                                "${index + 1}. ${sourceName(uri)}",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    CyberButton(
+                        text = if (busy) "MEMPROSES..." else "GABUNGKAN SEKARANG",
+                        enabled = !busy && mergeUris.size >= 2,
+                        onClick = {
+                            runOperation {
+                                listOf(PdfEngine.merge(context, mergeUris.toList(), "Gabungan_${System.currentTimeMillis()}.pdf"))
+                            }
+                        }
+                    )
+                } else {
+                    Text(
+                        when (activeSubTool) {
+                            1 -> "Pisahkan PDF"
+                            2 -> "Putar Halaman"
+                            3 -> "Kunci PDF"
+                            else -> "Kompres PDF"
+                        },
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        when (activeSubTool) {
+                            1 -> "Kosongkan rentang untuk memisahkan setiap halaman menjadi file sendiri."
+                            2 -> "Rotasi diterapkan ke seluruh halaman."
+                            3 -> "PDF dienkripsi AES-256. Password tidak disimpan di perangkat."
+                            else -> "Setiap halaman dirender ulang sebagai JPEG lalu disusun menjadi PDF baru."
+                        },
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    CyberSecondaryButton(
+                        text = if (selectedUri == null) "PILIH FILE PDF" else sourceName(selectedUri),
+                        onClick = { singlePicker.launch(arrayOf("application/pdf")) }
+                    )
+
+                    if (activeSubTool == 1) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        CyberTextField(
+                            value = pageRange,
+                            onValueChange = { pageRange = it },
+                            label = "Rentang halaman",
+                            placeholder = "contoh: 1-3, 5, 8-10 (kosong = semua halaman)"
                         )
                     }
-                }
-            }
-        }
 
-        // TOOL 0: Merge
-        if (activeSubTool == 0) {
-            item {
-                CyberCard(borderColor = NeonRed) {
-                    Text(
-                        text = "[PDF BATCH MERGE ENGINE]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Menggabungkan beberapa dokumen PDF menjadi satu file utuh dengan penataan ulang halaman otomatis.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
+                    if (activeSubTool == 2) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(90, 180, 270).forEach { degree ->
+                                FilterChip(
+                                    selected = rotateDegrees == degree,
+                                    onClick = { rotateDegrees = degree },
+                                    label = { Text("$degree°") }
+                                )
+                            }
+                        }
+                    }
 
-                    val dummyFiles = listOf("Dokumen_1_Laporan.pdf (1.2 MB)", "Dokumen_2_Lampiran.pdf (850 KB)", "Dokumen_3_Sign.pdf (400 KB)")
-                    dummyFiles.forEach { file ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .background(CyberDark, RoundedCornerShape(6.dp))
-                                .border(1.dp, CyberCardBorder, RoundedCornerShape(6.dp))
-                                .padding(10.dp)
+                    if (activeSubTool == 3) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        CyberTextField(
+                            value = userPassword,
+                            onValueChange = { userPassword = it },
+                            label = "Password pengguna",
+                            placeholder = "Wajib diisi"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CyberTextField(
+                            value = ownerPassword,
+                            onValueChange = { ownerPassword = it },
+                            label = "Password owner (opsional)",
+                            placeholder = "Kosongkan = sama dengan password pengguna"
+                        )
+                    }
+
+                    if (activeSubTool == 4) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(file, style = MaterialTheme.typography.bodyMedium, color = TerminalText)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    CyberButton(
-                        text = "GABUNGKAN SEMUA FILE PDF",
-                        onClick = {
-                            createSamplePdf(context, "Merged_Document_IDTools.pdf", 3)
-                            Toast.makeText(context, "3 Dokumen PDF berhasil digabungkan menjadi 1 file!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-            }
-        }
-
-        // TOOL 1: Split
-        if (activeSubTool == 1) {
-            item {
-                var pageRange by remember { mutableStateOf("1-3, 5") }
-
-                CyberCard(borderColor = NeonCyan) {
-                    Text(
-                        text = "[PDF PAGE SPLITTER]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Ekstrak rentang halaman spesifik dari file PDF yang besar.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    CyberTextField(
-                        value = pageRange,
-                        onValueChange = { pageRange = it },
-                        label = "Rentang Halaman yang Diekstrak",
-                        placeholder = "Contoh: 1-5 atau 2,4,6"
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    CyberButton(
-                        text = "EKSTRAK HALAMAN TERPILIH",
-                        color = NeonCyan,
-                        onClick = {
-                            createSamplePdf(context, "Splitted_Pages_$pageRange.pdf", 2)
-                            Toast.makeText(context, "Halaman $pageRange berhasil diekstrak!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-            }
-        }
-
-        // TOOL 2: Compress
-        if (activeSubTool == 2) {
-            item {
-                var compressLevel by remember { mutableStateOf("Tinggi (High)") }
-
-                CyberCard(borderColor = MatrixGreen) {
-                    Text(
-                        text = "[PDF FILE SIZE COMPRESSOR]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MatrixGreen,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Mengurangi resolusi gambar internal DPI dokumen PDF dari 300 DPI ke 150/72 DPI untuk pengiriman email cepat.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Rendah", "Sedang", "Tinggi (High)").forEach { lvl ->
-                            val isSel = compressLevel == lvl
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) MatrixGreen else CyberDark)
-                                    .clickable { compressLevel = lvl }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    lvl,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSel) CyberBlack else TerminalText
+                            listOf("Kecil" to 0, "Sedang" to 1, "Tinggi" to 2).forEach { profile ->
+                                FilterChip(
+                                    selected = compressProfile == profile.second,
+                                    onClick = { compressProfile = profile.second },
+                                    label = { Text(profile.first) }
                                 )
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
-
                     CyberButton(
-                        text = "JALANKAN KOMPRESI DOKUMEN",
-                        color = MatrixGreen,
-                        textColor = CyberBlack,
+                        text = if (busy) "MEMPROSES..." else when (activeSubTool) {
+                            1 -> "PISAHKAN PDF"
+                            2 -> "PUTAR PDF"
+                            3 -> "KUNCI PDF"
+                            else -> "KOMPRES PDF"
+                        },
+                        enabled = !busy && selectedUri != null,
                         onClick = {
-                            Toast.makeText(context, "Kompresi Selesai! Ukuran berkurang 65%", Toast.LENGTH_SHORT).show()
+                            val uri = selectedUri ?: return@CyberButton
+                            runOperation {
+                                when (activeSubTool) {
+                                    1 -> PdfEngine.split(
+                                        context,
+                                        uri,
+                                        pageRange,
+                                        "${outputBase(uri)}_split.pdf"
+                                    )
+                                    2 -> listOf(
+                                        PdfEngine.rotate(
+                                            context,
+                                            uri,
+                                            rotateDegrees,
+                                            "${outputBase(uri)}_rotated.pdf"
+                                        )
+                                    )
+                                    3 -> listOf(
+                                        PdfEngine.protect(
+                                            context,
+                                            uri,
+                                            userPassword,
+                                            ownerPassword,
+                                            "${outputBase(uri)}_locked.pdf"
+                                        )
+                                    )
+                                    else -> {
+                                        val (dpi, quality) = when (compressProfile) {
+                                            0 -> 72 to 35
+                                            2 -> 160 to 60
+                                            else -> 120 to 45
+                                        }
+                                        val result = PdfEngine.compress(
+                                            context,
+                                            uri,
+                                            dpi,
+                                            quality,
+                                            "${outputBase(uri)}_compressed.pdf"
+                                        )
+                                        val before = result.second
+                                        val after = MediaStoreSaver.fileSize(context, result.first)
+                                        if (before > 0) {
+                                            status = "Ukuran: ${formatBytes(before)} → ${formatBytes(after)}"
+                                        }
+                                        listOf(result.first)
+                                    }
+                                }
+                            }
                         }
                     )
                 }
             }
         }
 
-        // TOOL 3: Rotate
-        if (activeSubTool == 3) {
+        if (status != null) {
             item {
-                var rotationAngle by remember { mutableIntStateOf(90) }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AccentEmerald.copy(alpha = 0.12f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentEmerald)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(status!!, color = AccentEmerald, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
 
-                CyberCard(borderColor = NeonYellow) {
-                    Text(
-                        text = "[PDF PAGE ROTATION]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonYellow,
-                        fontWeight = FontWeight.Bold
-                    )
+        if (error != null) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AccentRoseSoft,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(error!!, color = AccentRose, fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+                }
+            }
+        }
+
+        if (lastOutputs.isNotEmpty()) {
+            item {
+                CyberCard(borderColor = AccentCyan) {
+                    Text("Hasil", color = TextPrimary, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Putar orientasi dokumen PDF yang salah arah:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        listOf(90, 180, 270).forEach { deg ->
-                            val isSel = rotationAngle == deg
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) NeonYellow else CyberDark)
-                                    .clickable { rotationAngle = deg }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    "$deg° Searah Jarum Jam",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSel) CyberBlack else TerminalText,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                                )
+                    lastOutputs.forEach { uri ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                MediaStoreSaver.displayName(context, uri) ?: uri.lastPathSegment ?: "PDF",
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { sharePdf(context, uri) }) {
+                                Icon(Icons.Default.Share, contentDescription = "Bagikan", tint = AccentCyan, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    CyberButton(
-                        text = "PUTAR ORIENTASI HALAMAN ($rotationAngle°)",
-                        color = NeonYellow,
-                        textColor = CyberBlack,
-                        onClick = {
-                            Toast.makeText(context, "Halaman berhasil diputar $rotationAngle°!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-            }
-        }
-
-        // TOOL 4: Protect / Password
-        if (activeSubTool == 4) {
-            item {
-                var passwordInput by remember { mutableStateOf("CyberPass2026!") }
-
-                CyberCard(borderColor = NeonRed) {
-                    Text(
-                        text = "[PDF ENCRYPTION & PASSWORD LOCK]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Mengunci dokumen PDF dengan enkripsi AES-128 / AES-256 bit untuk mencegah akses tanpa izin.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TerminalDim
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    CyberTextField(
-                        value = passwordInput,
-                        onValueChange = { passwordInput = it },
-                        label = "Kata Sandi Enkripsi PDF",
-                        placeholder = "Masukkan sandi rahasia..."
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    CyberButton(
-                        text = "KUNCI DOKUMEN DENGAN SANDI",
-                        onClick = {
-                            Toast.makeText(context, "PDF berhasil diproteksi dengan enkripsi AES!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
                 }
             }
         }
     }
 }
 
-private fun createSamplePdf(context: Context, filename: String, pages: Int) {
-    try {
-        val doc = PdfDocument()
-        for (i in 1..pages) {
-            val pageInfo = PdfDocument.PageInfo.Builder(595, 842, i).create()
-            val page = doc.startPage(pageInfo)
-            val canvas = page.canvas
-            canvas.drawColor(Color.WHITE)
+private fun sharePdf(context: Context, uri: Uri) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/pdf"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Bagikan PDF"))
+}
 
-            val paint = Paint().apply {
-                color = Color.BLACK
-                textSize = 16f
-                typeface = Typeface.MONOSPACE
-            }
-            canvas.drawText("iD-Tools Dev14.Apk - Dokumen Halaman $i", 50f, 100f, paint)
-            doc.finishPage(page)
-        }
-        val file = File(context.cacheDir, filename)
-        doc.writeTo(FileOutputStream(file))
-        doc.close()
-    } catch (_: Exception) {}
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1.0 -> String.format("%.2f MB", mb)
+        kb >= 1.0 -> String.format("%.1f KB", kb)
+        else -> "$bytes B"
+    }
 }

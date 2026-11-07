@@ -2,17 +2,29 @@ package dev.andikune.iottools
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.Message
 import android.view.View
 import android.webkit.*
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import dev.andikune.iottools.builder.WebToApkConfig
 import org.json.JSONObject
 import java.io.InputStream
@@ -25,11 +37,14 @@ class WebToApkStandaloneActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
     private var progressBar: ProgressBar? = null
+    private var swipeRefresh: SwipeRefreshLayout? = null
     private var config = WebToApkConfig()
 
     private var isCameraAllowed = false
     private var isAudioAllowed = false
     private var isLocationAllowed = false
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,9 +64,12 @@ class WebToApkStandaloneActivity : ComponentActivity() {
             Color.parseColor("#090D16")
         }
 
+        setupFileChooser()
         setupLayout()
         configureWebView()
+        setupDownloads()
         setupBackNavigation()
+        requestConfiguredPermissions()
 
         webView.loadUrl(config.webUrl)
     }
@@ -68,6 +86,8 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         val progressBarExtra = intent.getBooleanExtra("EXTRA_PROGRESS_BAR", true)
         val desktopModeExtra = intent.getBooleanExtra("EXTRA_DESKTOP_MODE", false)
         val zoomExtra = intent.getBooleanExtra("EXTRA_ZOOM", true)
+        val clearCacheExtra = intent.getBooleanExtra("EXTRA_CLEAR_CACHE", false)
+        val userAgentExtra = intent.getStringExtra("EXTRA_USER_AGENT").orEmpty()
 
         if (urlExtra != null) {
             config = WebToApkConfig(
@@ -82,7 +102,9 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 enablePullToRefresh = pullToRefreshExtra,
                 enableProgressBar = progressBarExtra,
                 enableDesktopMode = desktopModeExtra,
-                enableZoomControls = zoomExtra
+                enableZoomControls = zoomExtra,
+                clearCacheOnExit = clearCacheExtra,
+                userAgentOverride = userAgentExtra
             )
             isCameraAllowed = permCameraExtra
             isAudioAllowed = permAudioExtra
@@ -119,11 +141,99 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                         permFineLocation = isLocationAllowed,
                         enablePullToRefresh = json.optBoolean("enablePullToRefresh", true),
                         enableProgressBar = json.optBoolean("enableProgressBar", true),
-                        enableDesktopMode = json.optBoolean("enableDesktopMode", false),
-                        enableZoomControls = json.optBoolean("enableZoomControls", true)
+                        enableDesktopMode = json.optBoolean("desktopMode", false),
+                        enableZoomControls = json.optBoolean("zoomControls", true),
+                        clearCacheOnExit = json.optBoolean("clearCacheOnExit", false),
+                        userAgentOverride = json.optString("userAgentOverride", "")
                     )
                 } catch (_: Exception) {}
             }
+        }
+    }
+
+    private fun setupFileChooser() {
+        fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = fileChooserCallback
+            fileChooserCallback = null
+            if (callback == null) return@registerForActivityResult
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                val data = result.data
+                val uris = when {
+                    data?.clipData != null -> {
+                        val clip = data.clipData!!
+                        Array(clip.itemCount) { clip.getItemAt(it).uri }
+                    }
+                    data?.data != null -> arrayOf(data.data!!)
+                    else -> emptyArray()
+                }
+                callback.onReceiveValue(uris)
+            } else {
+                callback.onReceiveValue(null)
+            }
+        }
+    }
+
+    private fun requestConfiguredPermissions() {
+        val wanted = mutableListOf<String>()
+        if (isCameraAllowed) wanted.add(Manifest.permission.CAMERA)
+        if (isAudioAllowed) wanted.add(Manifest.permission.RECORD_AUDIO)
+        if (isLocationAllowed) {
+            wanted.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            wanted.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= 33 && config.permPostNotifications) {
+            wanted.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (Build.VERSION.SDK_INT <= 28) {
+            wanted.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        val missing = wanted.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 200)
+        }
+    }
+
+    private fun setupDownloads() {
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            try {
+                val fileName = URLUtil.guessFileName(
+                    url,
+                    contentDisposition,
+                    mimeType ?: "application/octet-stream"
+                )
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setMimeType(mimeType ?: "application/octet-stream")
+                    if (userAgent.isNotBlank()) addRequestHeader("User-Agent", userAgent)
+                    CookieManager.getInstance().getCookie(url)?.let { addRequestHeader("Cookie", it) }
+                    setTitle(fileName)
+                    setDescription("Mengunduh dari ${config.appName}")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "IO-Tools/$fileName")
+                    setAllowedOverMetered(true)
+                    setAllowedOverRoaming(true)
+                }
+                (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+                Toast.makeText(this, "Mengunduh: $fileName", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Unduhan tidak dapat dimulai: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun handleExternalUri(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase() ?: return false
+        if (scheme == "http" || scheme == "https") return false
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            true
+        } catch (_: Exception) {
+            true
         }
     }
 
@@ -133,13 +243,22 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         }
 
         webView = WebView(this)
-        rootLayout.addView(
-            webView,
-            android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
-                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
-            )
+        val webParams = android.widget.RelativeLayout.LayoutParams(
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
         )
+        if (config.enablePullToRefresh) {
+            swipeRefresh = SwipeRefreshLayout(this).apply {
+                setOnRefreshListener { webView.reload() }
+                addView(webView, android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                ))
+            }
+            rootLayout.addView(swipeRefresh, webParams)
+        } else {
+            rootLayout.addView(webView, webParams)
+        }
 
         if (config.enableProgressBar) {
             progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -170,24 +289,125 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.cacheMode = WebSettings.LOAD_DEFAULT
+        settings.setSupportMultipleWindows(true)
+        settings.setGeolocationEnabled(true)
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
         if (config.enableDesktopMode) {
             settings.userAgentString = settings.userAgentString.replace("Mobile", "eliboM")
         }
+        if (config.userAgentOverride.isNotBlank()) {
+            settings.userAgentString = config.userAgentOverride
+        }
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return false
+                return handleExternalUri(uri)
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                swipeRefresh?.isRefreshing = false
+            }
+
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                swipeRefresh?.isRefreshing = false
                 view?.loadDataWithBaseURL(null, config.offlineFallbackHtml, "text/html", "UTF-8", null)
             }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                if (newProgress == 100) progressBar?.visibility = View.GONE
-                else {
+                if (newProgress == 100) {
+                    progressBar?.visibility = View.GONE
+                    swipeRefresh?.isRefreshing = false
+                } else {
                     progressBar?.visibility = View.VISIBLE
                     progressBar?.progress = newProgress
                 }
+            }
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?
+            ): Boolean {
+                val message = resultMsg ?: return false
+                val transport = message.obj as? WebView.WebViewTransport ?: return false
+                val popup = WebView(this@WebToApkStandaloneActivity)
+                popup.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                        request?.url?.let { webView.loadUrl(it.toString()) }
+                        popup.destroy()
+                        return true
+                    }
+                }
+                transport.webView = popup
+                message.sendToTarget()
+                return true
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@WebToApkStandaloneActivity.fileChooserCallback?.onReceiveValue(null)
+                this@WebToApkStandaloneActivity.fileChooserCallback = filePathCallback
+                if (filePathCallback == null) return false
+                return try {
+                    val picker = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                    }
+                    fileChooserLauncher.launch(picker)
+                    true
+                } catch (_: Exception) {
+                    this@WebToApkStandaloneActivity.fileChooserCallback = null
+                    false
+                }
+            }
+
+            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                AlertDialog.Builder(this@WebToApkStandaloneActivity)
+                    .setTitle(config.appName)
+                    .setMessage(message)
+                    .setPositiveButton("OK") { _, _ -> result?.confirm() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+
+            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                AlertDialog.Builder(this@WebToApkStandaloneActivity)
+                    .setTitle(config.appName)
+                    .setMessage(message)
+                    .setPositiveButton("OK") { _, _ -> result?.confirm() }
+                    .setNegativeButton("Batal") { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+
+            override fun onJsPrompt(
+                view: WebView?,
+                url: String?,
+                message: String?,
+                defaultValue: String?,
+                result: JsPromptResult?
+            ): Boolean {
+                val input = EditText(this@WebToApkStandaloneActivity).apply { setText(defaultValue.orEmpty()) }
+                AlertDialog.Builder(this@WebToApkStandaloneActivity)
+                    .setTitle(config.appName)
+                    .setMessage(message)
+                    .setView(input)
+                    .setPositiveButton("OK") { _, _ -> result?.confirm(input.text.toString()) }
+                    .setNegativeButton("Batal") { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
@@ -245,5 +465,14 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 if (webView.canGoBack()) webView.goBack() else finish()
             }
         })
+    }
+
+    override fun onDestroy() {
+        if (config.clearCacheOnExit) {
+            webView.clearCache(true)
+            WebStorage.getInstance().deleteAllData()
+        }
+        webView.destroy()
+        super.onDestroy()
     }
 }

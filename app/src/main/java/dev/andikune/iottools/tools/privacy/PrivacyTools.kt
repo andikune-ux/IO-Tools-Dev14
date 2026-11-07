@@ -3,10 +3,10 @@ package dev.andikune.iottools.tools.privacy
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Base64
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,6 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,31 +29,38 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.andikune.iottools.ui.components.*
 import dev.andikune.iottools.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.security.SecureRandom
+import javax.crypto.Cipher
 import javax.crypto.Mac
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.log2
-import kotlin.math.pow
 
 @Composable
 fun PrivacyTools() {
     val context = LocalContext.current
-    var activeSubTool by remember { mutableIntStateOf(0) } // 0: Password Gen, 1: Secure Notes, 2: 2FA TOTP
+    var activeSubTool by remember { mutableIntStateOf(0) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(SlateCanvas)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             CyberTerminalHeader(
-                title = "PRIVACY & CRYPTO VAULT",
-                subtitle = "Password Generator | Secure Notes | 2FA Authenticator",
-                statusText = "ENCRYPTED",
-                statusColor = NeonRed
+                title = "Privacy Vault",
+                subtitle = "Password generator • Secure notes • TOTP 2FA",
+                statusText = "LOCAL",
+                statusColor = AccentPurple
             )
         }
 
@@ -61,292 +71,426 @@ fun PrivacyTools() {
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val tools = listOf("Password Generator", "Secure Notes (AES)", "2FA Authenticator (TOTP)")
-                tools.forEachIndexed { index, name ->
-                    val isSel = activeSubTool == index
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSel) NeonRed else CyberDark)
-                            .border(1.dp, if (isSel) NeonRed else CyberCardBorder, RoundedCornerShape(6.dp))
-                            .clickable { activeSubTool = index }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSel) CyberBlack else TerminalText,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
+                listOf("Password", "Catatan AES", "TOTP 2FA").forEachIndexed { index, label ->
+                    FilterChip(
+                        selected = activeSubTool == index,
+                        onClick = { activeSubTool = index },
+                        label = { Text(label) }
+                    )
                 }
             }
         }
 
-        // TOOL 0: Password Generator
         if (activeSubTool == 0) {
             item {
-                var lengthSlider by remember { mutableFloatStateOf(16f) }
-                var incUpper by remember { mutableStateOf(true) }
-                var incLower by remember { mutableStateOf(true) }
-                var incNumbers by remember { mutableStateOf(true) }
-                var incSymbols by remember { mutableStateOf(true) }
-                var generatedPass by remember { mutableStateOf("") }
-
-                LaunchedEffect(lengthSlider, incUpper, incLower, incNumbers, incSymbols) {
-                    generatedPass = generateCyberPassword(lengthSlider.toInt(), incUpper, incLower, incNumbers, incSymbols)
-                }
-
-                val entropyBits = remember(generatedPass) {
-                    var poolSize = 0
-                    if (incUpper) poolSize += 26
-                    if (incLower) poolSize += 26
-                    if (incNumbers) poolSize += 10
-                    if (incSymbols) poolSize += 30
-                    if (poolSize > 0) (lengthSlider.toInt() * log2(poolSize.toDouble())).toInt() else 0
-                }
-
-                CyberCard(borderColor = NeonRed) {
-                    Text(
-                        text = "[QUANTUM-RESISTANT PASSWORD GENERATOR]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonRed,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(CyberDark, RoundedCornerShape(8.dp))
-                            .border(1.dp, NeonRed, RoundedCornerShape(8.dp))
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = generatedPass,
-                                style = MaterialTheme.typography.titleMedium.copy(fontFamily = JetBrainsMono),
-                                color = MatrixGreen,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = {
-                                    generatedPass = generateCyberPassword(lengthSlider.toInt(), incUpper, incLower, incNumbers, incSymbols)
-                                }
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Regenerate", tint = NeonCyan)
-                            }
-                            IconButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Password", generatedPass))
-                                    Toast.makeText(context, "Password disalin ke Clipboard!", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = NeonRed)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("Panjang Karakter: ${lengthSlider.toInt()} | Entropi: $entropyBits bits (Sangat Kuat)", style = MaterialTheme.typography.labelSmall, color = TerminalDim)
-                    Slider(
-                        value = lengthSlider,
-                        onValueChange = { lengthSlider = it },
-                        valueRange = 8f..48f,
-                        colors = SliderDefaults.colors(thumbColor = NeonRed, activeTrackColor = NeonRed, inactiveTrackColor = CyberDark)
-                    )
-
-                    CyberToggleRow("Huruf Besar (A-Z)", "Sertakan karakter kapital", incUpper, { incUpper = it })
-                    CyberToggleRow("Huruf Kecil (a-z)", "Sertakan karakter huruf kecil", incLower, { incLower = it })
-                    CyberToggleRow("Angka (0-9)", "Sertakan digit angka acak", incNumbers, { incNumbers = it })
-                    CyberToggleRow("Karakter Simbol (!@#$)", "Sertakan tanda baca dan simbol khusus", incSymbols, { incSymbols = it })
-                }
+                PasswordGeneratorCard(context)
             }
         }
 
-        // TOOL 1: Secure Notes (AES)
         if (activeSubTool == 1) {
             item {
-                var noteTitle by remember { mutableStateOf("Kredensial Server Dev14") }
-                var noteBody by remember { mutableStateOf("Server IP: 10.0.0.1\nRoot Pass: CyberAndikUne2026\nAPI Key: ak_live_8912839") }
-                var pinCode by remember { mutableStateOf("1234") }
-                var isEncrypted by remember { mutableStateOf(false) }
-
-                CyberCard(borderColor = NeonCyan) {
-                    Text(
-                        text = "[ENCRYPTED CYBER VAULT NOTES (AES-GCM)]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    CyberTextField(
-                        value = noteTitle,
-                        onValueChange = { noteTitle = it },
-                        label = "Judul Catatan Rahasia"
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    CyberTextField(
-                        value = noteBody,
-                        onValueChange = { noteBody = it },
-                        label = if (isEncrypted) "Buffer Terenkripsi (Ciphertext)" else "Isi Catatan Rahasia",
-                        singleLine = false,
-                        modifier = Modifier.height(120.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    CyberTextField(
-                        value = pinCode,
-                        onValueChange = { pinCode = it },
-                        label = "PIN Enkripsi / Master Passphrase"
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        CyberButton(
-                            text = "KUNCI / ENKRIPSI",
-                            modifier = Modifier.weight(1f),
-                            color = NeonRed,
-                            onClick = {
-                                isEncrypted = true
-                                val cipher = "AES-GCM::" + android.util.Base64.encodeToString(noteBody.reversed().toByteArray(), android.util.Base64.NO_WRAP)
-                                noteBody = cipher
-                                Toast.makeText(context, "Catatan terkunci dengan AES-GCM!", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                        CyberButton(
-                            text = "BUKA / DEKRIPSI",
-                            modifier = Modifier.weight(1f),
-                            color = MatrixGreen,
-                            textColor = CyberBlack,
-                            onClick = {
-                                if (pinCode == "1234" || pinCode.isNotEmpty()) {
-                                    isEncrypted = false
-                                    if (noteBody.startsWith("AES-GCM::")) {
-                                        val rawBase = noteBody.removePrefix("AES-GCM::")
-                                        noteBody = String(android.util.Base64.decode(rawBase, android.util.Base64.DEFAULT)).reversed()
-                                    }
-                                    Toast.makeText(context, "Dekripsi berhasil!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "PIN Salah!", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                    }
-                }
+                SecureNotesCard(context)
             }
         }
 
-        // TOOL 2: 2FA TOTP Authenticator
         if (activeSubTool == 2) {
             item {
-                var secondsLeft by remember { mutableIntStateOf(30) }
-                var totpCode by remember { mutableStateOf("842 190") }
-                val secretKey = "JBSWY3DPEHPK3PXP" // Standard Base32 key
-
-                LaunchedEffect(Unit) {
-                    while (true) {
-                        val epochSec = System.currentTimeMillis() / 1000
-                        val remaining = (30 - (epochSec % 30)).toInt()
-                        secondsLeft = remaining
-                        if (remaining == 30 || totpCode.isEmpty()) {
-                            totpCode = generateTotpCode(secretKey, epochSec / 30)
-                        }
-                        delay(1000)
-                    }
-                }
-
-                CyberCard(borderColor = MatrixGreen) {
-                    Text(
-                        text = "[2FA TOTP AUTHENTICATOR (RFC 6238)]",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MatrixGreen,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text("Akun: dev.andikune.iottools (Admin Root)", style = MaterialTheme.typography.bodyMedium, color = TerminalText)
-                    Text("Secret Key: $secretKey", style = MaterialTheme.typography.labelSmall, color = TerminalDim)
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(CyberDark, RoundedCornerShape(10.dp))
-                            .border(1.dp, MatrixGreen, RoundedCornerShape(10.dp))
-                            .padding(20.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = totpCode,
-                                style = MaterialTheme.typography.displayMedium.copy(fontFamily = ShareTechMono),
-                                color = MatrixGreen,
-                                letterSpacing = 4.sp
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { secondsLeft / 30f },
-                                modifier = Modifier.width(180.dp).height(4.dp),
-                                color = if (secondsLeft > 5) MatrixGreen else NeonRed,
-                                trackColor = CyberBlack
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Berganti dalam ${secondsLeft}s",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TerminalDim
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    CyberButton(
-                        text = "SALIN KODE 2FA KE CLIPBOARD",
-                        color = MatrixGreen,
-                        textColor = CyberBlack,
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("2FA Code", totpCode.replace(" ", "")))
-                            Toast.makeText(context, "Kode 2FA disalin!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
+                TotpCard(context)
             }
         }
     }
 }
 
-private fun generateCyberPassword(length: Int, upper: Boolean, lower: Boolean, nums: Boolean, symbols: Boolean): String {
-    val charPool = StringBuilder()
-    if (upper) charPool.append("ABCDEFGHJKLMNPQRSTUVWXYZ")
-    if (lower) charPool.append("abcdefghijkmnopqrstuvwxyz")
-    if (nums) charPool.append("23456789")
-    if (symbols) charPool.append("!@#\$%^&*()-_=+[]{}")
+@Composable
+private fun PasswordGeneratorCard(context: Context) {
+    var length by remember { mutableFloatStateOf(20f) }
+    var upper by remember { mutableStateOf(true) }
+    var lower by remember { mutableStateOf(true) }
+    var numbers by remember { mutableStateOf(true) }
+    var symbols by remember { mutableStateOf(true) }
+    var password by remember { mutableStateOf("") }
 
-    if (charPool.isEmpty()) charPool.append("abcdefgh123456")
-    val random = SecureRandom()
-    val pass = StringBuilder()
-    for (i in 0 until length) {
-        pass.append(charPool[random.nextInt(charPool.length)])
+    fun regenerate() {
+        password = generatePassword(length.toInt(), upper, lower, numbers, symbols)
     }
-    return pass.toString()
+
+    LaunchedEffect(length, upper, lower, numbers, symbols) {
+        regenerate()
+    }
+
+    val poolSize = (if (upper) 24 else 0) + (if (lower) 24 else 0) +
+        (if (numbers) 8 else 0) + (if (symbols) 22 else 0)
+    val entropy = if (poolSize > 1) (length * log2(poolSize.toDouble())).toInt() else 0
+
+    CyberCard(borderColor = AccentRose) {
+        Text("Password Generator", color = AccentRose, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SlateCanvas, RoundedCornerShape(10.dp))
+                .border(1.dp, AccentRose.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    password,
+                    color = AccentEmerald,
+                    fontFamily = JetBrainsMono,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { regenerate() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Buat ulang", tint = AccentCyan)
+                }
+                IconButton(onClick = { copyText(context, password, "Password") }) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Salin", tint = AccentRose)
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text("Panjang ${length.toInt()} • Entropi $entropy bit", color = TextSecondary, fontSize = 12.sp)
+        Slider(
+            value = length,
+            onValueChange = { length = it },
+            valueRange = 8f..64f,
+            steps = 55
+        )
+        CyberToggleRow("Huruf besar (A-Z)", "Tambahkan karakter kapital", upper, onCheckedChange = { upper = it })
+        CyberToggleRow("Huruf kecil (a-z)", "Tambahkan karakter kecil", lower, onCheckedChange = { lower = it })
+        CyberToggleRow("Angka (0-9)", "Tambahkan digit", numbers, onCheckedChange = { numbers = it })
+        CyberToggleRow("Simbol", "Tambahkan !@#\$%^&* dan lainnya", symbols, onCheckedChange = { symbols = it })
+    }
 }
 
-private fun generateTotpCode(secretBase32: String, timeStep: Long): String {
-    val hash = (timeStep.hashCode() xor secretBase32.hashCode()).toString().replace("-", "")
-    val codeNum = hash.takeLast(6).padStart(6, '7')
-    return "${codeNum.substring(0, 3)} ${codeNum.substring(3, 6)}"
+@Composable
+private fun SecureNotesCard(context: Context) {
+    val scope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("io_tools_vault", Context.MODE_PRIVATE) }
+    var title by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf("") }
+    var passphrase by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var hasSaved by remember { mutableStateOf(prefs.contains("note_cipher")) }
+    var cipherLength by remember { mutableIntStateOf(prefs.getString("note_cipher", "").orEmpty().length) }
+
+    fun encryptAndSave() {
+        if (title.isBlank() || body.isBlank()) {
+            status = "Judul dan isi catatan wajib diisi."
+            return
+        }
+        if (passphrase.length < 4) {
+            status = "Passphrase minimal 4 karakter."
+            return
+        }
+        busy = true
+        status = null
+        scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    val payload = JSONObject().apply {
+                        put("title", title)
+                        put("body", body)
+                    }.toString()
+                    VaultCrypto.encrypt(payload, passphrase)
+                }
+            }
+            result.onSuccess { cipher ->
+                prefs.edit().putString("note_cipher", cipher).apply()
+                hasSaved = true
+                cipherLength = cipher.length
+                status = "Catatan dienkripsi AES-256-GCM dan disimpan lokal."
+                Toast.makeText(context, "Catatan terkunci.", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                status = "Enkripsi gagal: ${it.message}"
+            }
+            busy = false
+        }
+    }
+
+    fun decryptSaved() {
+        val cipher = prefs.getString("note_cipher", null)
+        if (cipher.isNullOrBlank()) {
+            status = "Belum ada catatan terenkripsi."
+            return
+        }
+        if (passphrase.isBlank()) {
+            status = "Masukkan passphrase untuk membuka catatan."
+            return
+        }
+        busy = true
+        status = null
+        scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    val json = JSONObject(VaultCrypto.decrypt(cipher, passphrase))
+                    json.optString("title") to json.optString("body")
+                }
+            }
+            result.onSuccess { (savedTitle, savedBody) ->
+                title = savedTitle
+                body = savedBody
+                status = "Catatan berhasil didekripsi."
+            }.onFailure {
+                status = "Dekripsi gagal: passphrase salah atau data rusak."
+            }
+            busy = false
+        }
+    }
+
+    CyberCard(borderColor = AccentCyan) {
+        Text("Secure Notes (AES-256-GCM)", color = AccentCyan, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "Enkripsi dilakukan di perangkat. Passphrase tidak disimpan; catatan hanya dapat dibuka dengan passphrase yang sama.",
+            color = TextSecondary,
+            fontSize = 11.sp
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        CyberTextField(value = title, onValueChange = { title = it }, label = "Judul catatan")
+        Spacer(modifier = Modifier.height(8.dp))
+        CyberTextField(value = body, onValueChange = { body = it }, label = "Isi catatan", singleLine = false)
+        Spacer(modifier = Modifier.height(8.dp))
+        CyberTextField(
+            value = passphrase,
+            onValueChange = { passphrase = it },
+            label = "Passphrase",
+            placeholder = "Minimal 4 karakter"
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = ::encryptAndSave,
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentRose, contentColor = SlateCanvas)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (busy) "..." else "ENKRIPSI", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+            Button(
+                onClick = ::decryptSaved,
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald, contentColor = SlateCanvas)
+            ) {
+                Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (busy) "..." else "DEKRIPSI", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+        if (hasSaved) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Tersimpan: $cipherLength karakter ciphertext", color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                IconButton(
+                    onClick = {
+                        prefs.edit().remove("note_cipher").apply()
+                        hasSaved = false
+                        cipherLength = 0
+                        status = "Catatan terenkripsi dihapus."
+                    }
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Hapus catatan", tint = AccentRose, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        if (status != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(status!!, color = if (status!!.startsWith("Catatan berhasil") || status!!.startsWith("Catatan dienkripsi")) AccentEmerald else AccentRose, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun TotpCard(context: Context) {
+    val prefs = remember { context.getSharedPreferences("io_tools_vault", Context.MODE_PRIVATE) }
+    var secret by remember { mutableStateOf(prefs.getString("totp_secret", "JBSWY3DPEHPK3PXP").orEmpty()) }
+    var account by remember { mutableStateOf(prefs.getString("totp_account", "Akun saya").orEmpty()) }
+    var code by remember { mutableStateOf("------") }
+    var remaining by remember { mutableIntStateOf(30) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(secret) {
+        prefs.edit().putString("totp_secret", secret).apply()
+        while (true) {
+            val epoch = System.currentTimeMillis() / 1000
+            val step = epoch / 30
+            remaining = (30 - (epoch % 30)).toInt()
+            code = runCatching { generateTotp(secret, step) }
+                .getOrElse {
+                    error = it.message ?: "Secret Base32 tidak valid."
+                    "------"
+                }
+            if (error != null && code != "------") error = null
+            delay(1000)
+        }
+    }
+
+    CyberCard(borderColor = AccentEmerald) {
+        Text("TOTP Authenticator (RFC 6238)", color = AccentEmerald, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("HMAC-SHA1, 6 digit, periode 30 detik. Kode dihitung di perangkat.", color = TextSecondary, fontSize = 11.sp)
+        Spacer(modifier = Modifier.height(12.dp))
+        CyberTextField(value = account, onValueChange = {
+            account = it
+            prefs.edit().putString("totp_account", it).apply()
+        }, label = "Label akun")
+        Spacer(modifier = Modifier.height(8.dp))
+        CyberTextField(value = secret, onValueChange = { secret = it }, label = "Secret Base32", placeholder = "JBSWY3DPEHPK3PXP")
+        Spacer(modifier = Modifier.height(14.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SlateCanvas, RoundedCornerShape(12.dp))
+                .border(1.dp, AccentEmerald.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                .padding(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = code.chunked(3).joinToString(" "),
+                    color = AccentEmerald,
+                    fontFamily = ShareTechMono,
+                    fontSize = 38.sp,
+                    letterSpacing = 3.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                LinearProgressIndicator(
+                    progress = { remaining / 30f },
+                    modifier = Modifier.width(190.dp).height(4.dp),
+                    color = if (remaining > 5) AccentEmerald else AccentRose,
+                    trackColor = SlateSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Berganti dalam ${remaining}s", color = TextSecondary, fontSize = 11.sp)
+            }
+        }
+        if (error != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(error!!, color = AccentRose, fontSize = 12.sp)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        CyberButton(
+            text = "SALIN KODE",
+            color = AccentEmerald,
+            onClick = { copyText(context, code.filter { it.isDigit() }, "Kode TOTP") }
+        )
+    }
+}
+
+private fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbers: Boolean, symbols: Boolean): String {
+    val groups = mutableListOf<String>()
+    if (upper) groups.add("ABCDEFGHJKLMNPQRSTUVWXYZ")
+    if (lower) groups.add("abcdefghijkmnopqrstuvwxyz")
+    if (numbers) groups.add("23456789")
+    if (symbols) groups.add("!@#\$%^&*()-_=+[]{}")
+    if (groups.isEmpty()) groups.add("abcdefghijkmnopqrstuvwxyz23456789")
+
+    val random = SecureRandom()
+    val chars = mutableListOf<Char>()
+    groups.forEach { chars.add(it[random.nextInt(it.length)]) }
+    val all = groups.joinToString("")
+    while (chars.size < length) {
+        chars.add(all[random.nextInt(all.length)])
+    }
+    for (i in chars.lastIndex downTo 1) {
+        val j = random.nextInt(i + 1)
+        val tmp = chars[i]
+        chars[i] = chars[j]
+        chars[j] = tmp
+    }
+    return chars.take(length).joinToString("")
+}
+
+private fun generateTotp(secretBase32: String, timeStep: Long): String {
+    val key = Base32.decode(secretBase32)
+    if (key.isEmpty()) throw IllegalArgumentException("Secret Base32 tidak valid.")
+    val mac = Mac.getInstance("HmacSHA1")
+    mac.init(SecretKeySpec(key, "HmacSHA1"))
+    val data = ByteArray(8)
+    var value = timeStep
+    for (i in 7 downTo 0) {
+        data[i] = (value and 0xff).toByte()
+        value = value shr 8
+    }
+    val hash = mac.doFinal(data)
+    val offset = hash[hash.size - 1].toInt() and 0x0f
+    val binary = ((hash[offset].toInt() and 0x7f) shl 24) or
+        ((hash[offset + 1].toInt() and 0xff) shl 16) or
+        ((hash[offset + 2].toInt() and 0xff) shl 8) or
+        (hash[offset + 3].toInt() and 0xff)
+    return String.format("%06d", binary % 1_000_000)
+}
+
+private object Base32 {
+    private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+    fun decode(input: String): ByteArray {
+        val cleaned = input.uppercase().replace(Regex("[\\s-]"), "").trimEnd('=')
+        if (cleaned.isEmpty()) throw IllegalArgumentException("Secret Base32 kosong.")
+        val output = ByteArray((cleaned.length * 5) / 8)
+        var buffer = 0
+        var bitsLeft = 0
+        var index = 0
+        for (ch in cleaned) {
+            val value = ALPHABET.indexOf(ch)
+            if (value < 0) throw IllegalArgumentException("Karakter Base32 tidak valid: $ch")
+            buffer = (buffer shl 5) or value
+            bitsLeft += 5
+            if (bitsLeft >= 8) {
+                output[index++] = ((buffer shr (bitsLeft - 8)) and 0xff).toByte()
+                bitsLeft -= 8
+            }
+        }
+        return if (index == output.size) output else output.copyOf(index)
+    }
+}
+
+private object VaultCrypto {
+    private const val ITERATIONS = 120_000
+    private const val KEY_BITS = 256
+
+    fun encrypt(plain: String, passphrase: String): String {
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(128, iv))
+        val encrypted = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        return listOf(
+            "v1",
+            Base64.encodeToString(salt, Base64.NO_WRAP),
+            Base64.encodeToString(iv, Base64.NO_WRAP),
+            Base64.encodeToString(encrypted, Base64.NO_WRAP)
+        ).joinToString(":")
+    }
+
+    fun decrypt(payload: String, passphrase: String): String {
+        val parts = payload.split(":")
+        if (parts.size != 4 || parts[0] != "v1") throw IllegalArgumentException("Format ciphertext tidak dikenal.")
+        val salt = Base64.decode(parts[1], Base64.NO_WRAP)
+        val iv = Base64.decode(parts[2], Base64.NO_WRAP)
+        val encrypted = Base64.decode(parts[3], Base64.NO_WRAP)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(128, iv))
+        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+    }
+
+    private fun deriveKey(passphrase: String, salt: ByteArray): SecretKeySpec {
+        val algorithm = runCatching { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256") }
+            .getOrElse { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1") }
+        val spec = PBEKeySpec(passphrase.toCharArray(), salt, ITERATIONS, KEY_BITS)
+        val key = algorithm.generateSecret(spec).encoded
+        return SecretKeySpec(key, "AES")
+    }
+}
+
+private fun copyText(context: Context, text: String, label: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+    Toast.makeText(context, "$label disalin.", Toast.LENGTH_SHORT).show()
 }

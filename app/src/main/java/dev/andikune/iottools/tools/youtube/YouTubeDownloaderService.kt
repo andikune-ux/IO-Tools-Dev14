@@ -328,45 +328,12 @@ object YouTubeDownloaderService {
                 }
             }
 
-            // Step 6: Direct stream proxies fallback
+            // If no resolver returned real streams, fail honestly instead of
+            // fabricating URLs that will 404 or hang.
             if (formats.isEmpty()) {
-                val directProxy720 = "https://co.wuk.sh/api/stream?url=https://www.youtube.com/watch?v=$videoId&quality=720"
-                val directProxy360 = "https://co.wuk.sh/api/stream?url=https://www.youtube.com/watch?v=$videoId&quality=360"
-                val directProxyMp3 = "https://co.wuk.sh/api/stream?url=https://www.youtube.com/watch?v=$videoId&isAudioOnly=true"
-
-                formats.add(
-                    YouTubeVideoFormat(
-                        formatId = "720p",
-                        label = "MP4 Video HD (720p)",
-                        resolution = "1280x720",
-                        ext = "mp4",
-                        isAudioOnly = false,
-                        approximateSize = "High Quality",
-                        directUrl = directProxy720
-                    )
-                )
-
-                formats.add(
-                    YouTubeVideoFormat(
-                        formatId = "360p",
-                        label = "MP4 Video SD (360p)",
-                        resolution = "640x360",
-                        ext = "mp4",
-                        isAudioOnly = false,
-                        approximateSize = "Standard Quality",
-                        directUrl = directProxy360
-                    )
-                )
-
-                formats.add(
-                    YouTubeVideoFormat(
-                        formatId = "mp3",
-                        label = "Audio MP3 (Music)",
-                        resolution = "Audio 320kbps",
-                        ext = "mp3",
-                        isAudioOnly = true,
-                        approximateSize = "Audio File",
-                        directUrl = directProxyMp3
+                return@withContext Result.failure(
+                    IllegalStateException(
+                        "Tidak ada stream langsung yang dapat diverifikasi. YouTube sering membatasi akses dari aplikasi pihak ketiga. Coba lagi nanti atau gunakan tautan lain."
                     )
                 )
             }
