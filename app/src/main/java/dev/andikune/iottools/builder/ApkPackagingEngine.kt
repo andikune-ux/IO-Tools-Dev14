@@ -430,8 +430,8 @@ object ApkPackagingEngine {
             "Warna tema harus berupa HEX #RRGGBB atau #AARRGGBB."
         }
         require(config.userAgentOverride.length <= 512 &&
-            !config.userAgentOverride.contains('\\n') &&
-            !config.userAgentOverride.contains('\\r')
+            !config.userAgentOverride.contains('\n') &&
+            !config.userAgentOverride.contains('\r')
         ) { "User-Agent maksimal 512 karakter dan tidak boleh mengandung baris baru." }
     }
 
