@@ -24,6 +24,9 @@ class YouTubeUrlValidationTest {
     @Test
     fun rejectsUntrustedHostsAndMalformedIds() {
         assertNull(YouTubeDownloaderService.extractVideoId("https://youtube.com.evil.example/watch?v=abcdefghijk"))
+        assertNull(YouTubeDownloaderService.extractVideoId("https://evil.youtube.com/watch?v=abcdefghijk"))
+        assertNull(YouTubeDownloaderService.extractVideoId("https://user:pass@www.youtube.com/watch?v=abcdefghijk"))
+        assertNull(YouTubeDownloaderService.extractVideoId("https://www.youtube.com:444/watch?v=abcdefghijk"))
         assertNull(YouTubeDownloaderService.extractVideoId("https://evil.example/watch?v=abcdefghijk"))
         assertNull(YouTubeDownloaderService.extractVideoId("ftp://youtube.com/watch?v=abcdefghijk"))
         assertNull(YouTubeDownloaderService.extractVideoId("https://youtu.be/short"))
