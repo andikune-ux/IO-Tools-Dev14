@@ -52,11 +52,13 @@ object TikTokDownloaderService {
 
     fun normalizeTikTokUrl(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        if (clean.isBlank()) return null
+        if (clean.isBlank() || clean.length > 2048 || clean.any { it.isISOControl() }) return null
         val candidate = if ("://" in clean) clean else "https://$clean"
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
+            (uri.port != -1 && uri.port !in setOf(80, 443))
+        ) return null
         val allowed = host == "tiktok.com" || host.endsWith(".tiktok.com") ||
             host == "douyin.com" || host.endsWith(".douyin.com")
         return uri.toASCIIString().takeIf { allowed }
@@ -71,7 +73,9 @@ object TikTokDownloaderService {
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return false
         val host = uri.host?.lowercase() ?: return false
-        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
+            (uri.port != -1 && uri.port != 443)
+        ) return false
         return mediaCdnSuffixes.any { host.endsWith(it) }
     }
 
@@ -142,7 +146,7 @@ object TikTokDownloaderService {
                 .ifBlank { data.optString("channel_id") }
                 .ifBlank { "creator" }
                 .removePrefix("@")
-            val thumbnail = data.optString("thumbnail").takeIf { it.startsWith("https://") }.orEmpty()
+            val thumbnail = data.optString("thumbnail").takeIf(::isAllowedMediaUrl).orEmpty()
             val duration = data.optInt("duration", 0)
             val sizeBytes = noWatermarkFormat.optLong(
                 "filesize",
