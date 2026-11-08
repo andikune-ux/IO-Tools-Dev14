@@ -38,7 +38,7 @@
         <activity
             android:name="dev.andikune.iottools.WebToApkStandaloneActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/app_name"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
