@@ -47,6 +47,8 @@ fun MediaTools() {
     var activeSubTool by remember { mutableIntStateOf(0) }
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
     var selectedName by remember { mutableStateOf("") }
+    var selectedSize by remember { mutableLongStateOf(0L) }
+    var metadataLoadToken by remember { mutableIntStateOf(0) }
     var mediaInfoText by remember { mutableStateOf<String?>(null) }
     var mediaDurationMs by remember { mutableLongStateOf(0L) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -55,14 +57,26 @@ fun MediaTools() {
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
+            val token = ++metadataLoadToken
             selectedMediaUri = uri
-            selectedName = MediaStoreSaver.displayName(context, uri) ?: "media"
+            selectedName = "Membaca metadata..."
+            selectedSize = 0L
+            mediaInfoText = "Membaca metadata dan track..."
+            mediaDurationMs = 0L
             operationResult = null
+            extractedFrameBitmap?.recycle()
             extractedFrameBitmap = null
             scope.launch {
                 val (info, duration) = extractMediaMetadata(context, uri)
-                mediaInfoText = info
-                mediaDurationMs = duration
+                val (name, size) = withContext(Dispatchers.IO) {
+                    (MediaStoreSaver.displayName(context, uri) ?: "media") to MediaStoreSaver.fileSize(context, uri)
+                }
+                if (token == metadataLoadToken) {
+                    selectedName = name
+                    selectedSize = size
+                    mediaInfoText = info
+                    mediaDurationMs = duration
+                }
             }
         }
     }
@@ -113,13 +127,14 @@ fun MediaTools() {
                         )
                         if (selectedMediaUri != null) {
                             Text(
-                                "Durasi ${mediaDurationMs / 1000} detik • ${formatBytes(MediaStoreSaver.fileSize(context, selectedMediaUri!!))}",
+                                "Durasi ${mediaDurationMs / 1000} detik • ${formatBytes(selectedSize)}",
                                 color = TextSecondary,
                                 fontSize = 11.sp
                             )
                         }
                     }
                     Button(
+                        enabled = !isProcessing,
                         onClick = { picker.launch(arrayOf("video/*", "audio/*")) },
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
