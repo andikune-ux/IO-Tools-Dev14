@@ -120,7 +120,8 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Restored yt-dlp's default partial-file behavior instead of disabling `.part` files. This prevents incomplete output from being treated as a finished download.
 - Disabled optional thumbnail, info JSON, and subtitle sidecar output so the output directory contains the intended media artifact.
 - Added explicit MIME mappings for MP4, WebM, MKV, MOV, M4V, and common audio formats. Unknown output extensions now fail visibly rather than being mislabeled as MP4.
-- Added unit regression tests for supported YouTube URL forms and rejection of untrusted hosts / malformed IDs.
+- Added unit regression tests for supported YouTube URL forms, rejection of untrusted hosts / malformed IDs, and safe format selector construction.
+- Format metadata now records whether a selected video stream already contains audio. yt-dlp adds `bestaudio` only for video-only formats, avoiding unnecessary duplicate audio tracks; format IDs are validated before being used in yt-dlp selectors.
 - Remaining verification: run CI on this revision, then test metadata and actual video/audio downloads on physical Android devices. YouTube EJS challenge solving and ABI/runtime packaging still require device-level confirmation. A green compile is not proof of extractor success.
 
 
