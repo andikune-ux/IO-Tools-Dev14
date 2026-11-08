@@ -9,6 +9,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.widget.Toast
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.FFmpeg
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -70,6 +72,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // yt-dlp and FFmpeg ship native runtimes; initialize before any downloader screen is used.
+        try {
+            YoutubeDL.getInstance().init(applicationContext)
+            FFmpeg.getInstance().init(applicationContext)
+        } catch (e: Exception) {
+            Log.e("IO-Tools", "Gagal menginisialisasi yt-dlp/FFmpeg", e)
+            Toast.makeText(this, "Engine downloader gagal dimuat: ${e.message}", Toast.LENGTH_LONG).show()
+        }
         if (Build.VERSION.SDK_INT <= 28 &&
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
         ) {
