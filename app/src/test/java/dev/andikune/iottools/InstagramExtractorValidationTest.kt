@@ -1,6 +1,7 @@
 package dev.andikune.iottools
 
 import dev.andikune.iottools.tools.instagram.InstagramDownloaderService
+import dev.andikune.iottools.tools.instagram.InstagramMediaItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,6 +34,15 @@ class InstagramExtractorValidationTest {
         assertTrue(InstagramDownloaderService.isAllowedMediaUrl("https://scontent-lax3-1.fbcdn.net/photo.jpg"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("http://scontent.cdninstagram.com/video.mp4"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://cdninstagram.com.evil.example/video.mp4"))
+    }
+
+    @Test
+    fun carriesCarouselStateIntoEachMediaItem() {
+        val single = InstagramMediaItem("https://scontent.cdninstagram.com/photo.jpg", false, null, 1)
+        val carousel = InstagramMediaItem("https://scontent.cdninstagram.com/photo.jpg", false, null, 2, isCarousel = true)
+
+        assertFalse(single.isCarousel)
+        assertTrue(carousel.isCarousel)
     }
 
     @Test
