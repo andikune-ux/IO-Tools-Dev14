@@ -65,10 +65,10 @@ jobs:
 
       - name: Prepare debug signing key
         run: |
-          keytool -genkeypair -v \\
-            -keystore "${{ github.workspace }}/debug.keystore" \\
-            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \\
-            -dname "CN=Android Debug,O=Android,C=US" \\
+          keytool -genkeypair -v \
+            -keystore "${{ github.workspace }}/debug.keystore" \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US" \
             -storepass android -keypass android
 
       - name: Configure release signing
