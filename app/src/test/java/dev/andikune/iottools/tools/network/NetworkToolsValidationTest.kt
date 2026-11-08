@@ -10,6 +10,30 @@ import org.junit.Test
 
 class NetworkToolsValidationTest {
     @Test
+    fun readsBoundedNetworkResponsesWithTemporaryZeroByteReads() {
+        val bytes = "public-ip-response".toByteArray()
+        val input = object : java.io.InputStream() {
+            private val delegate = java.io.ByteArrayInputStream(bytes)
+            private var returnZero = true
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (returnZero) {
+                    returnZero = false
+                    return 0
+                }
+                return delegate.read(buffer, offset, length)
+            }
+        }
+        assertEquals(bytes.toList(), readBoundedResponse(input, 64).toList())
+        assertEquals(listOf<Byte>(1, 2, 3), readBoundedResponse(
+            java.io.ByteArrayInputStream(byteArrayOf(1, 2, 3)), 3
+        ).toList())
+        assertEquals(true, runCatching {
+            readBoundedResponse(java.io.ByteArrayInputStream(byteArrayOf(1, 2, 3, 4)), 3)
+        }.isFailure)
+    }
+
+    @Test
     fun normalizesDnsAndNetworkHosts() {
         assertEquals("example.com", normalizeNetworkHost("HTTPS://Example.COM/path"))
         assertEquals("xn--bcher-kva.example", normalizeNetworkHost("bücher.example"))
