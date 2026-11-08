@@ -102,3 +102,12 @@ The current CI run is the first compile gate for this integration. A green Gradl
 - The Android activity now initializes both `YoutubeDL` and `FFmpeg` before exposing downloader screens, and reports initialization failures instead of silently continuing.
 - Each YouTube download now uses an isolated cache directory and a process ID passed to yt-dlp, so cancellation targets the correct process and stale files cannot be mistaken for a fresh download.
 - This integration is not yet certified end-to-end. The current GitHub Actions run must pass, followed by on-device verification of metadata extraction, format listing, MP4 muxing, MP3 extraction, cancellation, and MediaStore output.
+
+
+### CI compile failure follow-up (2026-11-09)
+
+The first yt-dlp integration CI run exposed two Kotlin API mismatches:
+- FFmpeg is published in package `com.yausername.ffmpeg`, not `com.yausername.youtubedl_android`. The activity import now uses the package declared by upstream source.
+- YoutubeDL.execute accepts `(request, processId, callback)` (and a redirect-stream overload); the service now passes the process ID as the second argument so cancellation targets the same execution.
+
+Both source fixes are committed on the working branch. The next GitHub Actions run is required to verify the correction; do not treat the YouTube tool as build-verified until the run passes. Upstream API reference: https://github.com/yausername/youtubedl-android/tree/0.18.1.
