@@ -473,7 +473,13 @@ object AppDownloadManager {
     private fun ensureExtension(name: String, mimeType: String): String {
         if (name.substringAfterLast('.', "").isNotBlank()) return name
         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
-            ?: if (mimeType.startsWith("audio/")) "mp3" else "mp4"
+            ?: when {
+                mimeType.startsWith("audio/") -> "mp3"
+                mimeType.startsWith("video/") -> "mp4"
+                mimeType.startsWith("image/") -> "jpg"
+                mimeType == "application/pdf" -> "pdf"
+                else -> "bin"
+            }
         return "$name.$ext"
     }
 
@@ -489,7 +495,7 @@ object AppDownloadManager {
                 "png" -> "image/png"
                 "pdf" -> "application/pdf"
                 "zip" -> "application/zip"
-                else -> "video/mp4"
+                else -> "application/octet-stream"
             }
     }
 
