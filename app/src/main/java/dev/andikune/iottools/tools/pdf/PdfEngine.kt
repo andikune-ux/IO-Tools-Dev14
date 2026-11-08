@@ -32,6 +32,8 @@ import kotlin.math.ceil
 object PdfEngine {
 
     private const val MAX_SPLIT_OUTPUTS = 200
+    private const val MAX_SPLIT_RANGE_TEXT_LENGTH = 2048
+    private const val MAX_SPLIT_PAGE_REFERENCES = 5000L
     private const val MAX_MERGE_INPUTS = 50
     private const val MAX_COMPRESS_PAGES = 300
     private const val MAX_RENDER_SIDE = 8192
@@ -247,10 +249,22 @@ object PdfEngine {
     fun parseRanges(text: String, totalPages: Int): List<IntRange> {
         if (totalPages <= 0) throw IllegalArgumentException("PDF tidak memiliki halaman.")
         val cleaned = text.trim()
-        if (cleaned.isEmpty()) return (0 until totalPages).map { it..it }
+        if (cleaned.length > MAX_SPLIT_RANGE_TEXT_LENGTH) {
+            throw IllegalArgumentException("Teks rentang halaman terlalu panjang.")
+        }
+        if (cleaned.isEmpty()) {
+            if (totalPages > MAX_SPLIT_OUTPUTS) {
+                throw IllegalArgumentException("Pemisahan semua halaman dibatasi hingga $MAX_SPLIT_OUTPUTS output.")
+            }
+            return (0 until totalPages).map { it..it }
+        }
 
+        val rawParts = cleaned.split(',')
+        if (rawParts.size > MAX_SPLIT_OUTPUTS) {
+            throw IllegalArgumentException("Maksimal $MAX_SPLIT_OUTPUTS rentang halaman per operasi.")
+        }
         val ranges = mutableListOf<IntRange>()
-        cleaned.split(',').forEach { rawPart ->
+        rawParts.forEach { rawPart ->
             val part = rawPart.trim()
             if (part.isEmpty()) return@forEach
             val pieces = part.split('-', limit = 2)
@@ -268,6 +282,10 @@ object PdfEngine {
             ranges.add((start - 1)..(end - 1))
         }
         if (ranges.isEmpty()) throw IllegalArgumentException("Rentang halaman kosong.")
+        val referencedPages = ranges.sumOf { (it.last.toLong() - it.first.toLong() + 1L) }
+        if (referencedPages > MAX_SPLIT_PAGE_REFERENCES) {
+            throw IllegalArgumentException("Maksimal $MAX_SPLIT_PAGE_REFERENCES halaman dapat dipisah dalam satu operasi.")
+        }
         return ranges
     }
 
