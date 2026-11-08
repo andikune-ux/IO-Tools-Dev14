@@ -648,7 +648,7 @@ internal object VaultCrypto {
     private val supportedKdfs = setOf("PBKDF2WithHmacSHA256", "PBKDF2WithHmacSHA1")
 
     fun encrypt(plain: String, passphrase: String): String {
-        require(plain.toByteArray(Charsets.UTF_8).size <= 100_000) {
+        require(plain.length <= 100_000 && plain.toByteArray(Charsets.UTF_8).size <= 100_000) {
             "Catatan terlalu panjang (maksimal 100.000 byte UTF-8)."
         }
         require(passphrase.length in 12..128) { "Passphrase harus berisi 12–128 karakter." }
