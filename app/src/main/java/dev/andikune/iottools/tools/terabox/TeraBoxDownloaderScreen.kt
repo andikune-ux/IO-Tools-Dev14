@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ fun TeraBoxDownloaderScreen() {
     val coroutineScope = rememberCoroutineScope()
 
     var inputUrl by remember { mutableStateOf("") }
+    var sharePassword by remember { mutableStateOf("") } }
     val preferences = remember {
         context.getSharedPreferences("terabox_settings", Context.MODE_PRIVATE)
     }
@@ -46,7 +48,7 @@ fun TeraBoxDownloaderScreen() {
     }
     var apiKey by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
-    var fileResult by remember { mutableStateOf<TeraBoxFileInfo?>(null) }
+    var fileResult by remember { mutableStateOf<TeraBoxShareData?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusLogs by remember {
         mutableStateOf(
@@ -89,16 +91,18 @@ fun TeraBoxDownloaderScreen() {
             val result = TeraBoxDownloaderService.resolveTeraBoxLink(
                 rawUrl = inputUrl,
                 resolverBaseUrl = resolverBaseUrl,
-                apiKey = apiKey
+                apiKey = apiKey,
+                sharePassword = sharePassword
             )
             val elapsed = System.currentTimeMillis() - startTime
 
             isLoading = false
             result.onSuccess { data ->
                 fileResult = data
-                statusLogs = statusLogs + "[SUCCESS] File berhasil di-resolve dalam ${elapsed}ms."
-                statusLogs = statusLogs + "[FILE] ${data.fileName} (${data.fileSizeFormatted})"
-                statusLogs = statusLogs + "[STATUS] Link unduhan langsung siap ditransfer!"
+                sharePassword = ""
+                statusLogs = statusLogs + "[SUCCESS] ${data.files.size} file berhasil di-resolve dalam ${elapsed}ms."
+                statusLogs = statusLogs + "[FILE] ${data.files.firstOrNull()?.fileName ?: "Tidak ada file"}"
+                statusLogs = statusLogs + "[STATUS] Link unduhan Worker siap ditransfer!"
             }.onFailure { error ->
                 errorMessage = error.message ?: "Gagal memproses link TeraBox."
                 statusLogs = statusLogs + "[ERROR] Gagal: ${error.message}"
@@ -198,9 +202,21 @@ fun TeraBoxDownloaderScreen() {
 
                 CyberTextField(
                     value = inputUrl,
-                    onValueChange = { inputUrl = it },
+                    onValueChange = { inputUrl = it.take(2048) },
                     label = "https://terabox.com/s/1..., 1024tera.com/s/... atau 1024terabox.com/s/...",
                     modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                CyberTextField(
+                    value = sharePassword,
+                    onValueChange = { sharePassword = it.take(64) },
+                    label = "Password share (opsional)",
+                    placeholder = "Hanya untuk share yang dilindungi",
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -267,150 +283,86 @@ fun TeraBoxDownloaderScreen() {
             }
         }
 
-        // Result Card
-        val file = fileResult
-        if (file != null) {
+        // Resolved share summary and per-file download cards
+        val share = fileResult
+        if (share != null) {
             item {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + slideInVertically()
-                ) {
-                    CyberCard(borderColor = AccentEmerald) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(AccentEmeraldSoft),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "FILE TERABOX SIAP DIUNDUH",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AccentEmerald
-                                )
-                                Text(
-                                    text = "Direct Fast-Download Link",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
+                CyberCard(borderColor = AccentEmerald) {
+                    Text(
+                        text = "SHARE BERHASIL DI-RESOLVE",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentEmerald
+                    )
+                    Text(
+                        text = "${share.files.size} file • ID ${share.shareId} • strategi ${share.strategy.ifBlank { "worker" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    if (share.truncated) {
+                        Text(
+                            text = "Worker membatasi daftar file. Tidak semua item dalam folder ditampilkan.",
+                            color = AccentAmber,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // File Detail Container
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = SlateElevated,
-                            border = BorderStroke(1.dp, SlateBorder),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(AccentAmber.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = when (file.fileExtension) {
-                                            "mp4", "mkv", "avi" -> Icons.Default.Movie
-                                            "zip", "rar", "7z" -> Icons.Default.FolderZip
-                                            "pdf" -> Icons.Default.PictureAsPdf
-                                            "mp3", "flac" -> Icons.Default.Audiotrack
-                                            else -> Icons.Default.InsertDriveFile
-                                        },
-                                        contentDescription = null,
-                                        tint = AccentAmber,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = file.fileName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextPrimary,
-                                        maxLines = 2
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = AccentAmber.copy(alpha = 0.15f)
-                                        ) {
-                                            Text(
-                                                text = file.fileExtension.uppercase(),
-                                                color = AccentAmber,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = file.fileSizeFormatted,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = TextSecondary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Download Button with Progress capability
-                        Button(
-                            onClick = {
-                                TeraBoxDownloaderService.enqueueDownload(context, file)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AccentAmber,
-                                contentColor = SlateCanvas
+            items(share.files, key = { "${it.shareId}-${it.fileName}-${it.fileSizeBytes}" }) { file ->
+                CyberCard(borderColor = AccentAmber) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (file.thumbnailUrl != null) {
+                            AsyncImage(
+                                model = file.thumbnailUrl,
+                                contentDescription = "Thumbnail ${file.fileName}",
+                                modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
                             )
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("UNDUH FILE", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
                         }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedButton(
-                            onClick = { TeraBoxDownloaderService.shareLink(context, file) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, SlateBorder)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Bagikan Link Share", fontSize = 12.sp, color = TextPrimary)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = file.fileName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                maxLines = 2
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${file.fileExtension.uppercase()} • ${file.fileSizeFormatted}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { TeraBoxDownloaderService.enqueueDownload(context, file) },
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentAmber,
+                            contentColor = SlateCanvas
+                        )
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("UNDUH FILE", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { TeraBoxDownloaderService.shareLink(context, file) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, SlateBorder)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Bagikan Link Share", fontSize = 12.sp, color = TextPrimary)
                     }
                 }
             }
