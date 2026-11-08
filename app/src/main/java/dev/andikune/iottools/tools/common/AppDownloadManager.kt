@@ -19,6 +19,7 @@ import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.InputStream
 import java.net.URI
 import java.net.InetAddress
 import java.net.UnknownHostException
@@ -329,14 +330,8 @@ object AppDownloadManager {
 
                     body.byteStream().use { input ->
                         val buffer = ByteArray(32 * 1024)
-                        var bytesRead = input.read(buffer)
+                        var bytesRead = readChunk(input, buffer)
                         while (isActive && activeDownloadId == downloadId && bytesRead != -1) {
-                            if (bytesRead == 0) {
-                                val single = input.read()
-                                if (single < 0) break
-                                buffer[0] = single.toByte()
-                                bytesRead = 1
-                            }
                             val signatureCopy = minOf(bytesRead, signatureBuffer.size - signatureSize)
                             if (signatureCopy > 0) {
                                 System.arraycopy(buffer, 0, signatureBuffer, signatureSize, signatureCopy)
@@ -368,7 +363,7 @@ object AppDownloadManager {
                                     )
                                 }
                             }
-                            bytesRead = input.read(buffer)
+                            bytesRead = readChunk(input, buffer)
                         }
                         output.output.flush()
                     }
@@ -537,6 +532,16 @@ object AppDownloadManager {
         } catch (e: Exception) {
             Toast.makeText(context, "Tidak dapat membuka file: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    internal fun readChunk(input: InputStream, buffer: ByteArray): Int {
+        require(buffer.isNotEmpty()) { "Buffer unduhan tidak boleh kosong." }
+        val read = input.read(buffer)
+        if (read != 0) return read
+        val single = input.read()
+        if (single < 0) return -1
+        buffer[0] = single.toByte()
+        return 1
     }
 
     internal fun resolveExpectedMime(fileName: String, requestedMime: String): String {
