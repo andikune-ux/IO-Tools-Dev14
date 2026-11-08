@@ -10,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import android.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
@@ -19,6 +20,7 @@ import javax.crypto.spec.SecretKeySpec
 import java.security.SecureRandom
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class PrivacyCryptoTest {
     @Test
     fun base32RoundTripsAndRejectsNonCanonicalInput() {
