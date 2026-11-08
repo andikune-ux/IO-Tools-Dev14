@@ -5,7 +5,6 @@ import dev.andikune.iottools.tools.qr.validateBarcodeInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,7 +18,7 @@ class QrBarcodeValidationTest {
         assertNull(normalizeScannedHttpUrl("data:text/html,hello"))
         assertNull(normalizeScannedHttpUrl("https://user:pass@example.com"))
         assertNull(normalizeScannedHttpUrl("https://example.com:70000"))
-        assertNull(normalizeScannedHttpUrl("https://example.com/\\u0000"))
+        assertNull(normalizeScannedHttpUrl("https://example.com/\u0000"))
         assertNull(normalizeScannedHttpUrl("https:///missing-host"))
     }
 
