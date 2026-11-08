@@ -518,17 +518,29 @@ object AppDownloadManager {
         }
     }
 
-    private fun ensureExtension(name: String, mimeType: String): String {
-        if (name.substringAfterLast('.', "").isNotBlank()) return name
-        val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+    internal fun ensureExtension(name: String, mimeType: String): String {
+        val normalizedMime = mimeType.substringBefore(';').trim().lowercase()
+        val currentExtension = name.substringAfterLast('.', "").lowercase()
+        val currentMime = currentExtension.takeIf { it.isNotBlank() }
+            ?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it)?.lowercase() }
+
+        if (currentExtension.isNotBlank() &&
+            (normalizedMime.isBlank() || normalizedMime == "application/octet-stream" || currentMime == normalizedMime)
+        ) return name
+
+        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(normalizedMime)
             ?: when {
-                mimeType.startsWith("audio/") -> "mp3"
-                mimeType.startsWith("video/") -> "mp4"
-                mimeType.startsWith("image/") -> "jpg"
-                mimeType == "application/pdf" -> "pdf"
+                normalizedMime.startsWith("audio/") -> "mp3"
+                normalizedMime == "video/webm" -> "webm"
+                normalizedMime == "video/x-matroska" -> "mkv"
+                normalizedMime.startsWith("video/") -> "mp4"
+                normalizedMime.startsWith("image/") -> "jpg"
+                normalizedMime == "application/pdf" -> "pdf"
                 else -> "bin"
             }
-        return "$name.$ext"
+
+        val baseName = if (currentExtension.isNotBlank()) name.substringBeforeLast('.') else name
+        return "$baseName.$extension"
     }
 
     private fun guessMime(name: String): String {
