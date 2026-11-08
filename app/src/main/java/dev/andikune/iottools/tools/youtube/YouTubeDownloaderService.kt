@@ -131,8 +131,13 @@ object YouTubeDownloaderService {
                 val request = YoutubeDLRequest(sourceUrl).apply {
                     addOption("-o", outputTemplate)
                     addOption("--no-playlist")
-                    addOption("--no-part")
+                    // Keep yt-dlp's default .part workflow: interrupted downloads must not
+                    // be mistaken for completed output files.
                     addOption("--newline")
+                    addOption("--no-write-thumbnail")
+                    addOption("--no-write-info-json")
+                    addOption("--no-write-subs")
+                    addOption("--no-write-auto-subs")
                     if (format.isAudioOnly) {
                         addOption("-f", format.formatId)
                         addOption("-x")
@@ -150,8 +155,18 @@ object YouTubeDownloaderService {
                 val mime = when (downloaded.extension.lowercase()) {
                     "mp3" -> "audio/mpeg"
                     "m4a" -> "audio/mp4"
+                    "aac" -> "audio/aac"
+                    "opus" -> "audio/opus"
+                    "ogg", "oga" -> "audio/ogg"
+                    "wav" -> "audio/wav"
                     "webm" -> "video/webm"
-                    else -> "video/mp4"
+                    "mkv" -> "video/x-matroska"
+                    "m4v" -> "video/x-m4v"
+                    "mov" -> "video/quicktime"
+                    "mp4" -> "video/mp4"
+                    else -> throw IllegalStateException(
+                        "Format hasil (${downloaded.extension.ifBlank { "tanpa ekstensi" }}) tidak didukung untuk penyimpanan media."
+                    )
                 }
                 val uri = downloaded.inputStream().use { input ->
                     MediaStoreSaver.saveStream(context, downloaded.name, mime, input)
