@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.andikune.iottools.tools.common.MediaStoreSaver
@@ -81,11 +82,13 @@ fun PdfTools() {
             try {
                 val outputs = block()
                 lastOutputs = outputs
-                status = if (outputs.size == 1) {
+                val detail = status
+                val completion = if (outputs.size == 1) {
                     "Selesai. File disimpan di Download/IO-Tools/${MediaStoreSaver.displayName(context, outputs.first()) ?: ""}"
                 } else {
                     "Selesai. ${outputs.size} file PDF disimpan di Download/IO-Tools."
                 }
+                status = if (detail.isNullOrBlank()) completion else "$completion\n$detail"
             } catch (e: Exception) {
                 error = e.message ?: "Operasi PDF gagal."
             } finally {
@@ -150,7 +153,7 @@ fun PdfTools() {
                     Spacer(modifier = Modifier.height(12.dp))
                     CyberSecondaryButton(
                         text = if (mergeUris.isEmpty()) "PILIH FILE PDF" else "PILIH ULANG (${mergeUris.size} FILE)",
-                        onClick = { mergePicker.launch(arrayOf("application/pdf")) }
+                        onClick = { if (!busy) mergePicker.launch(arrayOf("application/pdf")) }
                     )
                     if (mergeUris.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
@@ -200,7 +203,7 @@ fun PdfTools() {
                     Spacer(modifier = Modifier.height(12.dp))
                     CyberSecondaryButton(
                         text = if (selectedUri == null) "PILIH FILE PDF" else sourceName(selectedUri),
-                        onClick = { singlePicker.launch(arrayOf("application/pdf")) }
+                        onClick = { if (!busy) singlePicker.launch(arrayOf("application/pdf")) }
                     )
 
                     if (activeSubTool == 1) {
@@ -231,15 +234,17 @@ fun PdfTools() {
                         CyberTextField(
                             value = userPassword,
                             onValueChange = { userPassword = it },
-                            label = "Password pengguna",
-                            placeholder = "Wajib diisi"
+                            label = "Password pengguna (min. 8 karakter)",
+                            placeholder = "Wajib diisi",
+                            visualTransformation = PasswordVisualTransformation()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         CyberTextField(
                             value = ownerPassword,
                             onValueChange = { ownerPassword = it },
                             label = "Password owner (opsional)",
-                            placeholder = "Kosongkan = sama dengan password pengguna"
+                            placeholder = "Kosongkan = sama dengan password pengguna",
+                            visualTransformation = PasswordVisualTransformation()
                         )
                     }
 
@@ -286,15 +291,20 @@ fun PdfTools() {
                                             "${outputBase(uri)}_rotated.pdf"
                                         )
                                     )
-                                    3 -> listOf(
-                                        PdfEngine.protect(
-                                            context,
-                                            uri,
-                                            userPassword,
-                                            ownerPassword,
-                                            "${outputBase(uri)}_locked.pdf"
+                                    3 -> try {
+                                        listOf(
+                                            PdfEngine.protect(
+                                                context,
+                                                uri,
+                                                userPassword,
+                                                ownerPassword,
+                                                "${outputBase(uri)}_locked.pdf"
+                                            )
                                         )
-                                    )
+                                    } finally {
+                                        userPassword = ""
+                                        ownerPassword = ""
+                                    }
                                     else -> {
                                         val (dpi, quality) = when (compressProfile) {
                                             0 -> 72 to 35
@@ -309,7 +319,9 @@ fun PdfTools() {
                                             "${outputBase(uri)}_compressed.pdf"
                                         )
                                         val before = result.second
-                                        val after = MediaStoreSaver.fileSize(context, result.first)
+                                        val after = withContext(Dispatchers.IO) {
+                                            MediaStoreSaver.fileSize(context, result.first)
+                                        }
                                         if (before > 0) {
                                             status = "Ukuran: ${formatBytes(before)} → ${formatBytes(after)}"
                                         }
