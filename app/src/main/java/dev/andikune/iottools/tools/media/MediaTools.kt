@@ -277,8 +277,11 @@ fun MediaTools() {
                         onClick = {
                             val uri = selectedMediaUri ?: return@CyberButton
                             val second = targetSecond.toLongOrNull()
-                            val frameError = second?.let { validateFrameTime(it, mediaDurationMs) }
-                                ?: "Masukkan waktu frame yang valid."
+                            val frameError = if (second == null) {
+                                "Masukkan waktu frame yang valid."
+                            } else {
+                                validateFrameTime(second, mediaDurationMs)
+                            }
                             if (frameError != null) {
                                 operationResult = frameError
                                 return@CyberButton
