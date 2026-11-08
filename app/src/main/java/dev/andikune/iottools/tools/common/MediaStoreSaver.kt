@@ -129,15 +129,16 @@ object MediaStoreSaver {
         mimeType: String,
         subDirectory: String = "IO-Tools"
     ): PendingOutput? {
+        val safeSubDirectory = sanitizeSubDirectory(subDirectory)
         if (Build.VERSION.SDK_INT >= 29) {
             val safeName = uniqueName(
                 context,
                 fileName,
                 Environment.DIRECTORY_DOWNLOADS,
-                subDirectory,
+                safeSubDirectory,
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI
             )
-            val relative = "${Environment.DIRECTORY_DOWNLOADS}/$subDirectory"
+            val relative = "${Environment.DIRECTORY_DOWNLOADS}/$safeSubDirectory"
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -156,7 +157,7 @@ object MediaStoreSaver {
 
         val file = createLegacyFile(
             Environment.DIRECTORY_DOWNLOADS,
-            subDirectory,
+            safeSubDirectory,
             fileName
         ) ?: return null
         return runCatching {
@@ -214,12 +215,13 @@ object MediaStoreSaver {
         mimeType: String,
         subDirectory: String
     ): PendingOutput? {
+        val safeSubDirectory = sanitizeSubDirectory(subDirectory)
         if (Build.VERSION.SDK_INT >= 29) {
-            val safeName = uniqueName(context, fileName, baseDirectory, subDirectory, collection)
+            val safeName = uniqueName(context, fileName, baseDirectory, safeSubDirectory, collection)
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "$baseDirectory/$subDirectory")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "$baseDirectory/$safeSubDirectory")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = runCatching { context.contentResolver.insert(collection, values) }.getOrNull() ?: return null
@@ -231,7 +233,7 @@ object MediaStoreSaver {
             return PendingOutput(uri, out, null, true, context)
         }
 
-        val file = createLegacyFile(baseDirectory, subDirectory, fileName) ?: return null
+        val file = createLegacyFile(baseDirectory, safeSubDirectory, fileName) ?: return null
         return runCatching {
             PendingOutput(Uri.fromFile(file), FileOutputStream(file), file, false, context)
         }.onFailure { file.delete() }.getOrNull()
@@ -367,6 +369,13 @@ object MediaStoreSaver {
             null
         )?.use { it.count > 0 } ?: false
     }.getOrNull()
+
+    private fun sanitizeSubDirectory(raw: String): String {
+        val parts = raw.replace('\\\\', '/').split('/')
+            .map { it.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().trim('.') }
+            .filter { it.isNotBlank() && it != "." && it != ".." }
+        return parts.joinToString("/").ifBlank { "IO-Tools" }
+    }
 
     private fun createLegacyFile(baseDirectory: String, subDirectory: String, original: String): File? {
         val dir = File(Environment.getExternalStoragePublicDirectory(baseDirectory), subDirectory)
