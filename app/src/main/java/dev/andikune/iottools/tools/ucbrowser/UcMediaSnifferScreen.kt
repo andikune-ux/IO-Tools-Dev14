@@ -46,8 +46,8 @@ fun UcMediaSnifferScreen() {
     var statusLogs by remember {
         mutableStateOf(
             listOf(
-                "[INIT] UC Browser Sniffer Engine v3.2 aktif.",
-                "[ENGINE] Siap mendeteksi media video tersembunyi (MP4, M3U8 HLS, WEBM) pada web."
+                "[INIT] UC Media Sniffer siap.",
+                "[ENGINE] Static HTML + embedded WebView network capture."
             )
         )
     }
@@ -144,7 +144,7 @@ fun UcMediaSnifferScreen() {
         item {
             CyberTerminalHeader(
                 title = "UC BROWSER MEDIA SNIFFER",
-                subtitle = "Ekstrak & Unduh Tautan Video Tersembunyi (MP4/M3U8) dari Web",
+                subtitle = "Deteksi MP4, WebM, HLS, dan DASH melalui browser tertanam",
                 statusText = "SNIFFER READY",
                 statusColor = AccentCyan
             )
