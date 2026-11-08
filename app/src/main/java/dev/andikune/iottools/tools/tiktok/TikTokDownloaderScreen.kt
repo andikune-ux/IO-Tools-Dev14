@@ -373,10 +373,11 @@ fun TikTokDownloaderScreen() {
                                 val fileName = "TikTok_${sanitizedTitle}_${data.id}.mp4"
                                 TikTokDownloaderService.startDownload(
                                     context = context,
-                                    url = data.noWatermarkVideoUrl,
+                                    url = data.sourceUrl,
                                     fileName = fileName,
                                     title = data.title,
-                                    isAudio = false
+                                    isAudio = false,
+                                    formatId = data.noWatermarkFormatId
                                 )
                             },
                             shape = RoundedCornerShape(12.dp),
