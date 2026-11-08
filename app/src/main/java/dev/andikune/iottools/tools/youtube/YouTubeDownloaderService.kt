@@ -142,7 +142,7 @@ object YouTubeDownloaderService {
                         addOption("--merge-output-format", "mp4")
                     }
                 }
-                YoutubeDL.getInstance().execute(request, null, processId)
+                YoutubeDL.getInstance().execute(request, processId)
                 val downloaded = outputDir.listFiles()
                     ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
                     ?.maxByOrNull { it.lastModified() }
