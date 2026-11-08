@@ -59,16 +59,12 @@ object MediaStoreSaver {
     }
 
     fun sanitizeFileName(raw: String, fallback: String = "file"): String {
-        val cleaned = raw.take(512)
-            .replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_")
-            .trim()
-            .trim('.')
-        val safeFallback = fallback
-            .replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_")
-            .trim()
-            .trim('.')
-            .take(180)
-            .ifBlank { "file" }
+        fun clean(value: String): String = value.take(512).map { char ->
+            if (char.isISOControl() || char in "\\\\/:*?\"<>|") '_' else char
+        }.joinToString("").trim().trim('.')
+
+        val cleaned = clean(raw)
+        val safeFallback = clean(fallback).take(180).ifBlank { "file" }
         return if (cleaned.isBlank()) safeFallback else cleaned.take(180)
     }
 
