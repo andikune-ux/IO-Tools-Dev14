@@ -383,12 +383,14 @@ object ApkPackagingEngine {
         require(uri.scheme?.equals("https", ignoreCase = true) == true && uri.userInfo == null) {
             "URL website harus menggunakan HTTPS dan tidak boleh memuat kredensial."
         }
+        val normalizedHost = host.trimEnd('.')
         require(
-            host != "localhost" && !host.endsWith(".local") &&
-                !host.endsWith(".internal") && !host.endsWith(".lan") &&
-                host.contains('.') &&
-                !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
-                !host.contains(':')
+            normalizedHost != "localhost" && !normalizedHost.endsWith(".local") &&
+                !normalizedHost.endsWith(".internal") && !normalizedHost.endsWith(".lan") &&
+                !normalizedHost.endsWith(".home.arpa") &&
+                normalizedHost.contains('.') &&
+                !normalizedHost.matches(Regex("^[0-9.]+$")) &&
+                !normalizedHost.contains(':')
         ) { "URL website harus mengarah ke hostname HTTPS publik." }
         require(uri.port == -1 || uri.port in 1..65535) {
             "Port URL website tidak valid."
