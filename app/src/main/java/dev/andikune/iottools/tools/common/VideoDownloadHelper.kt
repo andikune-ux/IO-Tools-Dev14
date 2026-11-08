@@ -41,8 +41,10 @@ object VideoDownloadHelper {
     internal fun isSecurePublicMediaUrl(rawUrl: String): Boolean {
         if (rawUrl.isBlank() || rawUrl.length > 8192 || rawUrl.any { it.isISOControl() }) return false
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
-        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
+        val rawHost = uri.host?.lowercase() ?: return false
+        if (rawHost.endsWith('.')) return false
+        val host = rawHost
+        if (uri.scheme?.lowercase() != "https" ||
             (uri.port != -1 && uri.port !in 1..65535) || host.length > 253
         ) return false
         if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
