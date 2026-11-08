@@ -279,7 +279,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - PBKDF2 password character arrays and PBEKeySpec values are cleared after key derivation. AES-256-GCM authentication remains mandatory; tampered ciphertext fails decryption.
 - TOTP Base32 parsing now checks alphabet, length, canonical padding and unused trailing bits; secrets shorter than 80 bits are rejected. Added the RFC 6238 SHA-1 test vector.
 - TOTP secret persistence is explicit through Save/Delete actions. Initial load no longer triggers an automatic save that could erase ciphertext after a Keystore failure. Decryption failures preserve the encrypted payload and surface a warning; a permanently invalidated key is rotated only when the user explicitly saves a replacement secret.
-- TOTP secrets are masked in the UI and are stored with Android Keystore AES-GCM. Legacy plaintext migration is attempted once; plaintext legacy storage is removed after the migration attempt.
+- TOTP secrets are masked in the UI and are stored with Android Keystore AES-GCM. Legacy plaintext is removed only after its encrypted replacement is successfully committed; a failed migration preserves the old copy so transient Keystore failures do not cause irreversible secret loss.
 - Added regression tests for password character groups, Base32 encoding/padding, RFC 6238 and Secure Notes encryption/tamper detection.
 - Remaining verification: exercise TOTP save/load across process restarts, Keystore invalidation, backup/restore, legacy migration, and Secure Notes v1 decryption on API 24+ devices.
 
