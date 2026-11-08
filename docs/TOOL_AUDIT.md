@@ -14,7 +14,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
 | Audio & Video | MediaExtractor/MediaMuxer metadata, audio extraction, fast trim and frame capture | Existing source review; fast trim starts at a prior sync frame | Codec/container combinations, variable frame rate, rotation, long media and device codec support |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
-| TikTok / YouTube / Instagram / TeraBox | YouTube now uses local yt-dlp via youtubedl-android; other services remain resolver-backed | YouTube URL regression tests added; debug build and unit tests passed on the previous revision; latest YouTube changes await CI | YouTube device-level extraction/download, EJS runtime coverage, output format compatibility; Instagram/TeraBox/TikTok resolver runtime |
+| TikTok / YouTube / Instagram / TeraBox | YouTube and Instagram public media metadata use local yt-dlp via youtubedl-android; TeraBox/TikTok remain resolver-backed | URL/CDN validation regression tests added for YouTube and Instagram; Instagram changes pushed, CI/device verification not awaited | YouTube/Instagram device-level extraction and downloads, EJS runtime coverage, output format compatibility; TeraBox/TikTok resolver runtime |
 | UC Media Sniffer | Parses public page HTML and identifies direct media URLs | Source review | HLS/DASH manifests, authenticated streams, dynamic JavaScript players and false positives |
 | Download Manager | OkHttp streaming, progress state, MediaStore output, share/play and cancellation | Source review; cancellation now cancels the OkHttp call | Interrupted network, unknown content length, disk full, duplicate names and Android 7–9 permissions |
 
@@ -122,3 +122,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added explicit MIME mappings for MP4, WebM, MKV, MOV, M4V, and common audio formats. Unknown output extensions now fail visibly rather than being mislabeled as MP4.
 - Added unit regression tests for supported YouTube URL forms and rejection of untrusted hosts / malformed IDs.
 - Remaining verification: run CI on this revision, then test metadata and actual video/audio downloads on physical Android devices. YouTube EJS challenge solving and ABI/runtime packaging still require device-level confirmation. A green compile is not proof of extractor success.
+
+
+## Instagram media extractor — focused repair pass (2026-11-09)
+
+- Removed the brittle Instagram embed HTML regex parser and hard-coded SnapInsta/Cobalt public resolver calls.
+- Metadata extraction now runs through the locally integrated yt-dlp engine, using JSON metadata and extractor-provided formats rather than assuming a third-party endpoint returns a working direct URL.
+- Added support for extractor `entries` so carousel posts can be represented as multiple media items.
+- Direct media candidates are accepted only over HTTPS from `cdninstagram.com` / `fbcdn.net` hosts. This prevents arbitrary page URLs or unrelated hosts from being passed into the download manager.
+- Preserved the actual supported media extension (MP4/MOV/WebM and JPEG/PNG/WebP) and map it to the corresponding MIME type instead of labeling every video as MP4 and every photo as JPEG.
+- Added regression tests for Instagram shortcode parsing, untrusted host rejection, and HTTPS media CDN allowlisting.
+- Private/login-gated or deleted posts are reported as unsupported; this implementation does not automate login or bypass account restrictions.
+- Remaining verification: CI compile/unit tests and device-level tests against public, authorized Reels, single-photo posts, and carousel posts. yt-dlp's Instagram extractor can change with platform updates, so no universal availability claim is made.
