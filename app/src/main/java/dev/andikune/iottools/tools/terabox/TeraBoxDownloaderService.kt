@@ -22,7 +22,8 @@ data class TeraBoxFileInfo(
     val thumbnailUrl: String?,
     val isFolder: Boolean,
     val fileExtension: String,
-    val mimeType: String = "application/octet-stream"
+    val mimeType: String = "application/octet-stream",
+    val workerApiKey: String? = null
 )
 
 object TeraBoxDownloaderService {
@@ -174,7 +175,8 @@ object TeraBoxDownloaderService {
                 isFolder = false,
                 fileExtension = fileName.substringAfterLast('.', "").lowercase()
                     .ifBlank { mimeType.substringAfter('/', "file").lowercase() },
-                mimeType = mimeType
+                mimeType = mimeType,
+                workerApiKey = apiKey?.trim()?.takeIf { it.isNotEmpty() }
             )
         }
     }
@@ -201,7 +203,8 @@ object TeraBoxDownloaderService {
             directUrl = fileInfo.downloadUrl,
             suggestedFileName = safeName,
             title = safeName.take(35),
-            mimeType = fileInfo.mimeType
+            mimeType = fileInfo.mimeType,
+            customHeaders = fileInfo.workerApiKey?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
         )
     }
 
