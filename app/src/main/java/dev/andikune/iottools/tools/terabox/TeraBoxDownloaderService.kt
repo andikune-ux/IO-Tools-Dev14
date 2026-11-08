@@ -8,11 +8,9 @@ import dev.andikune.iottools.tools.common.AppDownloadManager
 import dev.andikune.iottools.tools.common.VideoDownloadHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.regex.Pattern
+import java.net.URI
 
 data class TeraBoxFileInfo(
     val shareId: String,
@@ -22,22 +20,31 @@ data class TeraBoxFileInfo(
     val downloadUrl: String,
     val thumbnailUrl: String?,
     val isFolder: Boolean,
-    val fileExtension: String
+    val fileExtension: String,
+    val mimeType: String = "application/octet-stream"
 )
 
 object TeraBoxDownloaderService {
 
     private val client by lazy { VideoDownloadHelper.client }
 
+    private val allowedShareHosts = setOf(
+        "terabox.com",
+        "teraboxapp.com",
+        "1024tera.com",
+        "1024terabox.com",
+        "teraboxlink.com",
+        "freeterabox.com"
+    )
+
     fun extractShareId(rawUrl: String): String? {
         val clean = rawUrl.trim()
         if (clean.matches(Regex("^1[A-Za-z0-9_-]{6,}$"))) return clean.removePrefix("1")
 
-        val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
+        val uri = runCatching { URI(clean) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
-        val allowedHosts = setOf("terabox.com", "teraboxapp.com", "1024tera.com", "1024terabox.com", "teraboxlink.com", "freeterabox.com")
-        if (host !in allowedHosts && allowedHosts.none { host.endsWith(".$it") }) return null
+        if (host !in allowedShareHosts && allowedShareHosts.none { host.endsWith(".$it") }) return null
 
         val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
         val shareIndex = segments.indexOf("s")
@@ -50,172 +57,126 @@ object TeraBoxDownloaderService {
         return candidate.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{6,}$")) }?.removePrefix("1")
     }
 
-    /**
-     * Queries genuine TeraBox direct download API endpoints to extract real video file streams.
-     * Never creates fake .zip or .txt landing pages.
-     */
-    suspend fun resolveTeraBoxLink(rawUrl: String): Result<TeraBoxFileInfo> = withContext(Dispatchers.IO) {
-        try {
+    /** Only HTTPS user-controlled Worker origins are accepted; never send a share URL to a public resolver. */
+    fun normalizeResolverBaseUrl(rawUrl: String): String? {
+        val clean = rawUrl.trim().trimEnd('/')
+        val uri = runCatching { URI(clean) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (uri.scheme?.lowercase() != "https") return null
+        if (uri.userInfo != null || uri.query != null || uri.fragment != null) return null
+        if (host == "localhost" || !host.contains('.')) return null
+        if (uri.port != -1 && uri.port !in 1..65535) return null
+        return clean
+    }
+
+    private fun isWorkerResourceUrl(rawUrl: String, baseUrl: String): Boolean {
+        val resource = runCatching { URI(rawUrl) }.getOrNull() ?: return false
+        val base = runCatching { URI(baseUrl) }.getOrNull() ?: return false
+        return resource.scheme?.lowercase() == "https" &&
+            resource.host?.lowercase() == base.host?.lowercase() &&
+            effectivePort(resource) == effectivePort(base)
+    }
+
+    private fun effectivePort(uri: URI): Int = if (uri.port == -1) 443 else uri.port
+
+    suspend fun resolveTeraBoxLink(
+        rawUrl: String,
+        resolverBaseUrl: String,
+        apiKey: String? = null
+    ): Result<TeraBoxFileInfo> = withContext(Dispatchers.IO) {
+        runCatching {
             val clean = rawUrl.trim()
             val shortId = extractShareId(clean)
-                ?: return@withContext Result.failure(
-                    IllegalArgumentException("Tautan harus berupa URL TeraBox yang valid (contoh: terabox.com/s/1... atau 1024tera.com/s/...)")
+                ?: throw IllegalArgumentException(
+                    "Tautan harus berupa URL TeraBox publik yang valid."
+                )
+            val baseUrl = normalizeResolverBaseUrl(resolverBaseUrl)
+                ?: throw IllegalArgumentException(
+                    "Endpoint Worker tidak valid. Gunakan URL HTTPS Cloudflare Worker milik sendiri."
                 )
 
-            var fileName = ""
-            var downloadUrl = ""
-            var fileSize = 0L
-            var thumb: String? = null
-            var resolved = false
-
-            // Endpoint 1: Terabox Direct API Resolver
-            val resolverUrl = "https://terabox-dl.qtcloud.workers.dev/api/get-info?shorturl=$shortId"
-            try {
-                val req = Request.Builder()
-                    .url(resolverUrl)
-                    .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                    .build()
-
-                client.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty()
-                        if (body.isNotBlank()) {
-                            val json = JSONObject(body)
-                            if (json.optBoolean("ok", false) || json.has("downloadUrl") || json.has("list")) {
-                                if (json.has("list")) {
-                                    val list = json.getJSONArray("list")
-                                    if (list.length() > 0) {
-                                        val first = list.getJSONObject(0)
-                                        fileName = first.optString("server_filename", "")
-                                        fileSize = first.optLong("size", 0L)
-                                        downloadUrl = first.optString("dlink", "")
-                                        thumb = first.optJSONObject("thumbs")?.optString("url3", "").takeIf { !it.isNullOrBlank() }
-                                        if (downloadUrl.isNotBlank()) resolved = true
-                                    }
-                                } else {
-                                    fileName = json.optString("file_name", "")
-                                    downloadUrl = json.optString("downloadUrl", "")
-                                    fileSize = json.optLong("size", 0L)
-                                    if (downloadUrl.isNotBlank()) resolved = true
-                                }
-                            }
-                        }
+            val requestUrl = "$baseUrl/api/resolve?link=${Uri.encode(clean)}"
+            val request = Request.Builder()
+                .url(requestUrl)
+                .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
+                .header("Accept", "application/json")
+                .apply {
+                    apiKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        header("Authorization", "Bearer $it")
                     }
                 }
-            } catch (_: Exception) {}
+                .build()
 
-            // Endpoint 2: YTB TeraBox resolver
-            if (!resolved || downloadUrl.isBlank()) {
-                val secondaryUrl = "https://ytb-terabox.vercel.app/api?url=${Uri.encode(clean)}"
-                try {
-                    val req2 = Request.Builder()
-                        .url(secondaryUrl)
-                        .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                        .build()
-                    client.newCall(req2).execute().use { resp2 ->
-                        if (resp2.isSuccessful) {
-                            val body2 = resp2.body?.string().orEmpty()
-                            val json2 = JSONObject(body2)
-                            val dlink = json2.optString("download_link", json2.optString("dlink", ""))
-                            if (dlink.isNotBlank()) {
-                                downloadUrl = dlink
-                                if (fileName.isBlank()) fileName = json2.optString("file_name", "")
-                                fileSize = json2.optLong("file_size", fileSize)
-                                resolved = true
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-            // Endpoint 3: TeraBox Downloader Online API
-            if (!resolved || downloadUrl.isBlank()) {
-                val tertiaryUrl = "https://teraboxdownloader.online/api/get-info?url=${Uri.encode(clean)}"
-                try {
-                    val req3 = Request.Builder()
-                        .url(tertiaryUrl)
-                        .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                        .build()
-                    client.newCall(req3).execute().use { resp3 ->
-                        if (resp3.isSuccessful) {
-                            val body3 = resp3.body?.string().orEmpty()
-                            val json3 = JSONObject(body3)
-                            val dlink = json3.optString("download_url", json3.optString("dlink", ""))
-                            if (dlink.isNotBlank()) {
-                                downloadUrl = dlink
-                                if (fileName.isBlank()) fileName = json3.optString("file_name", "")
-                                fileSize = json3.optLong("size", fileSize)
-                                resolved = true
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-            // Endpoint 4: TeraDL API
-            if (!resolved || downloadUrl.isBlank()) {
-                try {
-                    val reqPayload = JSONObject().apply {
-                        put("url", clean)
-                    }
-                    val req4 = Request.Builder()
-                        .url("https://teradl-api.dapuntaratya.com/generate_file")
-                        .header("Content-Type", "application/json")
-                        .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                        .post(reqPayload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
-                        .build()
-                    client.newCall(req4).execute().use { resp4 ->
-                        if (resp4.isSuccessful) {
-                            val body4 = resp4.body?.string().orEmpty()
-                            val json4 = JSONObject(body4)
-                            val dlink = json4.optString("download_url", "")
-                            if (dlink.isNotBlank()) {
-                                downloadUrl = dlink
-                                if (fileName.isBlank()) fileName = json4.optString("file_name", "")
-                                fileSize = json4.optLong("size", fileSize)
-                                resolved = true
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-            if (!resolved || downloadUrl.isBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "Gagal mengekstrak video asli dari TeraBox. File mungkin telah dihapus oleh pemilik, membutuhkan kata sandi, atau server resolver sedang penuh. Silakan coba link lain atau periksa izin tautan."
+            val responseJson = client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val detail = runCatching {
+                        JSONObject(body).optJSONObject("error")?.optString("message")
+                    }.getOrNull().orEmpty()
+                    throw IllegalStateException(
+                        detail.ifBlank { "Worker mengembalikan HTTP ${response.code}." }
                     )
+                }
+                if (body.isBlank()) throw IllegalStateException("Worker mengembalikan respons kosong.")
+                JSONObject(body)
+            }
+
+            if (responseJson.optString("status") != "success") {
+                val error = responseJson.optJSONObject("error")
+                val code = error?.optString("code").orEmpty()
+                val message = error?.optString("message").orEmpty()
+                throw IllegalStateException(
+                    when (code) {
+                        "password_required" -> "Tautan TeraBox ini dilindungi kata sandi; fitur input kata sandi belum tersedia."
+                        "unauthorized" -> "API key Worker tidak valid atau belum dikonfigurasi."
+                        "rate_limited" -> "Worker membatasi permintaan. Coba lagi nanti."
+                        "verification_required" -> "TeraBox meminta verifikasi tambahan. Coba lagi nanti."
+                        "cookie_invalid" -> "Sesi TeraBox pada Worker kedaluwarsa. Perbarui secret Worker."
+                        else -> message.ifBlank { "Worker gagal menyelesaikan tautan TeraBox (${code.ifBlank { "unknown_error" }})." }
+                    }
                 )
             }
 
-            if (fileName.isBlank()) {
-                fileName = "TeraBox_Video_$shortId.mp4"
-            } else if (!fileName.contains(".")) {
-                fileName = "$fileName.mp4"
-            }
+            val files = responseJson.optJSONArray("files")
+            val file = if (files != null && files.length() > 0) {
+                files.optJSONObject(0)
+            } else {
+                responseJson
+            } ?: throw IllegalStateException("Worker tidak menemukan file pada tautan tersebut.")
 
-            val ext = fileName.substringAfterLast('.', "mp4").lowercase()
-            val formattedSize = formatBytes(fileSize)
+            val downloadUrl = file.optString("download_url")
+                .ifBlank { file.optString("stream_url") }
+                .takeIf { isWorkerResourceUrl(it, baseUrl) }
+                ?: throw IllegalStateException("Worker tidak memberikan URL unduhan HTTPS dari origin Worker yang sama.")
 
-            val fileInfo = TeraBoxFileInfo(
+            val fileName = file.optString("file_name")
+                .ifBlank { responseJson.optString("file_name") }
+                .ifBlank { "TeraBox_${shortId}.bin" }
+            val sizeBytes = file.optLong("size_bytes", responseJson.optLong("size_bytes", 0L))
+            val mimeType = file.optString("mime_type")
+                .takeIf { it.matches(Regex("^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$")) }
+                ?: "application/octet-stream"
+            val thumbnail = file.optString("thumbnail")
+                .takeIf { it.startsWith("https://") }
+
+            TeraBoxFileInfo(
                 shareId = shortId,
                 fileName = fileName,
-                fileSizeFormatted = formattedSize,
-                fileSizeBytes = fileSize,
+                fileSizeFormatted = file.optString("file_size")
+                    .ifBlank { responseJson.optString("file_size") }
+                    .ifBlank { formatBytes(sizeBytes) },
+                fileSizeBytes = sizeBytes,
                 downloadUrl = downloadUrl,
-                thumbnailUrl = thumb,
+                thumbnailUrl = thumbnail,
                 isFolder = false,
-                fileExtension = ext
+                fileExtension = fileName.substringAfterLast('.', "").lowercase(),
+                mimeType = mimeType
             )
-
-            Result.success(fileInfo)
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 
     private fun formatBytes(bytes: Long): String {
-        if (bytes <= 0) return "Ukuran Asli (Video HD)"
+        if (bytes <= 0) return "Ukuran tidak diketahui"
         val kb = bytes / 1024.0
         val mb = kb / 1024.0
         val gb = mb / 1024.0
@@ -226,25 +187,17 @@ object TeraBoxDownloaderService {
         }
     }
 
-    /**
-     * Enqueues real TeraBox video download via AppDownloadManager with 0-100% progress and speed counter.
-     */
-    fun enqueueDownload(
-        context: Context,
-        fileInfo: TeraBoxFileInfo
-    ) {
+    fun enqueueDownload(context: Context, fileInfo: TeraBoxFileInfo) {
         val safeName = fileInfo.fileName
             .replace("[\\\\/:*?\"<>|]".toRegex(), "_")
-            .ifEmpty { "TeraBox_${fileInfo.shareId}.mp4" }
-
-        val mime = if (safeName.endsWith(".mp4", ignoreCase = true)) "video/mp4" else "application/octet-stream"
+            .ifEmpty { "TeraBox_${fileInfo.shareId}.bin" }
 
         AppDownloadManager.startDownload(
             context = context,
             directUrl = fileInfo.downloadUrl,
             suggestedFileName = safeName,
             title = safeName.take(35),
-            mimeType = mime
+            mimeType = fileInfo.mimeType
         )
     }
 
@@ -253,7 +206,10 @@ object TeraBoxDownloaderService {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, fileInfo.fileName)
-                putExtra(Intent.EXTRA_TEXT, "Unduh file Video TeraBox (${fileInfo.fileSizeFormatted}):\n${fileInfo.fileName}\n\nLink: ${fileInfo.downloadUrl}")
+                putExtra(
+                    Intent.EXTRA_TEXT,
+                    "Unduh file TeraBox (${fileInfo.fileSizeFormatted}):\n${fileInfo.fileName}\n\nLink: ${fileInfo.downloadUrl}"
+                )
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(Intent.createChooser(shareIntent, "Bagikan Link TeraBox"))
