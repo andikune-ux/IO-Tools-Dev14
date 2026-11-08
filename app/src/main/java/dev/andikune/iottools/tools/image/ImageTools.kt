@@ -58,6 +58,7 @@ fun ImageTools() {
     var outputName by remember { mutableStateOf("") }
     var outputSize by remember { mutableStateOf(0L) }
     var exifSummary by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var imageLoadToken by remember { mutableIntStateOf(0) }
 
     var quality by remember { mutableIntStateOf(70) }
     var targetWidth by remember { mutableStateOf("") }
@@ -69,13 +70,23 @@ fun ImageTools() {
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
+            val token = ++imageLoadToken
             sourceUri = uri
+            bitmap?.recycle()
+            bitmap = null
+            sourceName = ""
+            sourceSize = 0L
+            exifSummary = emptyList()
             message = null
             error = null
             outputName = ""
             outputSize = 0L
             scope.launch {
                 val loaded = loadImage(context, uri)
+                if (token != imageLoadToken) {
+                    loaded?.recycle()
+                    return@launch
+                }
                 if (loaded == null) {
                     error = "Gambar tidak dapat dibaca."
                 } else {
@@ -84,7 +95,7 @@ fun ImageTools() {
                     sourceSize = MediaStoreSaver.fileSize(context, uri)
                     targetWidth = loaded.width.toString()
                     targetHeight = loaded.height.toString()
-                    exifSummary = withContext(Dispatchers.IO) { readExif(context, uri) }
+                    exifSummary = readExif(context, uri)
                 }
             }
         }
@@ -99,7 +110,7 @@ fun ImageTools() {
         outputSize = 0L
         scope.launch {
             try {
-                val (saved, note) = block()
+                val (saved, note) = withContext(Dispatchers.IO) { block() }
                 if (saved == null) {
                     error = note
                 } else {
@@ -165,6 +176,7 @@ fun ImageTools() {
                 Spacer(modifier = Modifier.height(12.dp))
                 CyberButton(
                     text = if (sourceUri == null) "PILIH GAMBAR" else "GANTI GAMBAR",
+                    enabled = !busy,
                     onClick = {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
@@ -289,8 +301,13 @@ fun ImageTools() {
                                 onClick = {
                                     val w = targetWidth.toIntOrNull()
                                     val h = targetHeight.toIntOrNull()
-                                    if (w == null || h == null || w <= 0 || h <= 0) {
-                                        error = "Lebar dan tinggi harus lebih dari 0."
+                                    val dimensionError = if (w == null || h == null) {
+                                        "Lebar dan tinggi harus berupa angka yang valid."
+                                    } else {
+                                        validateResizeDimensions(w, h)
+                                    }
+                                    if (dimensionError != null) {
+                                        error = dimensionError
                                         return@CyberButton
                                     }
                                     perform {
