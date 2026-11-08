@@ -271,9 +271,9 @@ private fun SecureNotesCard(context: Context) {
         Spacer(modifier = Modifier.height(8.dp))
         CyberTextField(
             value = passphrase,
-            onValueChange = { passphrase = it.take(128) },
+            onValueChange = { passphrase = it.take(4096) },
             label = "Passphrase",
-            placeholder = "12–128 karakter",
+            placeholder = "12–128 karakter untuk enkripsi baru",
             visualTransformation = PasswordVisualTransformation()
         )
         Spacer(modifier = Modifier.height(12.dp))
@@ -664,7 +664,7 @@ internal object VaultCrypto {
     }
 
     fun decrypt(payload: String, passphrase: String): String {
-        require(passphrase.length in 1..128) { "Passphrase tidak valid." }
+        require(passphrase.length in 1..4096) { "Passphrase tidak valid." }
         val parts = payload.split(":")
         return when {
             parts.size == 5 && parts[0] == "v2" -> {
