@@ -596,6 +596,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            override fun onPermissionRequestCanceled(request: PermissionRequest?) {
+                if (pendingWebPermissionRequest === request) {
+                    pendingWebPermissionRequest = null
+                    pendingWebPermissionResources = emptyArray()
+                }
+                request?.deny()
+            }
+
             // Geolocation is granted only after Android has granted a configured location permission.
             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                 val configured = buildList {
