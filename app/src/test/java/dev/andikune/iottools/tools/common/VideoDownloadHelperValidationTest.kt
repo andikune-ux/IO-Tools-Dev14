@@ -18,7 +18,12 @@ class VideoDownloadHelperValidationTest {
             "https://[::1]/video.mp4",
             "https://cdn.local/video.mp4",
             "https://cdn.home.arpa/video.mp4",
-            "https://user:pass@cdn.example.com/video.mp4"
+            "https://user:pass@cdn.example.com/video.mp4",
+            "https://cdn.example.com:70000/video.mp4",
+            "https://cdn..example.com/video.mp4",
+            "https://cdn.example.com./video.mp4", 
+            "https://2130706433/video.mp4",
+            "https://0x7f000001/video.mp4"
         ).forEach { assertFalse(it, VideoDownloadHelper.isSecurePublicMediaUrl(it)) }
     }
 
@@ -51,7 +56,10 @@ class VideoDownloadHelperValidationTest {
             "fc00::1",
             "fe80::1",
             "2001:db8::1",
-            "::ffff:127.0.0.1"
+            "::ffff:127.0.0.1",
+            "::127.0.0.1",
+            "2001:db8::1",
+            "2001::1"
         ).forEach { assertFalse(it, VideoDownloadHelper.isPublicAddress(InetAddress.getByName(it))) }
         assertTrue(VideoDownloadHelper.isPublicAddress(InetAddress.getByName("1.1.1.1")))
         assertTrue(VideoDownloadHelper.isPublicAddress(InetAddress.getByName("2606:4700:4700::1111")))
