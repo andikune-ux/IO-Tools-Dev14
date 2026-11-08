@@ -312,12 +312,13 @@ class MainActivity : ComponentActivity() {
 
     private fun isSafeDownloadUrl(rawUrl: String): Boolean {
         val uri = runCatching { java.net.URI(rawUrl.trim()) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase() ?: return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        if (uri.port != -1 && uri.port !in 1..65535) return false
         return host != "localhost" && !host.endsWith(".local") &&
             !host.endsWith(".internal") && !host.endsWith(".lan") &&
-            host.contains('.') && !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
-            !host.contains(':')
+            !host.endsWith(".home.arpa") && host.contains('.') &&
+            !host.matches(Regex("^[0-9.]+$")) && !host.contains(':')
     }
 
     private fun sanitizeDownloadFileName(rawName: String): String =
