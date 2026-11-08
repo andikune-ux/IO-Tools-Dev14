@@ -390,6 +390,14 @@ object ApkPackagingEngine {
                 !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
                 !host.contains(':')
         ) { "URL website harus mengarah ke hostname HTTPS publik." }
+        require(uri.port == -1 || uri.port in 1..65535) {
+            "Port URL website tidak valid."
+        }
+        val hostLabels = host.trimEnd('.').split('.')
+        require(host.length <= 253 && hostLabels.size >= 2 && hostLabels.all { label ->
+            label.isNotBlank() && label.length <= 63 &&
+                label.matches(Regex("^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$"))
+        }) { "Hostname website tidak valid." }
         require(url.length <= 2048) { "URL website terlalu panjang (maksimal 2048 karakter)." }
 
         val packagePattern = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$")
