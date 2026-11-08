@@ -277,7 +277,7 @@ fun UcMediaSnifferScreen() {
                         },
                         update = { webView ->
                             val nextUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
-                            if (nextUrl != null && nextUrl != webView.tag as? String) {
+                            if (nextUrl != null && nextUrl != (webView.tag as? String)) {
                                 webView.tag = nextUrl
                                 webView.loadUrl(nextUrl)
                             }
