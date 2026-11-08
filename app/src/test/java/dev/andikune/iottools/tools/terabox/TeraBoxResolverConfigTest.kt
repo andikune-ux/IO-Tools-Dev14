@@ -48,6 +48,9 @@ class TeraBoxResolverConfigTest {
         assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("https://my-worker.workers.dev?key=secret"))
         assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("https://my-worker.workers.dev/api"))
         assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("https://127.0.0.1"))
+        assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("https://127.1"))
+        assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("https://localhost."))
+        assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("https://worker.home.arpa"))
         assertNull(TeraBoxDownloaderService.normalizeResolverBaseUrl("javascript://my-worker.workers.dev"))
     }
 }
