@@ -309,7 +309,7 @@ private fun SecureNotesCard(context: Context) {
 @Composable
 private fun TotpCard(context: Context) {
     val prefs = remember { context.getSharedPreferences("io_tools_vault", Context.MODE_PRIVATE) }
-    var secret by remember { mutableStateOf(prefs.getString("totp_secret", "JBSWY3DPEHPK3PXP").orEmpty()) }
+    var secret by remember { mutableStateOf(prefs.getString("totp_secret", "").orEmpty()) }
     var account by remember { mutableStateOf(prefs.getString("totp_account", "Akun saya").orEmpty()) }
     var code by remember { mutableStateOf("------") }
     var remaining by remember { mutableIntStateOf(30) }
@@ -341,7 +341,7 @@ private fun TotpCard(context: Context) {
             prefs.edit().putString("totp_account", it).apply()
         }, label = "Label akun")
         Spacer(modifier = Modifier.height(8.dp))
-        CyberTextField(value = secret, onValueChange = { secret = it }, label = "Secret Base32", placeholder = "JBSWY3DPEHPK3PXP")
+        CyberTextField(value = secret, onValueChange = { secret = it }, label = "Secret Base32", placeholder = "Tempel secret Base32 dari layanan akun")
         Spacer(modifier = Modifier.height(14.dp))
         Box(
             modifier = Modifier
