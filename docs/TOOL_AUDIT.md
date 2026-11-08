@@ -14,7 +14,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
 | Audio & Video | MediaExtractor/MediaMuxer metadata, audio extraction, fast trim and frame capture | Existing source review; fast trim starts at a prior sync frame | Codec/container combinations, variable frame rate, rotation, long media and device codec support |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
-| TikTok / YouTube / Instagram / TeraBox | YouTube and Instagram public media metadata use local yt-dlp; TeraBox supports a user-controlled Cloudflare Worker resolver; TikTok remains resolver-backed | URL/CDN and Worker endpoint validation regression tests added; changes pushed without waiting for CI per workflow | YouTube/Instagram device-level extraction and downloads; TeraBox Worker deployment, auth, public-share and download behavior; TikTok resolver runtime |
+| TikTok / YouTube / Instagram / TeraBox | YouTube, Instagram and TikTok public media extraction use local yt-dlp; TeraBox supports a user-controlled Cloudflare Worker resolver | URL/CDN and Worker endpoint validation regression tests added; TikTok changes pushed without waiting for CI per workflow | YouTube/Instagram/TikTok device-level extraction and downloads; TikTok watermark-free format availability; TeraBox Worker deployment, auth, public-share and download behavior |
 | UC Media Sniffer | Static HTML scan plus embedded WebView network-request and video-element capture; progressive, HLS and DASH classification | URL/media classification regression tests added; WebView and download behavior not device-verified | Player interaction, request headers/referrer, HLS/DASH extraction, dynamic players, blob/DRM limitations and false positives |
 | Download Manager | OkHttp streaming, progress state, MediaStore output, share/play, cancellation, HTTPS/redirect validation, MIME and file-signature checks | URL/MIME/signature helper regression tests added; runtime transfer tests not yet run | Real HTTP interruption, content-length mismatch, disk full, duplicate names, redirect chains, and Android 7–9 storage behavior |
 
@@ -171,3 +171,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Cancellation now updates the visible state immediately. Unknown file types receive a `.bin` fallback instead of being mislabeled as MP4.
 - Added regression tests for secure URL validation, MIME compatibility and common file signatures.
 - Remaining verification: device-level tests for redirects, CDN downloads, unknown content length, interrupted transfers, storage exhaustion, and legacy Android storage permissions. The shared manager still uses one active transfer slot at a time by design.
+
+
+## TikTok downloader — focused repair pass (2026-11-09)
+
+- Removed the hard-coded TikWM public API dependency. Public TikTok/Douyin metadata and formats are now extracted by the locally integrated yt-dlp engine.
+- Added TikTok/Douyin URL validation and HTTPS CDN allowlisting for extractor-provided media URLs.
+- The no-watermark video selection explicitly excludes the extractor's `download_addr` format and any format whose note identifies it as watermarked. If no non-watermarked format is exposed, the app returns an error instead of mislabeling a watermarked stream.
+- Audio download now runs yt-dlp extraction against the original public post URL and converts to MP3 through FFmpeg, rather than assuming an arbitrary direct audio URL is already MP3.
+- Sharing uses the original TikTok/Douyin page URL instead of a short-lived CDN link. Preview is restricted to allowed HTTPS media CDN hosts.
+- Added regression tests for TikTok/Douyin page URLs and media CDN allowlisting.
+- Remaining verification: device-level tests for short links, public video metadata, true no-watermark format selection, MP4 download, MP3 extraction, and rate-limit/login errors. The extractor may fail when TikTok requires login or changes its anti-bot behavior; no private-content or access-control bypass is implemented.
+- Upstream format distinction reference: [yt-dlp TikTok extractor](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/tiktok.py).
