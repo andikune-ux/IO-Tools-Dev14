@@ -65,7 +65,7 @@ object UcMediaSnifferService {
         val host = uri.host.lowercase()
         if (host == "localhost" || host.endsWith(".local") ||
             host.endsWith(".internal") || host.endsWith(".lan") ||
-            !host.contains('.') || host.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) ||
+            !host.contains('.') || host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) ||
             host.contains(':')
         ) return null
         return uri.toASCIIString()
