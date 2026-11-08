@@ -14,6 +14,8 @@ class WebToApkPipelineValidationTest {
         assertTrue(generated.contains("override fun onRequestPermissionsResult"))
         assertTrue(generated.contains("override fun onPermissionRequestCanceled"))
         assertTrue(generated.contains("pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)"))
+        assertTrue(generated.contains("isBluetoothAllowed = network?.optBoolean(\"BLUETOOTH_CONNECT\", false) == true"))
+        assertTrue(generated.contains("wanted.add(Manifest.permission.BLUETOOTH_CONNECT)"))
         assertTrue(generated.contains("request.grant(resources)"))
         assertTrue(generated.contains("pendingGeolocationCallback = callback"))
         assertFalse(generated.contains("ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 103)\n                        callback?.invoke(origin, true, false)"))
