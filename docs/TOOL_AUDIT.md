@@ -14,7 +14,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
 | Audio & Video | MediaExtractor/MediaMuxer metadata, audio extraction, fast trim and frame capture | Existing source review; fast trim starts at a prior sync frame | Codec/container combinations, variable frame rate, rotation, long media and device codec support |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
-| TikTok / YouTube / Instagram / TeraBox | Resolver-backed media metadata and download flows | URL host validation covered by unit tests; resolver runtime not verified | External service uptime, rate limits, account/privacy restrictions and direct-link expiry |
+| TikTok / YouTube / Instagram / TeraBox | YouTube now uses local yt-dlp via youtubedl-android; other services remain resolver-backed | YouTube URL regression tests added; debug build and unit tests passed on the previous revision; latest YouTube changes await CI | YouTube device-level extraction/download, EJS runtime coverage, output format compatibility; Instagram/TeraBox/TikTok resolver runtime |
 | UC Media Sniffer | Parses public page HTML and identifies direct media URLs | Source review | HLS/DASH manifests, authenticated streams, dynamic JavaScript players and false positives |
 | Download Manager | OkHttp streaming, progress state, MediaStore output, share/play and cancellation | Source review; cancellation now cancels the OkHttp call | Interrupted network, unknown content length, disk full, duplicate names and Android 7–9 permissions |
 
@@ -111,3 +111,14 @@ The first yt-dlp integration CI run exposed two Kotlin API mismatches:
 - YoutubeDL.execute accepts `(request, processId, callback)` (and a redirect-stream overload); the service now passes the process ID as the second argument so cancellation targets the same execution.
 
 Both source fixes are committed on the working branch. The next GitHub Actions run is required to verify the correction; do not treat the YouTube tool as build-verified until the run passes. Upstream API reference: https://github.com/yausername/youtubedl-android/tree/0.18.1.
+
+
+## YouTube downloader — focused repair pass (2026-11-09)
+
+- Replaced dependence on anonymous hosted resolver APIs with local yt-dlp extraction through the GPL-3.0 Android wrapper already declared in Gradle.
+- Metadata extraction uses yt-dlp JSON output; selected format IDs are resolved again at download time because CDN URLs expire.
+- Restored yt-dlp's default partial-file behavior instead of disabling `.part` files. This prevents incomplete output from being treated as a finished download.
+- Disabled optional thumbnail, info JSON, and subtitle sidecar output so the output directory contains the intended media artifact.
+- Added explicit MIME mappings for MP4, WebM, MKV, MOV, M4V, and common audio formats. Unknown output extensions now fail visibly rather than being mislabeled as MP4.
+- Added unit regression tests for supported YouTube URL forms and rejection of untrusted hosts / malformed IDs.
+- Remaining verification: run CI on this revision, then test metadata and actual video/audio downloads on physical Android devices. YouTube EJS challenge solving and ABI/runtime packaging still require device-level confirmation. A green compile is not proof of extractor success.
