@@ -209,6 +209,7 @@ class MainActivity : ComponentActivity() {
     private var isFineLocationAllowed = false
     private var isCoarseLocationAllowed = false
     private var isNotificationAllowed = false
+    private var isBluetoothAllowed = false
     private var pendingWebPermissionRequest: PermissionRequest? = null
     private var pendingWebPermissionResources: Array<String> = emptyArray()
     private var pendingGeolocationOrigin: String? = null
@@ -256,6 +257,7 @@ class MainActivity : ComponentActivity() {
             isCoarseLocationAllowed = location?.optBoolean("ACCESS_COARSE_LOCATION", false) == true
             isLocationAllowed = isFineLocationAllowed || isCoarseLocationAllowed
             isNotificationAllowed = system?.optBoolean("POST_NOTIFICATIONS", false) == true
+            isBluetoothAllowed = network?.optBoolean("BLUETOOTH_CONNECT", false) == true
         } catch (e: Exception) {
             // Fallback default
             config = JSONObject()
@@ -265,6 +267,7 @@ class MainActivity : ComponentActivity() {
             isCoarseLocationAllowed = ${config.permCoarseLocation}
             isLocationAllowed = isFineLocationAllowed || isCoarseLocationAllowed
             isNotificationAllowed = ${config.permPostNotifications}
+            isBluetoothAllowed = ${config.permBluetoothConnect}
         }
     }
 
@@ -296,6 +299,9 @@ class MainActivity : ComponentActivity() {
         if (isAudioAllowed) wanted.add(Manifest.permission.RECORD_AUDIO)
         if (isFineLocationAllowed) wanted.add(Manifest.permission.ACCESS_FINE_LOCATION)
         if (isCoarseLocationAllowed) wanted.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 31 && isBluetoothAllowed) {
+            wanted.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
         if (Build.VERSION.SDK_INT >= 33 && isNotificationAllowed) {
             wanted.add(Manifest.permission.POST_NOTIFICATIONS)
         }
