@@ -609,7 +609,6 @@ class MainActivity : ComponentActivity() {
                     pendingWebPermissionRequest = null
                     pendingWebPermissionResources = emptyArray()
                 }
-                request?.deny()
             }
 
             // Geolocation is granted only after Android has granted a configured location permission.
