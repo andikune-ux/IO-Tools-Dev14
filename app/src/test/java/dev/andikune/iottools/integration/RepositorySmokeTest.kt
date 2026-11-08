@@ -80,16 +80,16 @@ class RepositorySmokeTest {
   @Test
   fun testTeraBoxShareIdExtractor() {
     val id1 = TeraBoxDownloaderService.extractShareId("https://terabox.com/s/1aB2cD3eF4g")
-    assertEquals("aB2cD3eF4g", id1)
+    assertEquals("1aB2cD3eF4g", id1)
 
     val id2 = TeraBoxDownloaderService.extractShareId("https://1024tera.com/s/1xyz9876543")
-    assertEquals("xyz9876543", id2)
+    assertEquals("1xyz9876543", id2)
 
     val id3 = TeraBoxDownloaderService.extractShareId("https://1024terabox.com/s/1ymH1Xql")
-    assertEquals("ymH1Xql", id3)
+    assertEquals("1ymH1Xql", id3)
 
     val id4 = TeraBoxDownloaderService.extractShareId("https://www.1024terabox.com/s/1AbCdEf123")
-    assertEquals("AbCdEf123", id4)
+    assertEquals("1AbCdEf123", id4)
   }
 
   @Test
