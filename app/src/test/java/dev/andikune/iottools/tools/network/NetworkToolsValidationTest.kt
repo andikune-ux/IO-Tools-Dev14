@@ -40,6 +40,8 @@ class NetworkToolsValidationTest {
         assertEquals("1.1.1.1", normalizeNetworkHost("1.1.1.1"))
         assertNull(normalizeNetworkHost("ftp://example.com"))
         assertNull(normalizeNetworkHost("https://user:pass@example.com"))
+        assertNull(normalizeNetworkHost("https://example.com:70000"))
+        assertNull(normalizeNetworkHost("https://example.com:0"))
         assertNull(normalizeNetworkHost("example.com\r\nwhois.iana.org"))
     }
 
