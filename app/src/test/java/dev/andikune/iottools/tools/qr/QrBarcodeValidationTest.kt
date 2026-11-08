@@ -19,6 +19,16 @@ class QrBarcodeValidationTest {
     }
 
     @Test
+    fun boundsPayloadSizeAndRejectsControlCharacters() {
+        assertTrue(validateBarcodeInput("A".repeat(4097), BarcodeFormat.QR_CODE) != null)
+        assertTrue(validateBarcodeInput("A".repeat(2954), BarcodeFormat.QR_CODE) != null)
+        assertTrue(validateBarcodeInput("A".repeat(1556), BarcodeFormat.DATA_MATRIX) != null)
+        assertTrue(validateBarcodeInput("A".repeat(81), BarcodeFormat.CODE_39) != null)
+        assertTrue(validateBarcodeInput("A".repeat(257), BarcodeFormat.CODE_128) != null)
+        assertTrue(validateBarcodeInput("ABC\n123", BarcodeFormat.CODE_128) != null)
+    }
+
+    @Test
     fun validatesBarcodeCharacterSets() {
         assertNull(validateBarcodeInput("CODE-39 / 123", BarcodeFormat.CODE_39))
         assertTrue(validateBarcodeInput("lowercase", BarcodeFormat.CODE_39) != null)
