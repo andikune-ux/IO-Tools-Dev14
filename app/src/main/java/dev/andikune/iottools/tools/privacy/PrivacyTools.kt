@@ -328,47 +328,131 @@ private fun SecureNotesCard(context: Context) {
 @Composable
 private fun TotpCard(context: Context) {
     val prefs = remember { context.getSharedPreferences("io_tools_vault", Context.MODE_PRIVATE) }
-    var secret by remember { mutableStateOf(TotpSecretStorage.load(context)) }
+    val scope = rememberCoroutineScope()
+    var secret by remember { mutableStateOf("") }
     var account by remember { mutableStateOf(prefs.getString("totp_account", "Akun saya").orEmpty()) }
     var code by remember { mutableStateOf("------") }
     var remaining by remember { mutableIntStateOf(30) }
     var error by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isSaving by remember { mutableStateOf(false) }
+    var isSaved by remember { mutableStateOf(false) }
 
-    LaunchedEffect(secret) {
-        withContext(Dispatchers.IO) { TotpSecretStorage.save(context, secret) }
+    LaunchedEffect(Unit) {
+        val loaded = withContext(Dispatchers.IO) { TotpSecretStorage.load(context) }
+        secret = loaded.secret
+        isSaved = loaded.secret.isNotBlank()
+        error = loaded.error
+        isLoading = false
+    }
+
+    LaunchedEffect(secret, isLoading) {
+        if (isLoading || secret.isBlank()) {
+            code = "------"
+            return@LaunchedEffect
+        }
         while (true) {
             val epoch = System.currentTimeMillis() / 1000
             val step = epoch / 30
             remaining = (30 - (epoch % 30)).toInt()
-            code = runCatching { generateTotp(secret, step) }
-                .getOrElse {
-                    error = it.message ?: "Secret Base32 tidak valid."
-                    "------"
-                }
-            if (error != null && code != "------") error = null
+            val result = runCatching { generateTotp(secret, step) }
+            result.onSuccess {
+                code = it
+                error = null
+            }.onFailure {
+                code = "------"
+                error = it.message ?: "Secret Base32 tidak valid."
+            }
             delay(1000)
+        }
+    }
+
+    fun saveSecret() {
+        if (isLoading || isSaving) return
+        val decoded = runCatching { Base32.decode(secret) }.getOrNull()
+        if (decoded == null || decoded.size < 10) {
+            error = "Secret Base32 tidak valid atau terlalu pendek (minimal 80 bit)."
+            return
+        }
+        val value = secret
+        isSaving = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { TotpSecretStorage.save(context, value) }
+            }
+            result.onSuccess {
+                isSaved = true
+                status = "Secret disimpan terenkripsi di Android Keystore."
+                error = null
+            }.onFailure {
+                error = "Gagal menyimpan secret: ${it.message}"
+            }
+            isSaving = false
+        }
+    }
+
+    fun deleteSecret() {
+        if (isLoading || isSaving) return
+        isSaving = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { TotpSecretStorage.delete(context) }
+            }
+            result.onSuccess {
+                secret = ""
+                isSaved = false
+                code = "------"
+                status = "Secret TOTP dihapus dari penyimpanan lokal."
+                error = null
+            }.onFailure {
+                error = "Gagal menghapus secret: ${it.message}"
+            }
+            isSaving = false
         }
     }
 
     CyberCard(borderColor = AccentEmerald) {
         Text("TOTP Authenticator (RFC 6238)", color = AccentEmerald, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(4.dp))
-        Text("HMAC-SHA1, 6 digit, periode 30 detik. Kode dihitung di perangkat.", color = TextSecondary, fontSize = 11.sp)
+        Text("HMAC-SHA1, 6 digit, periode 30 detik. Secret disimpan terenkripsi menggunakan Android Keystore.", color = TextSecondary, fontSize = 11.sp)
         Spacer(modifier = Modifier.height(12.dp))
-        CyberTextField(value = account, onValueChange = {
-            account = it
-            prefs.edit().putString("totp_account", it).apply()
-        }, label = "Label akun")
+        CyberTextField(
+            value = account,
+            onValueChange = {
+                account = it.take(100)
+                prefs.edit().putString("totp_account", account).apply()
+            },
+            label = "Label akun"
+        )
         Spacer(modifier = Modifier.height(8.dp))
-        CyberTextField(value = secret, onValueChange = { secret = it.trim() }, label = "Secret Base32", placeholder = "Tempel secret dari layanan akun")
+        CyberTextField(
+            value = secret,
+            onValueChange = {
+                secret = it.take(128).trim()
+                isSaved = false
+                status = null
+                error = null
+            },
+            label = "Secret Base32",
+            placeholder = "Tempel secret dari layanan akun",
+            visualTransformation = PasswordVisualTransformation()
+        )
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = {
-                    secret = Base32.encode(ByteArray(20).also { SecureRandom().nextBytes(it) })
-                },
+                onClick = { secret = Base32.encode(ByteArray(20).also { SecureRandom().nextBytes(it) }); isSaved = false; status = null; error = null },
+                enabled = !isLoading && !isSaving,
                 modifier = Modifier.weight(1f)
             ) { Text("BUAT SECRET BARU") }
+            OutlinedButton(
+                onClick = ::saveSecret,
+                enabled = !isLoading && !isSaving && secret.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) { Text(if (isSaving) "MENYIMPAN..." else "SIMPAN SECRET") }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = {
                     val label = Uri.encode(account.ifBlank { "Akun" })
@@ -376,9 +460,23 @@ private fun TotpCard(context: Context) {
                     val uri = "otpauth://totp/$issuer:$label?secret=$secret&issuer=$issuer&algorithm=SHA1&digits=6&period=30"
                     copyText(context, uri, "TOTP setup URI")
                 },
-                enabled = secret.isNotBlank(),
+                enabled = !isLoading && secret.isNotBlank(),
                 modifier = Modifier.weight(1f)
             ) { Text("SALIN SETUP URI") }
+            OutlinedButton(
+                onClick = ::deleteSecret,
+                enabled = !isLoading && !isSaving && (isSaved || secret.isNotBlank()),
+                modifier = Modifier.weight(1f)
+            ) { Text("HAPUS SECRET") }
+        }
+        if (isLoading) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        if (isSaved) {
+            Text("Secret tersimpan terenkripsi.", color = AccentEmerald, fontSize = 11.sp)
+        } else if (secret.isNotBlank()) {
+            Text("Perubahan belum disimpan.", color = AccentAmber, fontSize = 11.sp)
         }
         Spacer(modifier = Modifier.height(14.dp))
         Box(
@@ -408,14 +506,19 @@ private fun TotpCard(context: Context) {
                 Text("Berganti dalam ${remaining}s", color = TextSecondary, fontSize = 11.sp)
             }
         }
-        if (error != null) {
+        if (error != null || status != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            Text(error!!, color = AccentRose, fontSize = 12.sp)
+            Text(
+                error ?: status.orEmpty(),
+                color = if (error == null) AccentEmerald else AccentRose,
+                fontSize = 12.sp
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
         CyberButton(
             text = "SALIN KODE",
             color = AccentEmerald,
+            enabled = code != "------",
             onClick = { copyText(context, code.filter { it.isDigit() }, "Kode TOTP") }
         )
     }
