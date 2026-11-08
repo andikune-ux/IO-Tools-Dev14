@@ -27,12 +27,58 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.InetAddress
+import java.net.IDN
+import java.net.URI
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Socket
 import java.net.URL
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
+
+internal data class SslTarget(val host: String, val port: Int)
+
+internal fun normalizeNetworkHost(input: String): String? {
+    val clean = input.trim()
+    if (clean.isBlank() || clean.any { it.isWhitespace() || it.isISOControl() }) return null
+    val candidate = if ("://" in clean) clean else "https://$clean"
+    val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+    val rawHost = uri.host?.removePrefix("[")?.removeSuffix("]") ?: return null
+    if (rawHost.contains(':')) {
+        return rawHost.takeIf { it.matches(Regex("^[0-9a-fA-F:.]+$")) }
+    }
+    val host = runCatching { IDN.toASCII(rawHost, IDN.USE_STD3_ASCII_RULES).lowercase() }.getOrNull()
+        ?: return null
+    if (host.length > 253 || host.isBlank()) return null
+    val labels = host.trimEnd('.').split('.')
+    if (labels.any { label ->
+            label.isBlank() || label.length > 63 ||
+                !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+        }
+    ) return null
+    return host.trimEnd('.')
+}
+
+internal fun normalizeWhoisDomain(input: String): String? {
+    val host = normalizeNetworkHost(input) ?: return null
+    if (!host.contains('.') || host.contains(':') ||
+        host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
+    ) return null
+    return host
+}
+
+internal fun parseSslTarget(input: String): SslTarget? {
+    val clean = input.trim()
+    if (clean.isBlank() || clean.any { it.isWhitespace() || it.isISOControl() }) return null
+    val candidate = if ("://" in clean) clean else "https://$clean"
+    val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+    val host = normalizeNetworkHost(uri.host ?: return null) ?: return null
+    val port = if (uri.port == -1) 443 else uri.port
+    if (port !in 1..65535) return null
+    return SslTarget(host, port)
+}
 
 @Composable
 fun NetworkTools() {
