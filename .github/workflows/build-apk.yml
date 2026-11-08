@@ -65,10 +65,10 @@ jobs:
 
       - name: Prepare debug signing key
         run: |
-          keytool -genkeypair -v \
-            -keystore "${{ github.workspace }}/debug.keystore" \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US" \
+          keytool -genkeypair -v \\
+            -keystore "${{ github.workspace }}/debug.keystore" \\
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \\
+            -dname "CN=Android Debug,O=Android,C=US" \\
             -storepass android -keypass android
 
       - name: Configure release signing
@@ -171,3 +171,48 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::Publish job ran, but production publishing conditions were not met."
+
+  cleanup-artifacts:
+    name: Keep Only 3 Latest APK Artifacts
+    needs: [build, unit-tests, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-artifact-retention
+      cancel-in-progress: false
+    permissions:
+      actions: write
+    steps:
+      - name: Delete older APK artifacts (keep newest 3)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prefix = "iD-Tools-Dev14-";
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+
+            const managed = artifacts
+              .filter((artifact) => artifact.name.startsWith(prefix))
+              .sort((a, b) =>
+                Date.parse(b.created_at) - Date.parse(a.created_at) ||
+                b.id - a.id
+              );
+
+            const stale = managed.slice(3);
+            for (const artifact of stale) {
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id
+              });
+              core.info(`Deleted ${artifact.name} (ID: ${artifact.id})`);
+            }
+
+            core.summary
+              .addHeading("APK artifact retention")
+              .addRaw(`Found ${managed.length} APK artifacts; deleted ${stale.length}; retained ${Math.min(managed.length, 3)} newest artifacts.`)
+              .write();
