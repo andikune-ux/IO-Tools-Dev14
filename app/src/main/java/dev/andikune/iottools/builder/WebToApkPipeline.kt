@@ -249,6 +249,7 @@ class MainActivity : ComponentActivity() {
             val media = perms?.optJSONObject("media")
             val location = perms?.optJSONObject("location")
             val system = perms?.optJSONObject("system")
+            val network = perms?.optJSONObject("network")
             
             // Check toggles strictly
             isCameraAllowed = media?.optBoolean("CAMERA", false) == true
