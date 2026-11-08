@@ -21,6 +21,23 @@ class TeraBoxResolverConfigTest {
     }
 
     @Test
+    fun onlyAcceptsDownloadUrlsFromConfiguredWorkerOrigin() {
+        val base = "https://my-worker.workers.dev"
+        org.junit.Assert.assertTrue(
+            TeraBoxDownloaderService.isWorkerResourceUrl("https://my-worker.workers.dev/stream?link=abc", base)
+        )
+        org.junit.Assert.assertFalse(
+            TeraBoxDownloaderService.isWorkerResourceUrl("https://evil.example/file.mp4", base)
+        )
+        org.junit.Assert.assertFalse(
+            TeraBoxDownloaderService.isWorkerResourceUrl("http://my-worker.workers.dev/stream", base)
+        )
+        org.junit.Assert.assertFalse(
+            TeraBoxDownloaderService.isWorkerResourceUrl("https://my-worker.workers.dev:444/stream", base)
+        )
+    }
+
+    @Test
     fun requiresSecureWorkerEndpointWithoutCredentialsOrQuery() {
         assertEquals(
             "https://my-worker.workers.dev",
