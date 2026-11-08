@@ -86,6 +86,8 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         val permCameraExtra = intent.getBooleanExtra("EXTRA_PERM_CAMERA", false)
         val permAudioExtra = intent.getBooleanExtra("EXTRA_PERM_AUDIO", false)
         val permLocationExtra = intent.getBooleanExtra("EXTRA_PERM_LOCATION", false)
+        val permFineLocationExtra = intent.getBooleanExtra("EXTRA_PERM_FINE_LOCATION", permLocationExtra)
+        val permCoarseLocationExtra = intent.getBooleanExtra("EXTRA_PERM_COARSE_LOCATION", permLocationExtra)
         val pullToRefreshExtra = intent.getBooleanExtra("EXTRA_PULL_REFRESH", true)
         val progressBarExtra = intent.getBooleanExtra("EXTRA_PROGRESS_BAR", true)
         val desktopModeExtra = intent.getBooleanExtra("EXTRA_DESKTOP_MODE", false)
@@ -101,8 +103,8 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 navBarColorHex = navColorExtra ?: "#090D16",
                 permCamera = permCameraExtra,
                 permRecordAudio = permAudioExtra,
-                permFineLocation = permLocationExtra,
-                permCoarseLocation = permLocationExtra,
+                permFineLocation = permFineLocationExtra,
+                permCoarseLocation = permCoarseLocationExtra,
                 enablePullToRefresh = pullToRefreshExtra,
                 enableProgressBar = progressBarExtra,
                 enableDesktopMode = desktopModeExtra,
@@ -112,7 +114,7 @@ class WebToApkStandaloneActivity : ComponentActivity() {
             )
             isCameraAllowed = permCameraExtra
             isAudioAllowed = permAudioExtra
-            isLocationAllowed = permLocationExtra
+            isLocationAllowed = permFineLocationExtra || permCoarseLocationExtra
         } else {
             // First try loading from WebToApkStorage (actively configured by user)
             val savedConfig = dev.andikune.iottools.builder.WebToApkStorage.getActiveConfig(this)
