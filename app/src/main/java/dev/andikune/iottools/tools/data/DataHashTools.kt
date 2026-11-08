@@ -330,6 +330,10 @@ fun DataHashTools() {
 
                 fun loadFolder(uri: Uri, showStatus: Boolean = true) {
                     val token = ++folderLoadToken
+                    folderUri = uri
+                    folderName = "Memuat..."
+                    files = emptyList()
+                    if (showStatus) status = "Memuat daftar file..."
                     scope.launch {
                         val folderData = withContext(Dispatchers.IO) {
                             val doc = DocumentFile.fromTreeUri(context, uri)
@@ -342,6 +346,9 @@ fun DataHashTools() {
                         }
                         if (token != folderLoadToken) return@launch
                         if (folderData == null) {
+                            folderUri = null
+                            folderName = ""
+                            files = emptyList()
                             if (showStatus) status = "Folder tidak dapat dibuka."
                             return@launch
                         }
@@ -521,8 +528,10 @@ internal fun buildBatchRenameName(
         ?.take(20)
     val number = startNumber + index.coerceAtLeast(0)
     val numberText = String.format(java.util.Locale.US, "%03d", number)
-    val cleanPrefix = prefix.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-    val cleanSuffix = suffix.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+    val cleanPrefix = prefix.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        .replace(Regex("[\\u0000-\\u001F\\u007F]"), "_").trim()
+    val cleanSuffix = suffix.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        .replace(Regex("[\\u0000-\\u001F\\u007F]"), "_").trim()
     val extensionPart = extension?.let { ".$it" }.orEmpty()
     val base = (cleanPrefix + numberText + cleanSuffix).trimEnd('.', ' ')
         .ifBlank { "file_$numberText" }
