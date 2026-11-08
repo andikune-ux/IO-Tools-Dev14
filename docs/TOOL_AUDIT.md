@@ -94,3 +94,11 @@ Important remaining YouTube work:
 - Test public, non-DRM media with user authorization on real ARM64 and 32-bit ARM devices; validate merged audio/video, audio extraction, cancellation, and low-storage failure.
 
 The current CI run is the first compile gate for this integration. A green Gradle build proves dependency and source compatibility only; it does not prove YouTube extraction or real media download. See [SnapNet's documented QuickJS/EJS architecture](https://github.com/hoodmoshla/SnapNet) and [yt-dlp EJS requirements](https://github.com/yt-dlp/yt-dlp/wiki/ejs).
+
+
+### YouTube engine integration progress
+
+- The repository already contains a GPL-3.0 `LICENSE` file. The selected `youtubedl-android:0.18.1` library and FFmpeg runtime dependencies are declared in `app/build.gradle.kts`.
+- The Android activity now initializes both `YoutubeDL` and `FFmpeg` before exposing downloader screens, and reports initialization failures instead of silently continuing.
+- Each YouTube download now uses an isolated cache directory and a process ID passed to yt-dlp, so cancellation targets the correct process and stale files cannot be mistaken for a fresh download.
+- This integration is not yet certified end-to-end. The current GitHub Actions run must pass, followed by on-device verification of metadata extraction, format listing, MP4 muxing, MP3 extraction, cancellation, and MediaStore output.
