@@ -300,7 +300,7 @@ object PdfEngine {
     private fun deleteOutput(context: Context, uri: Uri) {
         runCatching {
             if (uri.scheme == "file") {
-                uri.path?.let(::File)?.delete()
+                uri.path?.let { File(it).delete() }
             } else {
                 context.contentResolver.delete(uri, null, null)
             }
