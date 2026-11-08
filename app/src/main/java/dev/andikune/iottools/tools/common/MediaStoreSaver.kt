@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.IOException
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -34,16 +35,14 @@ object MediaStoreSaver {
         private val context: Context
     ) {
         fun commit() {
-            try {
-                output.flush()
-                output.close()
-            } catch (_: Exception) {
-            }
+            output.flush()
+            output.close()
             if (mediaStore && Build.VERSION.SDK_INT >= 29) {
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.IS_PENDING, 0)
                 }
-                runCatching { context.contentResolver.update(uri, values, null, null) }
+                val updated = context.contentResolver.update(uri, values, null, null)
+                if (updated <= 0) throw IOException("File gagal dipublikasikan ke MediaStore.")
             }
         }
 
@@ -225,7 +224,7 @@ object MediaStoreSaver {
         }) ?: return null
 
         return try {
-            pending.output.use { it.write(bytes) }
+            pending.output.write(bytes)
             pending.commit()
             pending.uri
         } catch (e: Exception) {
@@ -243,7 +242,7 @@ object MediaStoreSaver {
     ): Uri? {
         val pending = beginDownload(context, fileName, mimeType, subDirectory) ?: return null
         return try {
-            pending.output.use { output -> input.copyTo(output, 64 * 1024) }
+            input.use { stream -> stream.copyTo(pending.output, 64 * 1024) }
             pending.commit()
             pending.uri
         } catch (e: Exception) {
