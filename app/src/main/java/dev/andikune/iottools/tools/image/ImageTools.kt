@@ -312,8 +312,11 @@ fun ImageTools() {
                                     }
                                     perform {
                                         val resized = Bitmap.createScaledBitmap(image, w, h, true)
-                                        val bytes = compressBitmap(resized, Bitmap.CompressFormat.PNG, 100)
-                                        if (resized !== image) resized.recycle()
+                                        val bytes = try {
+                                            compressBitmap(resized, Bitmap.CompressFormat.PNG, 100)
+                                        } finally {
+                                            if (resized !== image) resized.recycle()
+                                        }
                                         val saved = MediaStoreSaver.saveBytes(
                                             context,
                                             MediaStoreSaver.timestampName("resized", "png"),
@@ -524,44 +527,69 @@ private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
     }
 }
 
+internal fun validateResizeDimensions(width: Int, height: Int): String? {
+    if (width <= 0 || height <= 0) return "Lebar dan tinggi harus lebih dari 0."
+    if (width > 8192 || height > 8192) return "Ukuran maksimal per sisi adalah 8192 piksel."
+    if (width.toLong() * height.toLong() > 16_000_000L) {
+        return "Ukuran hasil terlalu besar. Maksimal 16 megapiksel untuk mencegah kehabisan memori."
+    }
+    return null
+}
+
 private fun compressBitmap(bitmap: Bitmap, format: Bitmap.CompressFormat, quality: Int): ByteArray {
-    return ByteArrayOutputStream().use { out ->
-        if (!bitmap.compress(format, quality.coerceIn(1, 100), out)) {
-            throw IllegalStateException("Encoder gambar gagal.")
+    val source = if (format == Bitmap.CompressFormat.JPEG) {
+        Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565).also { flattened ->
+            Canvas(flattened).apply {
+                drawColor(Color.WHITE)
+                drawBitmap(bitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            }
         }
-        out.toByteArray()
+    } else bitmap
+
+    return try {
+        ByteArrayOutputStream().use { out ->
+            if (!source.compress(format, quality.coerceIn(1, 100), out)) {
+                throw IllegalStateException("Encoder gambar gagal.")
+            }
+            out.toByteArray()
+        }
+    } finally {
+        if (source !== bitmap) source.recycle()
     }
 }
 
 private fun imageToPdf(bitmap: Bitmap): ByteArray {
     val document = PdfDocument()
-    val pageWidth = 595
-    val pageHeight = 842
-    val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
-    val page = document.startPage(pageInfo)
-    val canvas: Canvas = page.canvas
-    canvas.drawColor(Color.WHITE)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        isFilterBitmap = true
-        isDither = true
-    }
+    try {
+        val pageWidth = 595
+        val pageHeight = 842
+        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas: Canvas = page.canvas
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
+            isDither = true
+        }
 
-    val margin = 24f
-    val availableWidth = pageWidth - margin * 2
-    val availableHeight = pageHeight - margin * 2
-    val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
-    val drawWidth = bitmap.width * scale
-    val drawHeight = bitmap.height * scale
-    val left = (pageWidth - drawWidth) / 2f
-    val top = (pageHeight - drawHeight) / 2f
-    canvas.drawBitmap(bitmap, null, RectF(left, top, left + drawWidth, top + drawHeight), paint)
-    document.finishPage(page)
-    val bytes = ByteArrayOutputStream().use { out ->
-        document.writeTo(out)
-        out.toByteArray()
+        val margin = 24f
+        val availableWidth = pageWidth - margin * 2
+        val availableHeight = pageHeight - margin * 2
+        val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
+        val drawWidth = bitmap.width * scale
+        val drawHeight = bitmap.height * scale
+        val left = (pageWidth - drawWidth) / 2f
+        val top = (pageHeight - drawHeight) / 2f
+        canvas.drawBitmap(bitmap, null, RectF(left, top, left + drawWidth, top + drawHeight), paint)
+        document.finishPage(page)
+
+        return ByteArrayOutputStream().use { out ->
+            document.writeTo(out)
+            out.toByteArray()
+        }
+    } finally {
+        document.close()
     }
-    document.close()
-    return bytes
 }
 
 private suspend fun readExif(context: Context, uri: Uri): List<Pair<String, String>> = withContext(Dispatchers.IO) {
