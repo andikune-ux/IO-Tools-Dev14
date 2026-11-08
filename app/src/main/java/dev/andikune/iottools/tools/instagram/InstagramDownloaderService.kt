@@ -78,13 +78,16 @@ object InstagramDownloaderService {
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return false
         val host = uri.host?.lowercase() ?: return false
-        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
+            (uri.port != -1 && uri.port != 443)
+        ) return false
         return mediaCdnSuffixes.any { host.endsWith(it) }
     }
 
     internal fun isVideoMediaFormat(vcodec: String?, extension: String): Boolean {
-        return (!vcodec.isNullOrBlank() && vcodec != "none") ||
-            extension.lowercase() in setOf("mp4", "m4v", "webm", "mov")
+        val codec = vcodec?.trim()
+        if (!codec.isNullOrBlank()) return codec != "none"
+        return extension.lowercase() in setOf("mp4", "m4v", "webm", "mov")
     }
 
     private fun selectMedia(entry: JSONObject, index: Int, isCarousel: Boolean = false): InstagramMediaItem? {
@@ -118,10 +121,10 @@ object InstagramDownloaderService {
         }.lowercase()
         val video = isVideoMediaFormat(selected?.optString("vcodec"), ext)
         val thumbnail = entry.optString("thumbnail")
-            .takeIf { it.startsWith("https://") }
+            .takeIf(::isAllowedMediaUrl)
             ?: entry.optJSONArray("thumbnails")?.let { thumbnails ->
                 (0 until thumbnails.length()).mapNotNull { thumbnails.optJSONObject(it)?.optString("url") }
-                    .lastOrNull { it.startsWith("https://") }
+                    .lastOrNull(::isAllowedMediaUrl)
             }
 
         return InstagramMediaItem(
@@ -253,7 +256,8 @@ object InstagramDownloaderService {
 
                 val extension = downloaded.extension.lowercase()
                 val (mime, isImage) = when (extension) {
-                    "mp4", "m4v", "mov" -> "video/mp4" to false
+                    "mp4", "m4v" -> "video/mp4" to false
+                    "mov" -> "video/quicktime" to false
                     "webm" -> "video/webm" to false
                     "jpg", "jpeg" -> "image/jpeg" to true
                     "png" -> "image/png" to true
