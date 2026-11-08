@@ -49,7 +49,11 @@ data class YouTubeVideoData(
 object YouTubeDownloaderService {
 
     private val cancelledProcesses = ConcurrentHashMap.newKeySet<String>()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // Defer Android Looper access until a real download posts UI callbacks. This keeps
+    // pure URL/format validation callable from local JVM unit tests.
+    private val mainHandler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Handler(Looper.getMainLooper())
+    }
 
     internal fun isSupportedFormatExtension(extension: String, audioOnly: Boolean): Boolean {
         val ext = extension.trim().lowercase().removePrefix(".")
