@@ -419,7 +419,8 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
     var muxer: MediaMuxer? = null
     var temp: File? = null
     try {
-        temp = File.createTempFile("audio_", ".tmp", context.cacheDir)
+        val tempFile = File.createTempFile("audio_", ".tmp", context.cacheDir)
+        temp = tempFile
         extractor.setDataSource(context, uri, null)
         var audioTrackIndex = -1
         var audioFormat: MediaFormat? = null
@@ -435,7 +436,8 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
             throw IllegalStateException("File tidak memiliki track audio.")
         }
 
-        val audioMime = audioFormat.getString(MediaFormat.KEY_MIME).orEmpty()
+        val selectedAudioFormat = audioFormat ?: throw IllegalStateException("Format track audio tidak tersedia.")
+        val audioMime = selectedAudioFormat.getString(MediaFormat.KEY_MIME).orEmpty()
         val (container, extension, outputMime) = when (audioMime) {
             "audio/mp4a-latm" -> Triple(MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4, "m4a", "audio/mp4")
             "audio/3gpp", "audio/amr-wb" -> Triple(MediaMuxer.OutputFormat.MUXER_OUTPUT_3GPP, "3gp", "audio/3gpp")
@@ -445,12 +447,12 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
         }
 
         extractor.selectTrack(audioTrackIndex)
-        val mux = MediaMuxer(temp.absolutePath, container)
+        val mux = MediaMuxer(tempFile.absolutePath, container)
         muxer = mux
-        val muxTrack = mux.addTrack(audioFormat)
+        val muxTrack = mux.addTrack(selectedAudioFormat)
         mux.start()
 
-        val maxInputSize = (audioFormat.optInt(MediaFormat.KEY_MAX_INPUT_SIZE) ?: (512 * 1024))
+        val maxInputSize = (selectedAudioFormat.optInt(MediaFormat.KEY_MAX_INPUT_SIZE) ?: (512 * 1024))
             .coerceIn(64 * 1024, 32 * 1024 * 1024)
         val buffer = ByteBuffer.allocate(maxInputSize)
         val info = MediaCodec.BufferInfo()
@@ -477,7 +479,7 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
         mux.release()
         muxer = null
 
-        val saved = temp.inputStream().use { input ->
+        val saved = tempFile.inputStream().use { input ->
             MediaStoreSaver.saveStream(
                 context,
                 MediaStoreSaver.timestampName("audio", extension),
@@ -509,9 +511,10 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
         val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
         runCatching { retriever.release() }
 
-        temp = File.createTempFile("trim_", ".mp4", context.cacheDir)
+        val tempFile = File.createTempFile("trim_", ".mp4", context.cacheDir)
+        temp = tempFile
         extractor.setDataSource(context, uri, null)
-        val mux = MediaMuxer(temp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val mux = MediaMuxer(tempFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         muxer = mux
 
         val mapping = mutableMapOf<Int, Int>()
@@ -576,7 +579,7 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
         mux.release()
         muxer = null
 
-        val saved = temp.inputStream().use { input ->
+        val saved = tempFile.inputStream().use { input ->
             MediaStoreSaver.saveStream(
                 context,
                 MediaStoreSaver.timestampName("trim", "mp4"),
