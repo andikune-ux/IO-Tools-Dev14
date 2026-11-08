@@ -56,6 +56,12 @@ The current resolver implementation is not production-reliable: it depends on ha
 | [Android WebViewClient reference](https://developer.android.com/reference/android/webkit/WebViewClient) | `shouldInterceptRequest` can observe many network resource requests made by an embedded page | Does not observe `javascript:` or `blob:` URLs and only sees the initial URL on redirects; must combine with safe DOM/player instrumentation and explain unsupported cases |
 | [Media3 download guide](https://developer.android.com/media/media3/exoplayer/downloading-media) | Dedicated DownloadService/DownloadManager model for managed background downloads and supported HLS/DASH media | Use only for media the user is authorized to download; DRM-protected streams remain unsupported |
 
+### Additional Android reference: SnapNet
+
+[hoodmoshla/SnapNet](https://github.com/hoodmoshla/SnapNet) is the strongest directly comparable Android implementation found in this pass. Its README describes a Jetpack Compose Android app using yt-dlp through bundled CPython, a runtime-updatable yt-dlp zipapp, QuickJS-ng for EJS challenge solving, FFmpeg for merging separate audio/video streams, and a foreground service for background downloads. It reports test results for YouTube format listing with and without QuickJS and a real 720p video+audio merge. It also documents a roughly 150 MB storage requirement and the limits of cookie-gated, region-locked, and DRM-protected media.
+
+SnapNet is GPL-3.0 and builds on youtubedl-android (also GPL-3.0). Its README explicitly requires corresponding source availability when distributing builds. This is a strong technical blueprint, but it is **not** a drop-in dependency for IO Tools until the repository's own licensing/distribution model is confirmed. Do not copy SnapNet's code, binaries, app name, branding, or UI. A clean-room engine adapter can be prototyped against the upstream yt-dlp/youtubedl-android stack after a license decision.
+
 ### Implementation decisions
 
 1. **YouTube:** replace the brittle chain of anonymous public API instances with a maintained extractor engine. First prototype yt-dlp Android integration in an isolated branch and measure APK size, ABI coverage, runtime support (including EJS), startup, metadata, format selection, and a permitted test download. Compare NewPipe Extractor as an alternative only after GPL-3.0 and distribution implications are reviewed. Never label a stream as MP4 unless the extractor reports a compatible muxed format or the app successfully merges separate audio/video streams.
