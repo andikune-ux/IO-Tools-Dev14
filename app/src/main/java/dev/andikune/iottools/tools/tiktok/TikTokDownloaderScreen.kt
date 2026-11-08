@@ -377,7 +377,8 @@ fun TikTokDownloaderScreen() {
                                     fileName = fileName,
                                     title = data.title,
                                     isAudio = false,
-                                    formatId = data.noWatermarkFormatId
+                                    formatId = data.noWatermarkFormatId,
+                                    formatHasAudio = data.noWatermarkFormatHasAudio
                                 )
                             },
                             shape = RoundedCornerShape(12.dp),
