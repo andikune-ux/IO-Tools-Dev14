@@ -260,6 +260,9 @@ object InstagramDownloaderService {
                     "webp" -> "image/webp" to true
                     else -> throw IllegalStateException("Format hasil Instagram tidak didukung: $extension")
                 }
+                if (mediaItem.isVideo == isImage) {
+                    throw IllegalStateException("Tipe file hasil tidak sesuai dengan media Instagram yang dipilih.")
+                }
                 val safeAuthor = MediaStoreSaver.sanitizeFileName(author, "creator").take(40)
                 val fileName = MediaStoreSaver.sanitizeFileName(
                     "IG_${safeAuthor}_${shortcode}_${mediaItem.index}.$extension"
