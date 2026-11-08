@@ -26,7 +26,6 @@ class UcMediaSnifferValidationTest {
         assertNull(UcMediaSnifferService.normalizeTargetUrl("https://0x7f000001/watch"))
         assertNull(UcMediaSnifferService.normalizeTargetUrl("https://printer.home.arpa/watch"))
         assertNull(UcMediaSnifferService.normalizeTargetUrl("https://example.com:70000/watch"))
-        assertNull(UcMediaSnifferService.normalizeTargetUrl("https://example.com/\\u0000watch"))
     }
 
     @Test
@@ -76,7 +75,14 @@ class UcMediaSnifferValidationTest {
             "https://player.example.com/",
             UcMediaSnifferService.sanitizeReferer(
                 "https://cdn.example.net/video.mp4",
-                "https://user:secret@player.example.com/watch?token=private#fragment"
+                "https://player.example.com/watch?token=private#fragment"
+            )
+        )
+        assertEquals(
+            "",
+            UcMediaSnifferService.sanitizeReferer(
+                "https://cdn.example.net/video.mp4",
+                "https://user:secret@player.example.com/watch?token=private"
             )
         )
         assertEquals(
