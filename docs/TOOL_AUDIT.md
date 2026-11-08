@@ -181,7 +181,8 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Requires an exact expected Content-Type (while allowing generic octet-stream responses), rejects HTML and unexpected JSON error bodies, and validates common file signatures (MP4/QuickTime, WebM/Matroska, FLV, MP3/AAC/OGG/WAV, JPEG/PNG/WebP/GIF, PDF and ZIP). A WebM or QuickTime response can no longer be saved under an MP4 MIME label merely because both are video.
 - Rejects empty responses and content-length mismatches before publishing the MediaStore item. Incomplete output is aborted rather than reported as a successful download.
 - Added a generation ID and synchronized active-call registration so an older cancelled transfer cannot overwrite the progress or active-call state of a newer download.
-- Cancellation now updates the visible state immediately. Unknown file types receive a `.bin` fallback instead of being mislabeled as MP4.
+- Cancellation now updates the visible state immediately. Unknown file types receive a `.bin` fallback instead of being mislabeled as MP4. If the server reports a generic MIME type, the manager now infers the expected MIME from a known filename extension before validating the body and creating the MediaStore item.
+- The stream-copy loop handles temporary zero-byte reads without stalling. URL validation also rejects malformed DNS labels and invalid ports before starting a transfer.
 - Added regression tests for secure URL validation, exact MIME compatibility and common file signatures.
 - Remaining verification: device-level tests for redirects, CDN downloads, unknown content length, interrupted transfers, storage exhaustion, and legacy Android storage permissions. The shared manager still uses one active transfer slot at a time by design.
 
