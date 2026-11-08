@@ -156,7 +156,7 @@ object UcMediaSnifferService {
                     contentType.contains("mpegurl") ||
                     contentType.contains("dash+xml")
                 ) {
-                    val direct = classifyMediaUrl(urlString, urlString)
+                    val direct = classifyMediaUrl(urlString, urlString, contentType)
                         ?: throw IllegalStateException("Respons berupa media, tetapi format URL tidak didukung.")
                     return@withContext Result.success(
                         SniffingResult(
