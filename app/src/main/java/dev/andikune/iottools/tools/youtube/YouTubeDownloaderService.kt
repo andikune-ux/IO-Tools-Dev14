@@ -60,8 +60,10 @@ object YouTubeDownloaderService {
 
         val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
-        if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
-        if (host != "youtu.be" && host != "youtube.com" && !host.endsWith(".youtube.com")) return null
+        val allowedHosts = setOf("youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com")
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+        if (uri.port != -1 && uri.port !in setOf(80, 443)) return null
+        if (host !in allowedHosts) return null
 
         val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
         val queryId = uri.rawQuery.orEmpty().split('&')
@@ -79,7 +81,8 @@ object YouTubeDownloaderService {
         runCatching {
             val videoId = extractVideoId(rawUrl)
                 ?: throw IllegalArgumentException("Tautan YouTube tidak valid.")
-            val request = YoutubeDLRequest(rawUrl.trim()).apply {
+            val canonicalUrl = "https://www.youtube.com/watch?v=$videoId"
+            val request = YoutubeDLRequest(canonicalUrl).apply {
                 addOption("--dump-single-json")
                 addOption("--no-warnings")
                 addOption("--no-playlist")
