@@ -7,6 +7,7 @@ import dev.andikune.iottools.tools.terabox.TeraBoxDownloaderService
 import dev.andikune.iottools.tools.youtube.YouTubeDownloaderService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -109,6 +110,13 @@ class ExampleRobolectricTest {
     assertTrue(activity.contains("WebSettings.MIXED_CONTENT_NEVER_ALLOW"))
     assertTrue(activity.contains("settings.safeBrowsingEnabled = true"))
     assertTrue(activity.contains("setAcceptThirdPartyCookies(webView, false)"))
+  }
+
+  @Test
+  fun mediaLinkExtractorsRejectUntrustedHosts() {
+    assertNull(YouTubeDownloaderService.extractVideoId("https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ"))
+    assertNull(InstagramDownloaderService.extractShortcode("https://instagram.com.evil.test/reel/ABC123/"))
+    assertNull(TeraBoxDownloaderService.extractShareId("https://terabox.com.evil.test/s/1abcdefg"))
   }
 
 }
