@@ -72,7 +72,9 @@ fun YouTubeDownloaderScreen() {
     }
 
     fun fetchVideo() {
-        if (inputUrl.isBlank()) {
+        if (isLoading) return
+        val requestedUrl = inputUrl.trim()
+        if (requestedUrl.isBlank()) {
             Toast.makeText(context, "Masukkan URL YouTube terlebih dahulu", Toast.LENGTH_SHORT).show()
             return
         }
@@ -81,10 +83,10 @@ fun YouTubeDownloaderScreen() {
             isLoading = true
             errorMessage = null
             videoResult = null
-            statusLogs = statusLogs + "[REQUEST] Memeriksa Video ID: ${inputUrl.take(45)}..."
+            statusLogs = statusLogs + "[REQUEST] Memeriksa Video ID: ${requestedUrl.take(45)}..."
 
             val startTime = System.currentTimeMillis()
-            val result = YouTubeDownloaderService.fetchVideoDetails(inputUrl)
+            val result = YouTubeDownloaderService.fetchVideoDetails(requestedUrl)
             val elapsed = System.currentTimeMillis() - startTime
 
             isLoading = false
@@ -182,7 +184,8 @@ fun YouTubeDownloaderScreen() {
                     CyberButton(
                         text = if (isLoading) "MEMPROSES..." else "AMBIL VIDEO",
                         modifier = Modifier.weight(1f),
-                        onClick = { fetchVideo() }
+                        onClick = { fetchVideo() },
+                        enabled = !isLoading
                     )
                 }
 
