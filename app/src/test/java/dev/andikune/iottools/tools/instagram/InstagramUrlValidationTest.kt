@@ -23,11 +23,26 @@ class InstagramUrlValidationTest {
     }
 
     @Test
+    fun classifiesVideoAndImageFormatsWithoutTreatingUnknownExtensionsAsPhotos() {
+        assertTrue(InstagramDownloaderService.isVideoMediaFormat(null, "mp4"))
+        assertTrue(InstagramDownloaderService.isVideoMediaFormat("h264", ""))
+        assertFalse(InstagramDownloaderService.isVideoMediaFormat("none", "mp4"))
+        assertTrue(InstagramDownloaderService.isImageMediaFormat("jpg"))
+        assertTrue(InstagramDownloaderService.isImageMediaFormat("webp"))
+        assertFalse(InstagramDownloaderService.isImageMediaFormat(""))
+        assertFalse(InstagramDownloaderService.isImageMediaFormat("m3u8"))
+    }
+
+    @Test
     fun onlyAcceptsHttpsInstagramMediaCdnUrls() {
         assertTrue(InstagramDownloaderService.isAllowedMediaUrl("https://scontent.cdninstagram.com/media/video.mp4"))
         assertTrue(InstagramDownloaderService.isAllowedMediaUrl("https://video.xx.fbcdn.net/media/video.mp4"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("http://scontent.cdninstagram.com/media/video.mp4"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://cdninstagram.com.evil.example/video.mp4"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://evil.example/video.mp4"))
+        assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://user:pass@scontent.cdninstagram.com/video.mp4"))
+        assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://scontent..cdninstagram.com/video.mp4"))
+        assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://scontent.cdninstagram.com:8443/video.mp4"))
+        assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://127.0.0.1/video.mp4"))
     }
 }
