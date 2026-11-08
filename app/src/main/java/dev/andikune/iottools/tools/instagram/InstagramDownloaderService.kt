@@ -92,7 +92,14 @@ object InstagramDownloaderService {
         if (formats != null) {
             for (i in 0 until formats.length()) {
                 val format = formats.optJSONObject(i) ?: continue
-                if (isAllowedMediaUrl(format.optString("url"))) candidates += format
+                val formatUrl = format.optString("url")
+                if (!isAllowedMediaUrl(formatUrl)) continue
+                val formatExtension = format.optString("ext").ifBlank {
+                    runCatching { URI(formatUrl).path.substringAfterLast('.', "") }.getOrDefault("")
+                }.lowercase()
+                val codec = format.optString("vcodec").takeIf { it.isNotBlank() }
+                val supportedImage = formatExtension in setOf("jpg", "jpeg", "png", "webp")
+                if (isVideoMediaFormat(codec, formatExtension) || supportedImage) candidates += format
             }
         }
 
@@ -161,7 +168,7 @@ object InstagramDownloaderService {
                 throw IllegalStateException(message)
             }
 
-            val isCarousel = entries != null && mediaItems.size > 1
+            val isCarousel = entries != null && entries.length() > 1
             val mediaType = when {
                 isCarousel -> InstagramMediaType.CAROUSEL
                 mediaItems.first().isVideo -> InstagramMediaType.VIDEO
