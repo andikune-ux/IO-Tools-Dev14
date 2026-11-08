@@ -23,6 +23,7 @@ class TikTokUrlValidationTest {
         assertNull(TikTokDownloaderService.normalizeTikTokUrl("https://evil.example/@creator/video/123"))
         assertNull(TikTokDownloaderService.normalizeTikTokUrl("ftp://www.tiktok.com/@creator/video/123"))
         assertNull(TikTokDownloaderService.normalizeTikTokUrl("https://user:pass@www.tiktok.com/@creator/video/123"))
+        assertNull(TikTokDownloaderService.normalizeTikTokUrl("https://www.tiktok.com:444/@creator/video/123"))
     }
 
     @Test
@@ -46,5 +47,6 @@ class TikTokUrlValidationTest {
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("http://v16-webapp.tiktokcdn.com/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://tiktokcdn.com.evil.example/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://evil.example/video.mp4"))
+        assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokcdn.com:444/video.mp4"))
     }
 }
