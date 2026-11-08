@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import com.yausername.youtubedl_android.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import dev.andikune.iottools.tools.common.MediaStoreSaver
@@ -127,7 +126,6 @@ object YouTubeDownloaderService {
         val processId = "youtube-$videoId-${System.currentTimeMillis()}"
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching {
-                FFmpeg.getInstance().init(context.applicationContext)
                 val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
                 val outputTemplate = File(outputDir, "%(title).120B [%(id)s].%(ext)s").absolutePath
                 val request = YoutubeDLRequest(sourceUrl).apply {
@@ -144,7 +142,7 @@ object YouTubeDownloaderService {
                         addOption("--merge-output-format", "mp4")
                     }
                 }
-                YoutubeDL.getInstance().execute(request, null, processId)
+                YoutubeDL.getInstance().execute(request)
                 val downloaded = outputDir.listFiles()
                     ?.filter { it.isFile && it.length() > 0L }
                     ?.maxByOrNull { it.lastModified() }
