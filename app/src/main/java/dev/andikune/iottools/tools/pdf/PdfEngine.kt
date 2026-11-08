@@ -126,16 +126,24 @@ object PdfEngine {
                         throw IllegalArgumentException("Maksimal $MAX_SPLIT_OUTPUTS output per operasi pemisahan.")
                     }
                     val base = outputName.substringBeforeLast('.', outputName)
-                    parts.map { part ->
-                        PDDocument(memoryUsage(context)).use { target ->
-                            for (pageIndex in part) target.importPage(source.getPage(pageIndex))
-                            val label = if (part.first == part.last) {
-                                "${part.first + 1}"
-                            } else {
-                                "${part.first + 1}-${part.last + 1}"
+                    val createdOutputs = mutableListOf<Uri>()
+                    try {
+                        parts.map { part ->
+                            PDDocument(memoryUsage(context)).use { target ->
+                                for (pageIndex in part) target.importPage(source.getPage(pageIndex))
+                                val label = if (part.first == part.last) {
+                                    "${part.first + 1}"
+                                } else {
+                                    "${part.first + 1}-${part.last + 1}"
+                                }
+                                savePdf(context, "${base}_$label.pdf") { target.save(it) }
+                                    .also(createdOutputs::add)
                             }
-                            savePdf(context, "${base}_$label.pdf") { target.save(it) }
                         }
+                    } catch (error: Exception) {
+                        // A failed multi-output split must not leave a misleading partial result set.
+                        createdOutputs.forEach { uri -> deleteOutput(context, uri) }
+                        throw error
                     }
                 }
             } ?: throw IllegalStateException("PDF tidak dapat dibuka.")
@@ -287,6 +295,16 @@ object PdfEngine {
             throw IllegalArgumentException("Maksimal $MAX_SPLIT_PAGE_REFERENCES halaman dapat dipisah dalam satu operasi.")
         }
         return ranges
+    }
+
+    private fun deleteOutput(context: Context, uri: Uri) {
+        runCatching {
+            if (uri.scheme == "file") {
+                uri.path?.let(::File)?.delete()
+            } else {
+                context.contentResolver.delete(uri, null, null)
+            }
+        }
     }
 
     private fun savePdf(context: Context, fileName: String, writer: (OutputStream) -> Unit): Uri {
