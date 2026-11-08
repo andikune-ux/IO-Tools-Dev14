@@ -7,7 +7,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Tool | Implementation found | Current verification | Remaining checks |
 |---|---|---|---|
 | QR & Barcode | ZXing QR/Data Matrix and 1D barcode generation plus camera scanner | EAN-13/Code 39/Code 128 validation regression tests added; camera not device-verified | Camera permission, autofocus, low-light, scanner compatibility and generated output on devices |
-| Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading | Existing source review | Large images, orientation variants, storage output and EXIF stripping on devices |
+| Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading/removal | Resize memory-limit regression tests added; processing moved to IO | Large images, orientation variants, transparency, storage output and EXIF stripping on devices |
 | PDF Tools | PDFBox merge/split/rotate/protect/compress; Android PdfRenderer for raster recompression | Existing source review | Encrypted PDFs, malformed files, large documents, page order and output compatibility |
 | File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename | Existing source review | Very large files, duplicate target names, read-only providers and rename conflicts |
 | Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Existing source review | Offline state, captive portals, IPv6, slow DNS and provider rate limits |
@@ -193,3 +193,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Editing the payload or changing barcode type clears the old generated bitmap, preventing a stale image from being saved after the input changes.
 - Added JVM regression tests for EAN-13 checksum and supported character sets.
 - Remaining verification: scan generated QR/barcode images with multiple external scanner apps and test camera permission, focus, and low-light behavior on physical devices.
+
+
+## Image Studio — focused repair pass (2026-11-09)
+
+- Moved compression, resizing, format conversion, PDF creation and MediaStore writes off the Compose main thread to prevent UI stalls and ANRs.
+- Added a load-generation token so a slower earlier image decode cannot overwrite a more recently selected image; old preview state is cleared while a new image loads.
+- Disabled image replacement while an operation is running, preventing the source bitmap from being swapped during an active transform.
+- Added resize limits of 8192 pixels per side and 16 megapixels total to reduce out-of-memory risk.
+- JPEG encoding now composites transparent pixels onto a white background instead of leaving the result dependent on implicit alpha handling.
+- PDF document resources are closed in a `finally` block, and resized temporary bitmaps are recycled even if encoding fails.
+- Added regression tests for accepted and rejected resize dimensions.
+- Remaining verification: exercise large images, EXIF orientations, transparent PNG-to-JPEG conversion, WebP support and PDF output on physical devices with different memory capacities.
