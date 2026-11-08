@@ -7,6 +7,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.net.URI
+import java.net.InetAddress
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -18,7 +20,12 @@ object VideoDownloadHelper {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
-            .followRedirects(true)
+            .followRedirects(false)
+            .dns { hostname ->
+                val resolved = InetAddress.getAllByName(hostname).filter(::isPublicAddress)
+                if (resolved.isEmpty()) throw UnknownHostException("Hostname tidak mengarah ke IP publik.")
+                resolved
+            }
             .build()
     }
 
@@ -37,6 +44,80 @@ object VideoDownloadHelper {
         return true
     }
 
+    private fun isPublicAddress(address: InetAddress): Boolean {
+        if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+            address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress
+        ) return false
+
+        val bytes = address.address
+        if (bytes.size == 4) {
+            val a = bytes[0].toInt() and 0xff
+            val b = bytes[1].toInt() and 0xff
+            return when {
+                a == 0 || a == 10 || a == 127 || a >= 224 -> false
+                a == 100 && b in 64..127 -> false
+                a == 169 && b == 254 -> false
+                a == 172 && b in 16..31 -> false
+                a == 192 && b == 168 -> false
+                a == 192 && b == 0 -> false
+                a == 198 && b in 18..19 -> false
+                a == 198 && b == 51 -> false
+                a == 203 && b == 0 -> false
+                else -> true
+            }
+        }
+        if (bytes.size == 16) {
+            val mapped = bytes.take(10).all { it.toInt() == 0 } &&
+                (bytes[10].toInt() and 0xff) == 0xff &&
+                (bytes[11].toInt() and 0xff) == 0xff
+            if (mapped) return isPublicAddress(InetAddress.getByAddress(bytes.copyOfRange(12, 16)))
+            val first = bytes[0].toInt() and 0xff
+            val second = bytes[1].toInt() and 0xff
+            if ((first and 0xfe) == 0xfc) return false
+            if (first == 0xfe && (second and 0xc0) == 0x80) return false
+            if (first == 0x20 && second == 0x01 &&
+                (bytes[2].toInt() and 0xff) == 0x0d && (bytes[3].toInt() and 0xff) == 0xb8
+            ) return false
+        }
+        return true
+    }
+
+    private fun executeWithSecureRedirects(initialRequest: Request): okhttp3.Response {
+        var request = initialRequest
+        val redirectCodes = setOf(300, 301, 302, 303, 307, 308)
+        for (redirectCount in 0..5) {
+            val response = client.newCall(request).execute()
+            if (response.code !in redirectCodes) return response
+
+            val location = response.header("Location")
+            val nextUrl = location?.let { response.request.url.resolve(it) }
+            if (nextUrl == null || !isSecurePublicMediaUrl(nextUrl.toString())) {
+                response.close()
+                throw IllegalStateException("Redirect media mengarah ke URL yang tidak aman.")
+            }
+            if (redirectCount == 5) {
+                response.close()
+                throw IllegalStateException("Terlalu banyak redirect saat memverifikasi media.")
+            }
+
+            val previous = response.request.url
+            val changedOrigin = previous.scheme != nextUrl.scheme ||
+                previous.host != nextUrl.host || previous.port != nextUrl.port
+            response.close()
+            request = request.newBuilder()
+                .url(nextUrl)
+                .apply {
+                    if (changedOrigin) {
+                        request.headers.names()
+                            .filterNot { it.equals("User-Agent", true) || it.equals("Accept", true) || it.equals("Range", true) }
+                            .forEach(::removeHeader)
+                    }
+                }
+                .build()
+        }
+        throw IllegalStateException("Gagal mengikuti redirect media.")
+    }
+
     /**
      * Probes a bounded prefix and validates media signatures. HTML/JSON error
      * pages and insecure or local targets are never reported as video streams.
@@ -53,7 +134,7 @@ object VideoDownloadHelper {
                 .header("Range", "bytes=0-1023")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            executeWithSecureRedirects(request).use { response ->
                 if (!response.isSuccessful) {
                     throw IllegalStateException("Server mengembalikan HTTP ${response.code}.")
                 }
