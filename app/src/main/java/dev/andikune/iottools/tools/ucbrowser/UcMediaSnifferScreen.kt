@@ -101,6 +101,7 @@ fun UcMediaSnifferScreen() {
                 return@launch
             }
 
+            captureRequestedUrl = normalizedUrl
             val result = UcMediaSnifferService.sniffWebpage(normalizedUrl)
             val elapsed = System.currentTimeMillis() - startTime
 
@@ -261,9 +262,9 @@ fun UcMediaSnifferScreen() {
                     Spacer(modifier = Modifier.height(10.dp))
                     AndroidView(
                         factory = { webContext ->
-                            val initialUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+                            val initialUrl = captureRequestedUrl
+                                ?: UcMediaSnifferService.normalizeTargetUrl(inputUrl)
                                 ?: inputUrl
-                            captureRequestedUrl = initialUrl
                             UcMediaSnifferService.createCaptureWebView(
                                 context = webContext,
                                 targetUrl = initialUrl,
