@@ -33,16 +33,19 @@ object TeraBoxDownloaderService {
         val clean = rawUrl.trim()
         if (clean.matches(Regex("^1[A-Za-z0-9_-]{6,}$"))) return clean.removePrefix("1")
 
-        val uri = runCatching { Uri.parse(clean) }.getOrNull() ?: return null
+        val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
-        if (uri.scheme !in setOf("http", "https")) return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
         val allowedHosts = setOf("terabox.com", "teraboxapp.com", "1024tera.com", "teraboxlink.com", "freeterabox.com")
         if (host !in allowedHosts && allowedHosts.none { host.endsWith(".$it") }) return null
 
-        val segments = uri.pathSegments
+        val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
         val shareIndex = segments.indexOf("s")
         val pathId = if (shareIndex >= 0 && shareIndex + 1 < segments.size) segments[shareIndex + 1] else null
-        val queryId = uri.getQueryParameter("surl")
+        val queryId = uri.rawQuery.orEmpty().split('&')
+            .firstOrNull { it.substringBefore('=') == "surl" }
+            ?.substringAfter('=', "")
+            ?.let { runCatching { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrDefault(it) }
         val candidate = pathId ?: queryId ?: return null
         return candidate.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{6,}$")) }?.removePrefix("1")
     }
