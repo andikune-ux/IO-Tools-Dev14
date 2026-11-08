@@ -1,10 +1,13 @@
 package dev.andikune.iottools
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -51,13 +54,40 @@ import dev.andikune.iottools.ui.components.CyberTerminalHeader
 import dev.andikune.iottools.ui.theme.*
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        private const val STORAGE_PERMISSION_REQUEST = 4101
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT <= 28 &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_REQUEST)
+        }
         enableEdgeToEdge()
         setContent {
             IDToolsTheme {
                 MainAppScreen()
             }
+        }
+    }
+
+    @Deprecated("Use Activity Result APIs where possible")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_REQUEST &&
+            grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(
+                this,
+                "Izin penyimpanan ditolak. Simpan file mungkin tidak berfungsi pada Android 9 ke bawah.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 }
