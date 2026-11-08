@@ -139,11 +139,25 @@ object AppDownloadManager {
         onSuccess: (Uri) -> Unit = {}
     ) {
         cancelDownload()
+        val downloadId = downloadSequence.incrementAndGet()
+        activeDownloadId = downloadId
 
         val safeName = ensureExtension(
             MediaStoreSaver.sanitizeFileName(suggestedFileName, "media_${System.currentTimeMillis()}.mp4"),
             mimeType
         )
+
+        if (!isSecureDownloadUrl(directUrl)) {
+            _downloadState.value = AppDownloadState(
+                url = directUrl,
+                fileName = safeName,
+                title = title,
+                status = DownloadStatus.ERROR,
+                statusMessage = "URL unduhan tidak aman atau tidak valid.",
+                errorMessage = "Unduhan hanya menerima URL HTTPS publik tanpa kredensial atau alamat lokal."
+            )
+            return
+        }
 
         _downloadState.value = AppDownloadState(
             isDownloading = true,
@@ -164,34 +178,63 @@ object AppDownloadManager {
         activeJob = CoroutineScope(Dispatchers.IO).launch {
             var pending: MediaStoreSaver.PendingOutput? = null
             var currentCall: Call? = null
+
+            fun publish(transform: (AppDownloadState) -> AppDownloadState) {
+                if (activeDownloadId == downloadId) {
+                    _downloadState.value = transform(_downloadState.value)
+                }
+            }
+
             try {
+                if (activeDownloadId != downloadId || !isActive) return@launch
+
                 val reqBuilder = Request.Builder()
                     .url(directUrl)
                     .header("User-Agent", USER_AGENT)
                     .header("Accept", "*/*")
-                customHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
+                customHeaders.forEach { (key, value) ->
+                    if (key.isNotBlank() && value.isNotBlank()) reqBuilder.header(key, value)
+                }
 
                 currentCall = client.newCall(reqBuilder.build())
+                if (activeDownloadId != downloadId || !isActive) {
+                    currentCall?.cancel()
+                    return@launch
+                }
                 activeCall = currentCall
-                currentCall!!.execute().use { response ->
+
+                currentCall.execute().use { response ->
+                    if (activeDownloadId != downloadId || !isActive) {
+                        throw CancellationException("Unduhan dibatalkan.")
+                    }
+                    if (response.request.url.scheme != "https") {
+                        throw IllegalStateException("Server mengalihkan unduhan ke koneksi non-HTTPS.")
+                    }
                     if (!response.isSuccessful) {
                         throw IllegalStateException("Server mengembalikan HTTP ${response.code}.")
                     }
+
                     val body = response.body ?: throw IllegalStateException("Respon server kosong.")
-                    val contentType = response.header("Content-Type", "").orEmpty().lowercase()
+                    val contentType = response.header("Content-Type").orEmpty().lowercase()
                     if (contentType.contains("text/html")) {
                         throw IllegalStateException("Tautan mengembalikan halaman HTML, bukan file media.")
+                    }
+                    if (!isCompatibleContentType(mimeType, contentType)) {
+                        throw IllegalStateException(
+                            "Tipe konten server (${contentType.substringBefore(';')}) tidak cocok dengan file yang diminta ($mimeType)."
+                        )
                     }
 
                     val totalLength = body.contentLength()
                     val hasLength = totalLength > 0
-
-                    _downloadState.value = _downloadState.value.copy(
-                        status = DownloadStatus.DOWNLOADING,
-                        statusMessage = "Mengunduh file...",
-                        totalBytesFormatted = if (hasLength) formatBytes(totalLength) else "Ukuran tidak diketahui",
-                        indeterminate = !hasLength
-                    )
+                    publish {
+                        it.copy(
+                            status = DownloadStatus.DOWNLOADING,
+                            statusMessage = "Mengunduh file...",
+                            totalBytesFormatted = if (hasLength) formatBytes(totalLength) else "Ukuran tidak diketahui",
+                            indeterminate = !hasLength
+                        )
+                    }
 
                     val output = MediaStoreSaver.beginDownload(
                         context = context,
@@ -203,14 +246,21 @@ object AppDownloadManager {
                     pending = output
 
                     var downloadedBytes = 0L
+                    val signatureBuffer = ByteArray(512)
+                    var signatureSize = 0
                     var lastProgressTime = System.currentTimeMillis()
                     var bytesSinceLastSample = 0L
-                    var currentSpeed = "0 KB/s"
 
                     body.byteStream().use { input ->
                         val buffer = ByteArray(32 * 1024)
                         var bytesRead = input.read(buffer)
-                        while (isActive && bytesRead != -1) {
+                        while (isActive && activeDownloadId == downloadId && bytesRead != -1) {
+                            val signatureCopy = minOf(bytesRead, signatureBuffer.size - signatureSize)
+                            if (signatureCopy > 0) {
+                                System.arraycopy(buffer, 0, signatureBuffer, signatureSize, signatureCopy)
+                                signatureSize += signatureCopy
+                            }
+
                             output.output.write(buffer, 0, bytesRead)
                             downloadedBytes += bytesRead
                             bytesSinceLastSample += bytesRead
@@ -219,7 +269,6 @@ object AppDownloadManager {
                             val delta = now - lastProgressTime
                             if (delta >= 400) {
                                 val speedBytesPerSec = (bytesSinceLastSample * 1000.0 / delta).toLong()
-                                currentSpeed = formatSpeed(speedBytesPerSec)
                                 lastProgressTime = now
                                 bytesSinceLastSample = 0L
 
@@ -227,37 +276,45 @@ object AppDownloadManager {
                                     ((downloadedBytes * 100) / totalLength).toInt().coerceIn(0, 100)
                                 } else 0
 
-                                _downloadState.value = _downloadState.value.copy(
-                                    progress = if (hasLength) (downloadedBytes.toFloat() / totalLength).coerceIn(0f, 1f) else 0f,
-                                    progressPercent = pct,
-                                    speedFormatted = currentSpeed,
-                                    bytesDownloadedFormatted = formatBytes(downloadedBytes),
-                                    statusMessage = if (hasLength) "Mengunduh... $pct%" else "Mengunduh... ${formatBytes(downloadedBytes)}"
-                                )
+                                publish {
+                                    it.copy(
+                                        progress = if (hasLength) (downloadedBytes.toFloat() / totalLength).coerceIn(0f, 1f) else 0f,
+                                        progressPercent = pct,
+                                        speedFormatted = formatSpeed(speedBytesPerSec),
+                                        bytesDownloadedFormatted = formatBytes(downloadedBytes),
+                                        statusMessage = if (hasLength) "Mengunduh... $pct%" else "Mengunduh... ${formatBytes(downloadedBytes)}"
+                                    )
+                                }
                             }
                             bytesRead = input.read(buffer)
                         }
                         output.output.flush()
                     }
 
-                    if (!isActive) {
+                    if (!isActive || activeDownloadId != downloadId) {
                         output.abort()
                         pending = null
                         return@launch
                     }
+                    if (downloadedBytes <= 0L) {
+                        throw IllegalStateException("Server tidak mengirim data file.")
+                    }
+                    if (hasLength && downloadedBytes != totalLength) {
+                        throw IllegalStateException(
+                            "Unduhan tidak lengkap: diterima ${formatBytes(downloadedBytes)} dari ${formatBytes(totalLength)}."
+                        )
+                    }
 
-                    // Reject tiny HTML error pages even when the server lied about Content-Type.
-                    val firstBytes = runCatching {
-                        context.contentResolver.openInputStream(output.uri)?.use { stream ->
-                            val head = ByteArray(512)
-                            val read = stream.read(head)
-                            if (read > 0) String(head, 0, read) else ""
-                        }.orEmpty()
-                    }.getOrDefault("")
-                    if (firstBytes.contains("<html", ignoreCase = true) ||
-                        firstBytes.contains("<!doctype", ignoreCase = true)
+                    val firstBytes = String(signatureBuffer, 0, signatureSize, Charsets.ISO_8859_1)
+                        .trimStart()
+                        .lowercase()
+                    if (firstBytes.startsWith("<html") || firstBytes.startsWith("<!doctype html") ||
+                        firstBytes.contains("<html", ignoreCase = true)
                     ) {
-                        throw IllegalStateException("File yang terunduh berisi halaman error, bukan media.")
+                        throw IllegalStateException("File yang diterima berisi halaman HTML, bukan file unduhan.")
+                    }
+                    if (!matchesFileSignature(mimeType, signatureBuffer.copyOf(signatureSize))) {
+                        throw IllegalStateException("Isi file tidak sesuai dengan format $mimeType.")
                     }
 
                     output.commit()
@@ -266,47 +323,59 @@ object AppDownloadManager {
                     val finalName = MediaStoreSaver.displayName(context, finalUri) ?: safeName
                     val finalSize = MediaStoreSaver.fileSize(context, finalUri)
 
-                    _downloadState.value = _downloadState.value.copy(
-                        isDownloading = false,
-                        progress = 1f,
-                        progressPercent = 100,
-                        speedFormatted = "Selesai",
-                        bytesDownloadedFormatted = formatBytes(finalSize),
-                        indeterminate = false,
-                        status = DownloadStatus.COMPLETED,
-                        statusMessage = "File tersimpan di folder Download/IO-Tools.",
-                        downloadedFile = output.file,
-                        downloadedUri = finalUri,
-                        downloadedName = finalName
-                    )
+                    publish {
+                        it.copy(
+                            isDownloading = false,
+                            progress = 1f,
+                            progressPercent = 100,
+                            speedFormatted = "Selesai",
+                            bytesDownloadedFormatted = formatBytes(finalSize),
+                            indeterminate = false,
+                            status = DownloadStatus.COMPLETED,
+                            statusMessage = "File tersimpan di folder Download/IO-Tools.",
+                            downloadedFile = output.file,
+                            downloadedUri = finalUri,
+                            downloadedName = finalName
+                        )
+                    }
 
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            context,
-                            "Tersimpan: Download/IO-Tools/$finalName",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        onSuccess(finalUri)
+                        if (activeDownloadId == downloadId) {
+                            Toast.makeText(
+                                context,
+                                "Tersimpan: Download/IO-Tools/$finalName",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onSuccess(finalUri)
+                        }
                     }
                 }
             } catch (e: Exception) {
                 pending?.abort()
-                if (e is CancellationException) {
-                    _downloadState.value = _downloadState.value.copy(
-                        isDownloading = false,
-                        status = DownloadStatus.IDLE,
-                        statusMessage = "Unduhan dibatalkan."
-                    )
+                val cancelled = e is CancellationException || !isActive || activeDownloadId != downloadId
+                if (cancelled) {
+                    publish {
+                        it.copy(
+                            isDownloading = false,
+                            status = DownloadStatus.IDLE,
+                            indeterminate = false,
+                            statusMessage = "Unduhan dibatalkan."
+                        )
+                    }
                 } else {
-                    _downloadState.value = _downloadState.value.copy(
-                        isDownloading = false,
-                        indeterminate = false,
-                        status = DownloadStatus.ERROR,
-                        statusMessage = "Gagal mengunduh: ${e.message}",
-                        errorMessage = e.message ?: "Terjadi kesalahan saat mengunduh."
-                    )
+                    publish {
+                        it.copy(
+                            isDownloading = false,
+                            indeterminate = false,
+                            status = DownloadStatus.ERROR,
+                            statusMessage = "Gagal mengunduh: ${e.message}",
+                            errorMessage = e.message ?: "Terjadi kesalahan saat mengunduh."
+                        )
+                    }
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Gagal mengunduh: ${e.message}", Toast.LENGTH_SHORT).show()
+                        if (activeDownloadId == downloadId) {
+                            Toast.makeText(context, "Gagal mengunduh: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             } finally {
