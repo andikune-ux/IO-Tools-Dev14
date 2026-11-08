@@ -41,6 +41,8 @@ fun YouTubeDownloaderScreen() {
     var isLoading by remember { mutableStateOf(false) }
     var activeDownloadProcessId by remember { mutableStateOf<String?>(null) }
     var activeDownloadLabel by remember { mutableStateOf("") }
+    var activeDownloadProgress by remember { mutableFloatStateOf(-1f) }
+    var activeDownloadEta by remember { mutableStateOf("") }
     var isCancelingDownload by remember { mutableStateOf(false) }
     var videoResult by remember { mutableStateOf<YouTubeVideoData?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -369,6 +371,16 @@ fun YouTubeDownloaderScreen() {
                                     color = TextSecondary,
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                                Text(
+                                    text = if (activeDownloadProgress >= 0f) {
+                                        "Progress: ${activeDownloadProgress.toInt().coerceIn(0, 100)}% " +
+                                            activeDownloadEta
+                                    } else {
+                                        "Menunggu data progress dari yt-dlp..."
+                                    },
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                             }
                             OutlinedButton(
                                 onClick = {
@@ -384,11 +396,20 @@ fun YouTubeDownloaderScreen() {
                                 Text(if (isCancelingDownload) "MEMBATALKAN" else "BATALKAN", color = AccentRose)
                             }
                         }
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = AccentAmber,
-                            trackColor = SlateBorder
-                        )
+                        if (activeDownloadProgress >= 0f) {
+                            LinearProgressIndicator(
+                                progress = (activeDownloadProgress / 100f).coerceIn(0f, 1f),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = AccentAmber,
+                                trackColor = SlateBorder
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = AccentAmber,
+                                trackColor = SlateBorder
+                            )
+                        }
                     }
                 }
             }
@@ -462,12 +483,20 @@ fun YouTubeDownloaderScreen() {
                                     onStarted = { processId ->
                                         activeDownloadProcessId = processId
                                         activeDownloadLabel = format.label
+                                        activeDownloadProgress = -1f
+                                        activeDownloadEta = ""
                                         isCancelingDownload = false
+                                    },
+                                    onProgress = { progress, eta ->
+                                        if (progress >= 0f) activeDownloadProgress = progress
+                                        activeDownloadEta = if (eta >= 0L) "• ETA ${eta}s" else ""
                                     },
                                     onFinished = { processId, outcome ->
                                         if (activeDownloadProcessId == processId) {
                                             activeDownloadProcessId = null
                                             activeDownloadLabel = ""
+                                            activeDownloadProgress = -1f
+                                            activeDownloadEta = ""
                                             isCancelingDownload = false
                                             statusLogs = statusLogs + if (outcome.isSuccess) {
                                                 "[SUCCESS] Unduhan YouTube selesai."
