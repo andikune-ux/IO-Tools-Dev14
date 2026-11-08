@@ -492,6 +492,68 @@ private object VaultCrypto {
     }
 }
 
+
+private object TotpSecretStorage {
+    private const val ALIAS = "io_tools_totp_secret_v1"
+    private const val PREFS_NAME = "io_tools_vault"
+    private const val CIPHER_KEY = "totp_secret_cipher"
+    private const val LEGACY_KEY = "totp_secret"
+
+    fun load(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val payload = prefs.getString(CIPHER_KEY, null)
+        if (payload.isNullOrBlank()) {
+            val legacy = prefs.getString(LEGACY_KEY, null).orEmpty()
+            if (legacy.isNotBlank()) {
+                runCatching { save(context, legacy) }
+                prefs.edit().remove(LEGACY_KEY).apply()
+            }
+            return legacy
+        }
+        return runCatching {
+            val parts = payload.split(":")
+            require(parts.size == 2)
+            val iv = Base64.decode(parts[0], Base64.NO_WRAP)
+            val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
+            require(iv.size == 12 && encrypted.size >= 16)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+            String(cipher.doFinal(encrypted), Charsets.UTF_8)
+        }.getOrDefault("")
+    }
+
+    fun save(context: Context, secret: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (secret.isBlank()) {
+            prefs.edit().remove(CIPHER_KEY).remove(LEGACY_KEY).apply()
+            return
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        val encrypted = cipher.doFinal(secret.toByteArray(Charsets.UTF_8))
+        val payload = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
+            Base64.encodeToString(encrypted, Base64.NO_WRAP)
+        prefs.edit().putString(CIPHER_KEY, payload).remove(LEGACY_KEY).apply()
+    }
+
+    private fun getOrCreateKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
+    }
+}
+
 private fun copyText(context: Context, text: String, label: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
