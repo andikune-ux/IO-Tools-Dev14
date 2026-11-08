@@ -7,6 +7,7 @@ import android.widget.Toast
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import dev.andikune.iottools.tools.common.MediaStoreSaver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -182,7 +183,9 @@ object YouTubeDownloaderService {
                         addOption("--merge-output-format", "mp4")
                     }
                 }
+                if (processId in cancelledProcesses) throw CancellationException("Unduhan dibatalkan.")
                 YoutubeDL.getInstance().execute(request, processId)
+                if (processId in cancelledProcesses) throw CancellationException("Unduhan dibatalkan.")
                 val downloaded = outputDir.listFiles()
                     ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
                     ?.maxByOrNull { it.lastModified() }
