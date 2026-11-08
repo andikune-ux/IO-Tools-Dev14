@@ -203,6 +203,11 @@ object AppDownloadManager {
                     return@launch
                 }
                 activeCall = call
+                if (activeDownloadId != downloadId || !isActive) {
+                    call.cancel()
+                    if (activeCall === call) activeCall = null
+                    return@launch
+                }
 
                 call.execute().use { response ->
                     if (activeDownloadId != downloadId || !isActive) {
