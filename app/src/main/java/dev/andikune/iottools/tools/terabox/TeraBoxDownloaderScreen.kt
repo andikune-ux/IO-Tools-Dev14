@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -36,14 +38,21 @@ fun TeraBoxDownloaderScreen() {
     val coroutineScope = rememberCoroutineScope()
 
     var inputUrl by remember { mutableStateOf("") }
+    val preferences = remember {
+        context.getSharedPreferences("terabox_settings", Context.MODE_PRIVATE)
+    }
+    var resolverBaseUrl by remember {
+        mutableStateOf(preferences.getString("resolver_base_url", "").orEmpty())
+    }
+    var apiKey by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var fileResult by remember { mutableStateOf<TeraBoxFileInfo?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusLogs by remember {
         mutableStateOf(
             listOf(
-                "[INIT] TeraBox Direct Engine v1.8 siap.",
-                "[ENGINE] Bypass limit & ekstrak file langsung dari link terabox / 1024tera."
+                "[INIT] TeraBox Worker Connector siap.",
+                "[ENGINE] Resolusi melalui Cloudflare Worker milik pengguna."
             )
         )
     }
@@ -77,7 +86,11 @@ fun TeraBoxDownloaderScreen() {
             statusLogs = statusLogs + "[REQUEST] Mengekstrak ID link: ${inputUrl.take(45)}..."
 
             val startTime = System.currentTimeMillis()
-            val result = TeraBoxDownloaderService.resolveTeraBoxLink(inputUrl)
+            val result = TeraBoxDownloaderService.resolveTeraBoxLink(
+                rawUrl = inputUrl,
+                resolverBaseUrl = resolverBaseUrl,
+                apiKey = apiKey
+            )
             val elapsed = System.currentTimeMillis() - startTime
 
             isLoading = false
@@ -103,7 +116,7 @@ fun TeraBoxDownloaderScreen() {
         item {
             CyberTerminalHeader(
                 title = "TERABOX DOWNLOADER",
-                subtitle = "Ekstrak & Unduh Video Asli (MP4) dari Link TeraBox / 1024tera",
+                subtitle = "Unduh file dari share publik melalui Worker pribadi",
                 statusText = "VIDEO READY",
                 statusColor = AccentAmber
             )
@@ -144,12 +157,42 @@ fun TeraBoxDownloaderScreen() {
                             color = TextPrimary
                         )
                         Text(
-                            text = "Mendukung terabox.com, teraboxapp.com, 1024tera.com, 1024terabox.com",
+                            text = "Mendukung link share TeraBox publik melalui endpoint HTTPS milikmu",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "CLOUDFLARE WORKER ENDPOINT (WAJIB)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Bold
+                )
+                CyberTextField(
+                    value = resolverBaseUrl,
+                    onValueChange = {
+                        resolverBaseUrl = it
+                        preferences.edit().putString("resolver_base_url", it).apply()
+                    },
+                    label = "https://nama-worker.workers.dev",
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                CyberTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = "API key Worker (opsional)",
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
