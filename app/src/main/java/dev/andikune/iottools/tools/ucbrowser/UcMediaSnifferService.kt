@@ -77,7 +77,7 @@ object UcMediaSnifferService {
         return uri.toASCIIString()
     }
 
-    fun classifyMediaUrl(rawUrl: String, refererUrl: String = ""): SniffedMediaItem? {
+    fun classifyMediaUrl(rawUrl: String, refererUrl: String = "", contentType: String? = null): SniffedMediaItem? {
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null || !isPublicHost(host)) return null
@@ -87,7 +87,19 @@ object UcMediaSnifferService {
             path.contains("/pixel/") || path.endsWith("pixel.gif")
         ) return null
 
-        val ext = path.substringAfterLast('.', "").lowercase()
+        val normalizedMime = contentType.orEmpty().substringBefore(';').trim().lowercase()
+        val extension = path.substringAfterLast('.', "").lowercase()
+        val ext = when {
+            extension in setOf("m3u8", "mpd", "mp4", "m4v", "mov", "webm", "flv") -> extension
+            normalizedMime in setOf("application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/mpegurl", "audio/x-mpegurl") -> "m3u8"
+            normalizedMime == "application/dash+xml" -> "mpd"
+            normalizedMime == "video/mp4" -> "mp4"
+            normalizedMime == "video/webm" -> "webm"
+            normalizedMime == "video/quicktime" -> "mov"
+            normalizedMime == "video/x-flv" -> "flv"
+            normalizedMime == "video/x-m4v" -> "m4v"
+            else -> return null
+        }
         val (format, isHls, isDash) = when (ext) {
             "m3u8" -> Triple("M3U8 (HLS)", true, false)
             "mpd" -> Triple("MPD (DASH)", false, true)
@@ -241,10 +253,17 @@ object UcMediaSnifferService {
                     view: WebView?,
                     request: WebResourceRequest?
                 ): WebResourceResponse? {
+                    val response = super.shouldInterceptRequest(view, request)
                     request?.takeIf { it.method.equals("GET", true) }?.let {
-                        reportCandidate(it.url.toString(), it.requestHeaders["Referer"] ?: activePageUrl.get())
+                        val referer = it.requestHeaders["Referer"] ?: activePageUrl.get()
+                        val item = classifyMediaUrl(
+                            rawUrl = it.url.toString(),
+                            refererUrl = referer,
+                            contentType = response?.mimeType
+                        )
+                        if (item != null) mainHandler.post { onMediaDetected(item) }
                     }
-                    return super.shouldInterceptRequest(view, request)
+                    return response
                 }
 
                 override fun onLoadResource(view: WebView?, url: String?) {
