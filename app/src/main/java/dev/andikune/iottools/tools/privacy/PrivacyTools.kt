@@ -715,7 +715,7 @@ internal object VaultCrypto {
             SecretKeySpec(key, "AES")
         } finally {
             spec.clearPassword()
-            password.fill('\\u0000')
+            password.fill('\u0000')
         }
     }
 }
