@@ -9,7 +9,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | QR & Barcode | ZXing QR/Data Matrix and 1D barcode generation plus camera scanner | EAN-13/Code 39/Code 128 validation regression tests added; camera not device-verified | Camera permission, autofocus, low-light, scanner compatibility and generated output on devices |
 | Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading/removal | Resize memory-limit regression tests added; processing moved to IO | Large images, orientation variants, transparency, storage output and EXIF stripping on devices |
 | PDF Tools | PDFBox merge/split/rotate/AES-256 protect/compress; Android PdfRenderer for raster recompression with scratch-file buffering | Range/password/rotation/compression-bound regression tests added; device PDF compatibility not verified | Encrypted inputs, malformed files, very large PDFs, page order, scratch storage and output compatibility |
-| File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename | Existing source review | Very large files, duplicate target names, read-only providers and rename conflicts |
+| File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename with collision preflight | Filename-safety regression tests added; hash stream loop corrected | Very large files, provider-specific rename failures, read-only folders and partial rename behavior |
 | Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Existing source review | Offline state, captive portals, IPv6, slow DNS and provider rate limits |
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
 | Audio & Video | MediaExtractor/MediaMuxer metadata, AAC/AMR demux, keyframe trim with rotation metadata, scaled frame capture | Timestamp validation regression tests added; device codec behavior not verified | Codec/container combinations, variable frame rate, rotation, long media, muxer support and device codec compatibility |
@@ -227,3 +227,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Password fields are masked and cleared after the protection operation. Compression size details are preserved in the completion status.
 - Added regression tests for page ranges, rotation, password length, DPI/quality and render dimensions.
 - Remaining verification: run merge/split/rotate/AES-256/compression against unencrypted, encrypted, malformed and large sample PDFs on physical Android devices; confirm PDFBox scratch files and MediaStore output under low storage.
+
+
+## File & Data Hash Engine — focused repair pass (2026-11-09)
+
+- Fixed the file hash stream loop so a zero-byte read is retried instead of being treated as end-of-file; large files continue to be processed incrementally with a fixed buffer.
+- Moved SAF file name/size metadata queries off the UI thread and added `try/finally` around hashing state so the picker becomes available again after errors.
+- Removed the SHA-512 display truncation so the copy action exposes the complete digest rather than a shortened value.
+- Added input length bounds for text hashing, Base64 and URL encoding/decoding to limit accidental memory spikes.
+- Batch folder enumeration now runs on IO and uses a generation token to ignore stale folder loads. Rename operations capture an immutable file list and naming configuration before execution.
+- Added safe filename sanitization, duplicate-target detection, existing-name conflict preflight and output length limits. The operation refuses to start if it would collide with an existing file.
+- Added regression tests for generated batch names and path-separator sanitization.
+- Remaining verification: test large-file hashing against known digests, SAF providers that reject rename, read-only folders, and partial failures on physical devices.
