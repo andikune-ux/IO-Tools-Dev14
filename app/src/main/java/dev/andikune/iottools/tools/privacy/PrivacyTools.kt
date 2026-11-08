@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.andikune.iottools.ui.components.*
@@ -124,8 +125,10 @@ private fun PasswordGeneratorCard(context: Context) {
         regenerate()
     }
 
-    val poolSize = (if (upper) 24 else 0) + (if (lower) 24 else 0) +
-        (if (numbers) 8 else 0) + (if (symbols) 22 else 0)
+    val poolSize = (if (upper) UPPER_CHARS.length else 0) +
+        (if (lower) LOWER_CHARS.length else 0) +
+        (if (numbers) NUMBER_CHARS.length else 0) +
+        (if (symbols) SYMBOL_CHARS.length else 0)
     val entropy = if (poolSize > 1) (length * log2(poolSize.toDouble())).toInt() else 0
 
     CyberCard(borderColor = AccentRose) {
@@ -156,6 +159,9 @@ private fun PasswordGeneratorCard(context: Context) {
         }
         Spacer(modifier = Modifier.height(10.dp))
         Text("Panjang ${length.toInt()} • Entropi $entropy bit", color = TextSecondary, fontSize = 12.sp)
+        if (poolSize == 0) {
+            Text("Pilih minimal satu kelompok karakter.", color = AccentRose, fontSize = 11.sp)
+        }
         Slider(
             value = length,
             onValueChange = { length = it },
@@ -186,8 +192,8 @@ private fun SecureNotesCard(context: Context) {
             status = "Judul dan isi catatan wajib diisi."
             return
         }
-        if (passphrase.length < 12) {
-            status = "Passphrase minimal 12 karakter."
+        if (passphrase.length !in 12..128) {
+            status = "Passphrase harus berisi 12–128 karakter."
             return
         }
         busy = true
@@ -206,6 +212,9 @@ private fun SecureNotesCard(context: Context) {
                 prefs.edit().putString("note_cipher", cipher).apply()
                 hasSaved = true
                 cipherLength = cipher.length
+                title = ""
+                body = ""
+                passphrase = ""
                 status = "Catatan dienkripsi AES-256-GCM dan disimpan lokal."
                 Toast.makeText(context, "Catatan terkunci.", Toast.LENGTH_SHORT).show()
             }.onFailure {
@@ -254,15 +263,16 @@ private fun SecureNotesCard(context: Context) {
             fontSize = 11.sp
         )
         Spacer(modifier = Modifier.height(12.dp))
-        CyberTextField(value = title, onValueChange = { title = it }, label = "Judul catatan")
+        CyberTextField(value = title, onValueChange = { title = it.take(120) }, label = "Judul catatan")
         Spacer(modifier = Modifier.height(8.dp))
-        CyberTextField(value = body, onValueChange = { body = it }, label = "Isi catatan", singleLine = false)
+        CyberTextField(value = body, onValueChange = { body = it.take(20_000) }, label = "Isi catatan", singleLine = false)
         Spacer(modifier = Modifier.height(8.dp))
         CyberTextField(
             value = passphrase,
-            onValueChange = { passphrase = it },
+            onValueChange = { passphrase = it.take(128) },
             label = "Passphrase",
-            placeholder = "Minimal 12 karakter"
+            placeholder = "12–128 karakter",
+            visualTransformation = PasswordVisualTransformation()
         )
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -298,6 +308,9 @@ private fun SecureNotesCard(context: Context) {
                         prefs.edit().remove("note_cipher").apply()
                         hasSaved = false
                         cipherLength = 0
+                        title = ""
+                        body = ""
+                        passphrase = ""
                         status = "Catatan terenkripsi dihapus."
                     }
                 ) {
@@ -408,13 +421,18 @@ private fun TotpCard(context: Context) {
     }
 }
 
-private fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbers: Boolean, symbols: Boolean): String {
+private const val UPPER_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+private const val LOWER_CHARS = "abcdefghijkmnopqrstuvwxyz"
+private const val NUMBER_CHARS = "23456789"
+private const val SYMBOL_CHARS = "!@#\$%^&*()-_=+[]{}"
+
+internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbers: Boolean, symbols: Boolean): String {
     val groups = mutableListOf<String>()
-    if (upper) groups.add("ABCDEFGHJKLMNPQRSTUVWXYZ")
-    if (lower) groups.add("abcdefghijkmnopqrstuvwxyz")
-    if (numbers) groups.add("23456789")
-    if (symbols) groups.add("!@#\$%^&*()-_=+[]{}")
-    if (groups.isEmpty()) groups.add("abcdefghijkmnopqrstuvwxyz23456789")
+    if (upper) groups.add(UPPER_CHARS)
+    if (lower) groups.add(LOWER_CHARS)
+    if (numbers) groups.add(NUMBER_CHARS)
+    if (symbols) groups.add(SYMBOL_CHARS)
+    if (groups.isEmpty()) return ""
 
     val random = SecureRandom()
     val chars = mutableListOf<Char>()
