@@ -213,10 +213,10 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Moved compression, resizing, format conversion, PDF creation and MediaStore writes off the Compose main thread to prevent UI stalls and ANRs.
 - Added a load-generation token so a slower earlier image decode cannot overwrite a more recently selected image; old preview state is cleared while a new image loads.
 - Disabled image replacement while an operation is running, preventing the source bitmap from being swapped during an active transform.
-- Added resize limits of 8192 pixels per side and 16 megapixels total to reduce out-of-memory risk.
+- Added resize limits of 8192 pixels per side and 16 megapixels total to reduce out-of-memory risk. Source image decoding now also downsamples to at most 4096 pixels per side and 16 megapixels total before allocating the working bitmap.
 - JPEG encoding now composites transparent pixels onto a white background instead of leaving the result dependent on implicit alpha handling.
 - PDF document resources are closed in a `finally` block, and resized temporary bitmaps are recycled even if encoding fails.
-- Added regression tests for accepted and rejected resize dimensions.
+- Added regression tests for accepted/rejected resize dimensions and decoded-image sample sizing for large square and panoramic images.
 - Remaining verification: exercise large images, EXIF orientations, transparent PNG-to-JPEG conversion, WebP support and PDF output on physical devices with different memory capacities.
 
 
