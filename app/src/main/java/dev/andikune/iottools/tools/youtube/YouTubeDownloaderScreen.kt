@@ -41,6 +41,7 @@ fun YouTubeDownloaderScreen() {
     var isLoading by remember { mutableStateOf(false) }
     var activeDownloadProcessId by remember { mutableStateOf<String?>(null) }
     var activeDownloadLabel by remember { mutableStateOf("") }
+    var isCancelingDownload by remember { mutableStateOf(false) }
     var videoResult by remember { mutableStateOf<YouTubeVideoData?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusLogs by remember {
@@ -364,7 +365,7 @@ fun YouTubeDownloaderScreen() {
                                     style = MaterialTheme.typography.labelLarge
                                 )
                                 Text(
-                                    text = activeDownloadLabel,
+                                    text = if (isCancelingDownload) "Membatalkan: $activeDownloadLabel" else activeDownloadLabel,
                                     color = TextSecondary,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -372,15 +373,15 @@ fun YouTubeDownloaderScreen() {
                             OutlinedButton(
                                 onClick = {
                                     activeDownloadProcessId?.let(YouTubeDownloaderService::cancelDownload)
-                                    activeDownloadProcessId = null
-                                    activeDownloadLabel = ""
+                                    isCancelingDownload = true
                                     statusLogs = statusLogs + "[INFO] Permintaan pembatalan unduhan dikirim."
                                 },
+                                enabled = !isCancelingDownload,
                                 border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.6f))
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = null, tint = AccentRose)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("BATALKAN", color = AccentRose)
+                                Text(if (isCancelingDownload) "MEMBATALKAN" else "BATALKAN", color = AccentRose)
                             }
                         }
                         LinearProgressIndicator(
@@ -461,11 +462,13 @@ fun YouTubeDownloaderScreen() {
                                     onStarted = { processId ->
                                         activeDownloadProcessId = processId
                                         activeDownloadLabel = format.label
+                                        isCancelingDownload = false
                                     },
                                     onFinished = { processId, outcome ->
                                         if (activeDownloadProcessId == processId) {
                                             activeDownloadProcessId = null
                                             activeDownloadLabel = ""
+                                            isCancelingDownload = false
                                             statusLogs = statusLogs + if (outcome.isSuccess) {
                                                 "[SUCCESS] Unduhan YouTube selesai."
                                             } else {
