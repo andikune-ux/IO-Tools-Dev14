@@ -26,6 +26,7 @@ data class TikTokVideoData(
     val coverUrl: String,
     val sourceUrl: String,
     val noWatermarkVideoUrl: String,
+    val noWatermarkFormatId: String,
     val watermarkVideoUrl: String?,
     val audioAvailable: Boolean,
     val durationSeconds: Int,
@@ -58,6 +59,12 @@ object TikTokDownloaderService {
         val allowed = host == "tiktok.com" || host.endsWith(".tiktok.com") ||
             host == "douyin.com" || host.endsWith(".douyin.com")
         return uri.toASCIIString().takeIf { allowed }
+    }
+
+    internal fun buildVideoFormatSelector(formatId: String): String? {
+        val safeId = formatId.trim()
+        if (!safeId.matches(Regex("^[A-Za-z0-9_.-]{1,80}$"))) return null
+        return "$safeId+bestaudio/$safeId"
     }
 
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
@@ -155,8 +162,12 @@ object TikTokDownloaderService {
                 coverUrl = thumbnail,
                 sourceUrl = cleanUrl,
                 noWatermarkVideoUrl = noWatermarkUrl,
+                noWatermarkFormatId = noWatermarkFormat.optString("format_id")
+                    .takeIf { buildVideoFormatSelector(it) != null }
+                    ?: throw IllegalStateException("Extractor mengembalikan ID format video yang tidak valid."),
                 watermarkVideoUrl = watermarkUrl,
-                audioAvailable = audioFormats.isNotEmpty() || videoFormats.isNotEmpty(),
+                audioAvailable = audioFormats.isNotEmpty() ||
+                    videoFormats.any { it.optString("acodec", "none") != "none" },
                 durationSeconds = duration,
                 videoSizeFormatted = sizeFormatted
             )
@@ -181,16 +192,54 @@ object TikTokDownloaderService {
         url: String,
         fileName: String,
         title: String,
-        isAudio: Boolean
+        isAudio: Boolean,
+        formatId: String? = null
     ) {
         if (!isAudio) {
-            AppDownloadManager.startDownload(
-                context = context,
-                directUrl = url,
-                suggestedFileName = fileName,
-                title = title,
-                mimeType = "video/mp4"
-            )
+            val sourceUrl = normalizeTikTokUrl(url)
+            val formatSelector = buildVideoFormatSelector(formatId.orEmpty())
+            if (sourceUrl == null || formatSelector == null) {
+                Toast.makeText(context, "URL sumber atau format video TikTok tidak valid.", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            CoroutineScope(Dispatchers.IO).launch {
+                val processId = "tiktok-video-${System.currentTimeMillis()}"
+                val outputDir = File(context.cacheDir, "tiktok-video/$processId").apply { mkdirs() }
+                val result = runCatching {
+                    val outputTemplate = File(outputDir, "%(title).100B [%(id)s].%(ext)s").absolutePath
+                    val request = YoutubeDLRequest(sourceUrl).apply {
+                        addOption("-o", outputTemplate)
+                        addOption("-f", formatSelector)
+                        addOption("--no-warnings")
+                        addOption("--no-playlist")
+                        addOption("--newline")
+                        addOption("--merge-output-format", "mp4")
+                        addOption("--no-write-thumbnail")
+                        addOption("--no-write-info-json")
+                        addOption("--no-write-subs")
+                        addOption("--no-write-auto-subs")
+                    }
+                    YoutubeDL.getInstance().execute(request, processId)
+                    val downloaded = outputDir.listFiles()
+                        ?.filter { it.isFile && it.length() > 0L && it.extension.equals("mp4", true) }
+                        ?.maxByOrNull { it.lastModified() }
+                        ?: throw IllegalStateException("Engine tidak menghasilkan MP4 gabungan dengan audio.")
+                    val uri = downloaded.inputStream().use { input ->
+                        MediaStoreSaver.saveStream(context, fileName, "video/mp4", input)
+                    } ?: throw IllegalStateException("Gagal menyimpan video TikTok ke Download/IO-Tools.")
+                    downloaded.delete()
+                    uri
+                }
+                outputDir.deleteRecursively()
+                withContext(Dispatchers.Main) {
+                    result.onSuccess {
+                        Toast.makeText(context, "Video TikTok tersimpan di Download/IO-Tools.", Toast.LENGTH_LONG).show()
+                    }.onFailure {
+                        Toast.makeText(context, "Gagal mengunduh video TikTok: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
             return
         }
 
