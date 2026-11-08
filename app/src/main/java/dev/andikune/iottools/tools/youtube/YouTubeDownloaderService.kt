@@ -136,7 +136,8 @@ object YouTubeDownloaderService {
         format: YouTubeVideoFormat,
         videoTitle: String,
         videoId: String,
-        onFinished: (Result<Uri>) -> Unit = {}
+        onStarted: (String) -> Unit = {},
+        onFinished: (String, Result<Uri>) -> Unit = { _, _ -> }
     ): String? {
         val safeTitle = MediaStoreSaver.sanitizeFileName(videoTitle, "YT_$videoId").take(100)
         val formatSelector = if (format.isAudioOnly) {
@@ -154,6 +155,7 @@ object YouTubeDownloaderService {
             Toast.makeText(context, "Tidak dapat membuat folder sementara unduhan.", Toast.LENGTH_LONG).show()
             return null
         }
+        onStarted(processId)
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching {
                 val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
@@ -217,7 +219,7 @@ object YouTubeDownloaderService {
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
                 cancelledProcesses.remove(processId)
-                onFinished(result)
+                onFinished(processId, result)
             }
         }
         return processId
