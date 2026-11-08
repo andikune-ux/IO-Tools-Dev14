@@ -124,15 +124,9 @@ class ExampleRobolectricTest {
   fun pdfPageRangeParserHandlesRangesAndRejectsInvalidInput() {
     assertEquals(listOf(0..0, 2..4, 6..6), PdfEngine.parseRanges("1,3-5,7", 7))
     assertEquals((0..2).toList().map { it..it }, PdfEngine.parseRanges("", 3))
-    assertThrows(IllegalArgumentException::class.java) {
-      PdfEngine.parseRanges("0-2", 5)
-    }
-    assertThrows(IllegalArgumentException::class.java) {
-      PdfEngine.parseRanges("4-2", 5)
-    }
-    assertThrows(IllegalArgumentException::class.java) {
-      PdfEngine.parseRanges("1,8", 5)
-    }
+    assertTrue(runCatching { PdfEngine.parseRanges("0-2", 5) }.exceptionOrNull() is IllegalArgumentException)
+    assertTrue(runCatching { PdfEngine.parseRanges("4-2", 5) }.exceptionOrNull() is IllegalArgumentException)
+    assertTrue(runCatching { PdfEngine.parseRanges("1,8", 5) }.exceptionOrNull() is IllegalArgumentException)
   }
 
   @Test
