@@ -487,14 +487,7 @@ private suspend fun loadImage(context: Context, uri: Uri): Bitmap? = withContext
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
 
-        var sample = 1
-        while (
-            bounds.outWidth / sample > 4096 ||
-            bounds.outHeight / sample > 4096 ||
-            (bounds.outWidth.toLong() / sample) * (bounds.outHeight.toLong() / sample) > 16_000_000L
-        ) {
-            sample *= 2
-        }
+        val sample = calculateImageSampleSize(bounds.outWidth, bounds.outHeight)
         val options = BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -540,6 +533,19 @@ private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
     } catch (_: Exception) {
         bitmap
     }
+}
+
+internal fun calculateImageSampleSize(width: Int, height: Int): Int {
+    if (width <= 0 || height <= 0) return 1
+    var sample = 1
+    while (
+        width / sample > 4096 ||
+        height / sample > 4096 ||
+        (width.toLong() / sample) * (height.toLong() / sample) > 16_000_000L
+    ) {
+        sample *= 2
+    }
+    return sample
 }
 
 internal fun validateResizeDimensions(width: Int, height: Int): String? {
