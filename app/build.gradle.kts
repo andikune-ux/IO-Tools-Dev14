@@ -12,8 +12,9 @@ android {
     applicationId = "dev.andikune.iottools"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Keep APK metadata aligned with the GitHub release tag: v<version>-<run_number>.
+    versionCode = providers.gradleProperty("APP_VERSION_CODE").orElse("11").get().toInt()
+    versionName = providers.gradleProperty("APP_VERSION_NAME").orElse("1.4.0").get()
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
