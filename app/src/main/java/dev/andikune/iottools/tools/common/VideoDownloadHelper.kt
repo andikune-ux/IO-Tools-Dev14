@@ -44,7 +44,7 @@ object VideoDownloadHelper {
         val rawHost = uri.host?.lowercase() ?: return false
         if (rawHost.endsWith('.')) return false
         val host = rawHost
-        if (uri.scheme?.lowercase() != "https" ||
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
             (uri.port != -1 && uri.port !in 1..65535) || host.length > 253
         ) return false
         if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
