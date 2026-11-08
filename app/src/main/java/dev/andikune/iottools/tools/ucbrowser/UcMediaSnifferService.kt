@@ -230,7 +230,7 @@ object UcMediaSnifferService {
                     request: WebResourceRequest?
                 ): WebResourceResponse? {
                     request?.takeIf { it.method.equals("GET", true) }?.let {
-                        reportCandidate(it.url.toString(), it.requestHeaders["Referer"] ?: normalizedUrl)
+                        reportCandidate(it.url.toString(), it.requestHeaders["Referer"] ?: view?.url ?: normalizedUrl)
                     }
                     return super.shouldInterceptRequest(view, request)
                 }
