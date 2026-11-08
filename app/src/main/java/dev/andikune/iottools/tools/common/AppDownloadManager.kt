@@ -62,6 +62,7 @@ object AppDownloadManager {
     private var activeJob: Job? = null
     @Volatile private var activeCall: Call? = null
     private val downloadSequence = AtomicLong(0L)
+    private val downloadLock = Any()
     @Volatile private var activeDownloadId = 0L
 
     private val client by lazy {
@@ -139,8 +140,9 @@ object AppDownloadManager {
         onSuccess: (Uri) -> Unit = {}
     ) {
         cancelDownload()
-        val downloadId = downloadSequence.incrementAndGet()
-        activeDownloadId = downloadId
+        val downloadId = synchronized(downloadLock) {
+            downloadSequence.incrementAndGet().also { activeDownloadId = it }
+        }
 
         val safeName = ensureExtension(
             MediaStoreSaver.sanitizeFileName(suggestedFileName, "media_${System.currentTimeMillis()}.mp4"),
@@ -198,14 +200,16 @@ object AppDownloadManager {
 
                 val call = client.newCall(reqBuilder.build())
                 currentCall = call
-                if (activeDownloadId != downloadId || !isActive) {
-                    call.cancel()
-                    return@launch
+                val registered = synchronized(downloadLock) {
+                    if (activeDownloadId == downloadId && isActive) {
+                        activeCall = call
+                        true
+                    } else {
+                        false
+                    }
                 }
-                activeCall = call
-                if (activeDownloadId != downloadId || !isActive) {
+                if (!registered) {
                     call.cancel()
-                    if (activeCall === call) activeCall = null
                     return@launch
                 }
 
@@ -394,19 +398,21 @@ object AppDownloadManager {
     }
 
     fun cancelDownload() {
-        activeDownloadId = downloadSequence.incrementAndGet()
-        if (_downloadState.value.isDownloading) {
-            _downloadState.value = _downloadState.value.copy(
-                isDownloading = false,
-                indeterminate = false,
-                status = DownloadStatus.IDLE,
-                statusMessage = "Unduhan dibatalkan."
-            )
+        synchronized(downloadLock) {
+            activeDownloadId = downloadSequence.incrementAndGet()
+            if (_downloadState.value.isDownloading) {
+                _downloadState.value = _downloadState.value.copy(
+                    isDownloading = false,
+                    indeterminate = false,
+                    status = DownloadStatus.IDLE,
+                    statusMessage = "Unduhan dibatalkan."
+                )
+            }
+            activeCall?.cancel()
+            activeCall = null
+            activeJob?.cancel()
+            activeJob = null
         }
-        activeCall?.cancel()
-        activeCall = null
-        activeJob?.cancel()
-        activeJob = null
     }
 
     fun resetState() {
