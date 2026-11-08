@@ -89,9 +89,14 @@ object VideoDownloadHelper {
             if (first !in 0x20..0x3f) return false
             if ((first and 0xfe) == 0xfc) return false
             if (first == 0xfe && (second and 0xc0) == 0x80) return false
-            if (first == 0x20 && second == 0x01 &&
-                (bytes[2].toInt() and 0xff) == 0x0d && (bytes[3].toInt() and 0xff) == 0xb8
-            ) return false
+            if (first == 0x20 && second == 0x01) {
+                val third = bytes[2].toInt() and 0xff
+                val fourth = bytes[3].toInt() and 0xff
+                // IETF protocol assignments (2001:0000::/23) and documentation (2001:db8::/32).
+                if ((third == 0x00 && fourth <= 0x01) ||
+                    (third == 0x0d && fourth == 0xb8)
+                ) return false
+            }
         }
         return true
     }
