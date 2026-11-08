@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 data class YouTubeVideoFormat(
     val formatId: String,
@@ -43,6 +44,8 @@ data class YouTubeVideoData(
  * resolved again by yt-dlp at download time.
  */
 object YouTubeDownloaderService {
+
+    private val cancelledProcesses = ConcurrentHashMap.newKeySet<String>()
 
     internal fun buildFormatSelector(formatId: String, hasAudio: Boolean): String? {
         val safeId = formatId.trim()
@@ -128,7 +131,13 @@ object YouTubeDownloaderService {
         }
     }
 
-    fun enqueueDownload(context: Context, format: YouTubeVideoFormat, videoTitle: String, videoId: String) {
+    fun enqueueDownload(
+        context: Context,
+        format: YouTubeVideoFormat,
+        videoTitle: String,
+        videoId: String,
+        onFinished: (Result<Uri>) -> Unit = {}
+    ): String? {
         val safeTitle = MediaStoreSaver.sanitizeFileName(videoTitle, "YT_$videoId").take(100)
         val formatSelector = if (format.isAudioOnly) {
             format.formatId.takeIf { it.matches(Regex("^[A-Za-z0-9_.-]{1,80}$")) }
@@ -137,10 +146,14 @@ object YouTubeDownloaderService {
         }
         if (formatSelector == null) {
             Toast.makeText(context, "ID format YouTube tidak valid.", Toast.LENGTH_LONG).show()
-            return
+            return null
         }
         val processId = "youtube-$videoId-${System.currentTimeMillis()}"
         val outputDir = File(context.cacheDir, "yt-dlp-downloads/$processId").apply { mkdirs() }
+        if (!outputDir.isDirectory) {
+            Toast.makeText(context, "Tidak dapat membuat folder sementara unduhan.", Toast.LENGTH_LONG).show()
+            return null
+        }
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching {
                 val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
@@ -195,13 +208,22 @@ object YouTubeDownloaderService {
                 result.onSuccess {
                     Toast.makeText(context, "Unduhan selesai: Download/IO-Tools", Toast.LENGTH_LONG).show()
                 }.onFailure {
-                    Toast.makeText(context, "Unduhan gagal: ${it.message}", Toast.LENGTH_LONG).show()
+                    val message = if (processId in cancelledProcesses) {
+                        "Unduhan YouTube dibatalkan."
+                    } else {
+                        "Unduhan gagal: ${it.message}"
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
+                cancelledProcesses.remove(processId)
+                onFinished(result)
             }
         }
+        return processId
     }
 
     fun cancelDownload(processId: String) {
+        cancelledProcesses.add(processId)
         runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
     }
 
