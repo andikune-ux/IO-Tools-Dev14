@@ -2,7 +2,7 @@ name: Build and Sign iD-Tools APK
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["main", "master", "fix/io-tools-hardening-and-tool-audit"]
   pull_request:
     branches: ["main", "master"]
   workflow_dispatch:
