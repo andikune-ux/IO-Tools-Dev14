@@ -334,7 +334,7 @@ fun InstagramDownloaderScreen() {
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = if (item.isVideo) "VIDEO (MP4)" else "FOTO (HD)",
+                                        text = if (item.isVideo) "VIDEO" else "FOTO",
                                         color = Color.White,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
@@ -358,7 +358,7 @@ fun InstagramDownloaderScreen() {
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Format: ${if (item.isVideo) "MP4 HD" else "JPEG Original"}",
+                                    text = if (item.isVideo) "Format: Video asli (format extractor)" else "Format: Foto asli (format extractor)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary,
                                     fontSize = 11.sp
