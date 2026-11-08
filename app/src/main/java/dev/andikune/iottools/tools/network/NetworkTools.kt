@@ -93,8 +93,8 @@ internal fun isPublicWhoisAddress(address: InetAddress): Boolean {
     if (bytes.size == 16) {
         val first = bytes[0].toInt() and 0xff
         val second = bytes[1].toInt() and 0xff
-        if (first and 0xfe == 0xfc) return false // Unique-local IPv6.
-        if (first == 0xfe && second and 0xc0 == 0x80) return false // Link-local IPv6.
+        if ((first and 0xfe) == 0xfc) return false // Unique-local IPv6.
+        if (first == 0xfe && (second and 0xc0) == 0x80) return false // Link-local IPv6.
         if (first == 0x20 && second == 0x01 &&
             (bytes[2].toInt() and 0xff) == 0x0d && (bytes[3].toInt() and 0xff) == 0xb8
         ) return false // Documentation prefix.
