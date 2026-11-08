@@ -80,7 +80,7 @@ object UcMediaSnifferService {
 
     fun normalizeTargetUrl(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        if (clean.isBlank() || clean.length > 2048 || clean.any(Char::isISOControl)) return null
+        if (clean.isBlank() || clean.length > 2048 || clean.any { it.isISOControl() }) return null
         val candidate = if ("://" in clean) clean else "https://$clean"
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
@@ -144,7 +144,9 @@ object UcMediaSnifferService {
     fun classifyMediaUrl(rawUrl: String, refererUrl: String = "", contentType: String? = null): SniffedMediaItem? {
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null || !isPublicHost(host)) return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
+            (uri.port != -1 && uri.port !in 1..65535) || !isPublicHost(host)
+        ) return null
         val path = uri.path.orEmpty().lowercase()
         if (host.contains("doubleclick") || host.contains("googleads") ||
             host.contains("adservice") || path.contains("/analytics/") ||
