@@ -550,7 +550,7 @@ private object WhoisClient {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(safeServer, 43), timeoutMs)
             socket.soTimeout = timeoutMs
-            socket.getOutputStream().write("$domain\r\n".toByteArray(Charsets.US_ASCII))
+            socket.getOutputStream().write("$safeDomain\r\n".toByteArray(Charsets.US_ASCII))
             socket.getOutputStream().flush()
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1))
             val builder = StringBuilder()
