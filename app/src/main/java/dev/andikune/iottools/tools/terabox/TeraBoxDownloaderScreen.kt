@@ -39,7 +39,7 @@ fun TeraBoxDownloaderScreen() {
     val coroutineScope = rememberCoroutineScope()
 
     var inputUrl by remember { mutableStateOf("") }
-    var sharePassword by remember { mutableStateOf("") } }
+    var sharePassword by remember { mutableStateOf("") }
     val preferences = remember {
         context.getSharedPreferences("terabox_settings", Context.MODE_PRIVATE)
     }
