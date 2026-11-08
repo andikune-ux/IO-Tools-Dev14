@@ -43,6 +43,7 @@ fun UcMediaSnifferScreen() {
     var showBrowser by remember { mutableStateOf(false) }
     var currentPageTitle by remember { mutableStateOf("Web Video Source") }
     var captureWebView by remember { mutableStateOf<WebView?>(null) }
+    var captureRequestedUrl by remember { mutableStateOf<String?>(null) }
     var snifferResult by remember { mutableStateOf<SniffingResult?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     DisposableEffect(captureWebView) {
@@ -260,9 +261,12 @@ fun UcMediaSnifferScreen() {
                     Spacer(modifier = Modifier.height(10.dp))
                     AndroidView(
                         factory = { webContext ->
+                            val initialUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+                                ?: inputUrl
+                            captureRequestedUrl = initialUrl
                             UcMediaSnifferService.createCaptureWebView(
                                 context = webContext,
-                                targetUrl = inputUrl,
+                                targetUrl = initialUrl,
                                 onPageTitle = { title ->
                                     currentPageTitle = title
                                     snifferResult = snifferResult?.copy(pageTitle = title)
@@ -272,7 +276,10 @@ fun UcMediaSnifferScreen() {
                         },
                         update = { webView ->
                             val nextUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
-                            if (nextUrl != null && webView.url != nextUrl) webView.loadUrl(nextUrl)
+                            if (nextUrl != null && nextUrl != captureRequestedUrl) {
+                                captureRequestedUrl = nextUrl
+                                webView.loadUrl(nextUrl)
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
