@@ -15,11 +15,32 @@ permissions:
   contents: read
 
 jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Run unit tests
+        run: gradle testDebugUnitTest --stacktrace
+
   build:
-    name: Build and test Android app
+    name: Build APK
     runs-on: ubuntu-latest
     outputs:
-      release_ready: ${{ steps.signing.outputs.release_ready }}
       publish_ready: ${{ steps.signing.outputs.publish_ready }}
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -54,27 +75,22 @@ jobs:
         id: signing
         shell: bash
         run: |
-          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" ]]; then
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" && -n "$ANDROID_KEY_ALIAS" ]]; then
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
             test -s "$GITHUB_WORKSPACE/my-upload-key.jks"
-            echo "release_ready=true" >> "$GITHUB_OUTPUT"
             echo "publish_ready=true" >> "$GITHUB_OUTPUT"
-            echo "Using the configured upload keystore for the production-signed release APK."
+            echo "Production signing key is configured."
           else
-            echo "release_ready=true" >> "$GITHUB_OUTPUT"
             echo "publish_ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Production signing secrets are not configured. Building the release variant with a temporary CI debug key; this APK is for build validation only and cannot be used for production updates or publishing."
+            echo "::warning::Production signing secrets are incomplete. Release APK will use a temporary CI key and is for validation only."
           fi
-
-      - name: Run unit tests
-        run: gradle testDebugUnitTest --stacktrace
 
       - name: Build signed release APK
         env:
-          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && format('{0}/my-upload-key.jks', github.workspace) || format('{0}/debug.keystore', github.workspace) }}
+          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && format('{0}/my-upload-key.jks', github.workspace) || format('{0}/debug.keystore', github.workspace) }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
         run: gradle assembleRelease --stacktrace
 
       - name: Build debug APK
@@ -107,19 +123,21 @@ jobs:
 
   publish:
     name: Publish signed release
-    needs: build
-    if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [build, unit-tests]
+    if: always() && needs.build.result == 'success' && needs.unit-tests.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     steps:
       - name: Download signed APK
+        if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: actions/download-artifact@v4
         with:
           name: iD-Tools-Dev14-Release
 
       - name: Create GitHub Release
+        if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4.0-${{ github.run_number }}
@@ -130,3 +148,26 @@ jobs:
             - Production-signed release build produced by GitHub Actions.
             - Install/update using the same release signing key.
           files: iD-Tools-Dev14-Release.apk
+
+      - name: Explain why production publishing was not performed
+        if: needs.build.outputs.publish_ready != 'true' || github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')
+        shell: bash
+        env:
+          PUBLISH_READY: ${{ needs.build.outputs.publish_ready }}
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+        run: |
+          {
+            echo "## Production release not published"
+            if [[ "$PUBLISH_READY" != "true" ]]; then
+              echo "- Production signing secrets are missing or incomplete."
+              echo "- The Release APK is available as a CI validation-only artifact."
+            fi
+            if [[ "$EVENT_NAME" == "pull_request" ]]; then
+              echo "- Pull request runs do not publish GitHub Releases."
+            fi
+            if [[ "$GIT_REF" != "refs/heads/main" && "$GIT_REF" != "refs/heads/master" ]]; then
+              echo "- Current ref is $GIT_REF; production releases are published only from main/master."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Publish job ran, but production publishing conditions were not met."
