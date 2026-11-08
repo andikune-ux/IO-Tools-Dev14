@@ -328,6 +328,21 @@ object UcMediaSnifferService {
                     view: WebView?,
                     request: WebResourceRequest?
                 ): WebResourceResponse? {
+                    val resourceUrl = request?.url?.toString()
+                    val resourceUri = resourceUrl?.let { runCatching { URI(it) }.getOrNull() }
+                    if (resourceUri?.scheme?.lowercase() in setOf("http", "https") &&
+                        normalizeTargetUrl(resourceUrl.orEmpty()) == null
+                    ) {
+                        return WebResourceResponse(
+                            "text/plain",
+                            "UTF-8",
+                            403,
+                            "Blocked",
+                            emptyMap(),
+                            java.io.ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+
                     val response = super.shouldInterceptRequest(view, request)
                     request?.takeIf { it.method.equals("GET", true) }?.let {
                         val referer = it.requestHeaders["Referer"] ?: activePageUrl.get()
@@ -347,8 +362,13 @@ object UcMediaSnifferService {
                 }
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                    if (!url.isNullOrBlank()) activePageUrl.set(url)
-                    super.onPageStarted(view, url, favicon)
+                    val safeUrl = url?.let(::normalizeTargetUrl)
+                    if (safeUrl == null) {
+                        view?.stopLoading()
+                        return
+                    }
+                    activePageUrl.set(safeUrl)
+                    super.onPageStarted(view, safeUrl, favicon)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
