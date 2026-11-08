@@ -558,7 +558,8 @@ object AppDownloadManager {
             ?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it)?.lowercase() }
 
         if (currentExtension.isNotBlank() &&
-            (normalizedMime.isBlank() || normalizedMime == "application/octet-stream" || currentMime == normalizedMime)
+            (normalizedMime.isBlank() || normalizedMime == "application/octet-stream" ||
+                normalizedMime == "binary/octet-stream" || currentMime == normalizedMime)
         ) return name
 
         val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(normalizedMime)
