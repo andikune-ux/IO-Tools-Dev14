@@ -58,4 +58,5 @@ Some online services and media platforms restrict automated downloading. Tools m
 - WebView file URL access is disabled in the container.
 - FileProvider paths are limited to app cache and the IO-Tools download folder.
 - Android backup is disabled to avoid exporting locally stored vault data.
+- TOTP secrets are encrypted at rest with an Android Keystore AES-GCM key; legacy plaintext secrets are migrated.
 - Release signing credentials are supplied only through CI secrets.
