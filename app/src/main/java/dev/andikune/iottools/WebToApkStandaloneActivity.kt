@@ -283,16 +283,26 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
+        // Web apps need JavaScript, but must not gain local-file privileges.
+        settings.allowFileAccess = false
+        settings.allowFileAccessFromFileURLs = false
+        settings.allowUniversalAccessFromFileURLs = false
+        settings.allowContentAccess = true // Required for the user-mediated file picker.
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settings.safeBrowsingEnabled = true
+        }
         settings.setSupportZoom(config.enableZoomControls)
         settings.builtInZoomControls = config.enableZoomControls
         settings.displayZoomControls = false
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.setSupportMultipleWindows(true)
+        settings.setSupportMultipleWindows(false)
+        settings.setJavaScriptCanOpenWindowsAutomatically(false)
         settings.setGeolocationEnabled(true)
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
 
         if (config.enableDesktopMode) {
             settings.userAgentString = settings.userAgentString.replace("Mobile", "eliboM")
@@ -311,9 +321,15 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 swipeRefresh?.isRefreshing = false
             }
 
-            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                swipeRefresh?.isRefreshing = false
-                view?.loadDataWithBaseURL(null, config.offlineFallbackHtml, "text/html", "UTF-8", null)
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                if (request?.isForMainFrame == true) {
+                    swipeRefresh?.isRefreshing = false
+                    view?.loadDataWithBaseURL(null, config.offlineFallbackHtml, "text/html", "UTF-8", null)
+                }
             }
         }
 
@@ -328,26 +344,13 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 }
             }
 
+            // Pop-up windows are disabled to prevent unmanaged WebViews.
             override fun onCreateWindow(
                 view: WebView?,
                 isDialog: Boolean,
                 isUserGesture: Boolean,
                 resultMsg: Message?
-            ): Boolean {
-                val message = resultMsg ?: return false
-                val transport = message.obj as? WebView.WebViewTransport ?: return false
-                val popup = WebView(this@WebToApkStandaloneActivity)
-                popup.webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
-                        request?.url?.let { webView.loadUrl(it.toString()) }
-                        popup.destroy()
-                        return true
-                    }
-                }
-                transport.webView = popup
-                message.sendToTarget()
-                return true
-            }
+            ): Boolean = false
 
             override fun onShowFileChooser(
                 webView: WebView?,
