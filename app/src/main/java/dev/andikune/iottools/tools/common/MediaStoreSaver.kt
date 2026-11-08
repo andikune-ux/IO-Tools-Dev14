@@ -244,6 +244,7 @@ object MediaStoreSaver {
         bytes: ByteArray,
         subDirectory: String = "IO-Tools"
     ): Uri? {
+        if (bytes.isEmpty()) return null
         val pending = (if (mimeType.startsWith("image/")) {
             beginImageOutput(context, fileName, mimeType, subDirectory)
         } else if (mimeType.startsWith("audio/")) {
@@ -273,7 +274,8 @@ object MediaStoreSaver {
     ): Uri? {
         val pending = beginDownload(context, fileName, mimeType, subDirectory) ?: return null
         return try {
-            input.use { stream -> stream.copyTo(pending.output, 64 * 1024) }
+            val copied = input.use { stream -> stream.copyTo(pending.output, 64 * 1024) }
+            if (copied <= 0L) throw IOException("Stream sumber kosong.")
             pending.commit()
             pending.uri
         } catch (e: Exception) {
@@ -380,6 +382,7 @@ object MediaStoreSaver {
         while (index < 10_000) {
             val file = File(dir, candidate)
             if (runCatching { file.createNewFile() }.getOrDefault(false)) return file
+            if (!file.exists()) return null
             candidate = "$stem ($index)$ext"
             index++
         }
