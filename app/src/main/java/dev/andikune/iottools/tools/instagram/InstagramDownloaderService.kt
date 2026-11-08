@@ -79,7 +79,6 @@ object InstagramDownloaderService {
                 addOption("--dump-single-json")
                 addOption("--no-warnings")
                 addOption("--skip-download")
-                addOption("--no-call-home")
             }
             val response = YoutubeDL.getInstance().execute(request)
             val output = response.out.trim()
