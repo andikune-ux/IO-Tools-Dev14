@@ -68,6 +68,40 @@ internal fun normalizeWhoisDomain(input: String): String? {
     return host
 }
 
+internal fun isPublicWhoisAddress(address: InetAddress): Boolean {
+    if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+        address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress
+    ) return false
+
+    val bytes = address.address
+    if (bytes.size == 4) {
+        val a = bytes[0].toInt() and 0xff
+        val b = bytes[1].toInt() and 0xff
+        return when {
+            a == 0 || a == 10 || a == 127 || a >= 224 -> false
+            a == 100 && b in 64..127 -> false
+            a == 169 && b == 254 -> false
+            a == 172 && b in 16..31 -> false
+            a == 192 && b == 168 -> false
+            a == 192 && b == 0 -> false
+            a == 198 && b in 18..19 -> false
+            a == 198 && b == 51 -> false
+            a == 203 && b == 0 -> false
+            else -> true
+        }
+    }
+    if (bytes.size == 16) {
+        val first = bytes[0].toInt() and 0xff
+        val second = bytes[1].toInt() and 0xff
+        if (first and 0xfe == 0xfc) return false // Unique-local IPv6.
+        if (first == 0xfe && second and 0xc0 == 0x80) return false // Link-local IPv6.
+        if (first == 0x20 && second == 0x01 &&
+            (bytes[2].toInt() and 0xff) == 0x0d && (bytes[3].toInt() and 0xff) == 0xb8
+        ) return false // Documentation prefix.
+    }
+    return true
+}
+
 internal fun parseSslTarget(input: String): SslTarget? {
     val clean = input.trim()
     if (clean.isBlank() || clean.any { it.isWhitespace() || it.isISOControl() }) return null
@@ -547,8 +581,11 @@ private object WhoisClient {
             ?: throw IllegalArgumentException("WHOIS referral server tidak valid.")
         val safeDomain = normalizeWhoisDomain(domain)
             ?: throw IllegalArgumentException("Domain WHOIS tidak valid.")
+        val serverAddress = InetAddress.getAllByName(safeServer)
+            .firstOrNull(::isPublicWhoisAddress)
+            ?: throw IllegalArgumentException("WHOIS referral tidak mengarah ke alamat IP publik.")
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(safeServer, 43), timeoutMs)
+            socket.connect(InetSocketAddress(serverAddress, 43), timeoutMs)
             socket.soTimeout = timeoutMs
             socket.getOutputStream().write("$safeDomain\r\n".toByteArray(Charsets.US_ASCII))
             socket.getOutputStream().flush()
