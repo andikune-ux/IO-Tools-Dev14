@@ -167,9 +167,9 @@ object AppDownloadManager {
                 .url(nextUrl)
                 .apply {
                     if (changedOrigin) {
-                        removeHeader("Authorization")
-                        removeHeader("Cookie")
-                        removeHeader("Proxy-Authorization")
+                        request.headers.names()
+                            .filterNot { it.equals("User-Agent", true) || it.equals("Accept", true) }
+                            .forEach(::removeHeader)
                     }
                 }
                 .build()
