@@ -89,6 +89,12 @@ object AppDownloadManager {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
         val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        if (uri.port != -1 && uri.port !in 1..65535) return false
+        if (host.length > 253 || host.split('.').any { label ->
+                label.isBlank() || label.length > 63 ||
+                    !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+            }
+        ) return false
         return host != "localhost" &&
             !host.endsWith(".local") &&
             !host.endsWith(".internal") &&
@@ -204,6 +210,7 @@ object AppDownloadManager {
             MediaStoreSaver.sanitizeFileName(suggestedFileName, "media_${System.currentTimeMillis()}.mp4"),
             mimeType
         )
+        val expectedMime = resolveExpectedMime(safeName, mimeType)
 
         if (!isSecureDownloadUrl(directUrl)) {
             _downloadState.value = AppDownloadState(
@@ -285,12 +292,12 @@ object AppDownloadManager {
                     if (contentType.contains("text/html")) {
                         throw IllegalStateException("Tautan mengembalikan halaman HTML, bukan file media.")
                     }
-                    if (contentType.contains("application/json") && !mimeType.startsWith("application/json")) {
+                    if (contentType.contains("application/json") && !expectedMime.startsWith("application/json")) {
                         throw IllegalStateException("Server mengembalikan JSON error, bukan file yang diminta.")
                     }
-                    if (!isCompatibleContentType(mimeType, contentType)) {
+                    if (!isCompatibleContentType(expectedMime, contentType)) {
                         throw IllegalStateException(
-                            "Tipe konten server (${contentType.substringBefore(';')}) tidak cocok dengan file yang diminta ($mimeType)."
+                            "Tipe konten server (${contentType.substringBefore(';')}) tidak cocok dengan file yang diminta ($expectedMime)."
                         )
                     }
 
@@ -308,7 +315,7 @@ object AppDownloadManager {
                     val output = MediaStoreSaver.beginDownload(
                         context = context,
                         fileName = safeName,
-                        mimeType = mimeType.ifBlank { guessMime(safeName) }
+                        mimeType = expectedMime
                     ) ?: throw IllegalStateException(
                         "Tidak dapat membuat file tujuan. Periksa izin penyimpanan dan ruang kosong."
                     )
@@ -324,6 +331,12 @@ object AppDownloadManager {
                         val buffer = ByteArray(32 * 1024)
                         var bytesRead = input.read(buffer)
                         while (isActive && activeDownloadId == downloadId && bytesRead != -1) {
+                            if (bytesRead == 0) {
+                                val single = input.read()
+                                if (single < 0) break
+                                buffer[0] = single.toByte()
+                                bytesRead = 1
+                            }
                             val signatureCopy = minOf(bytesRead, signatureBuffer.size - signatureSize)
                             if (signatureCopy > 0) {
                                 System.arraycopy(buffer, 0, signatureBuffer, signatureSize, signatureCopy)
@@ -382,8 +395,8 @@ object AppDownloadManager {
                     ) {
                         throw IllegalStateException("File yang diterima berisi halaman HTML, bukan file unduhan.")
                     }
-                    if (!matchesFileSignature(mimeType, signatureBuffer.copyOf(signatureSize))) {
-                        throw IllegalStateException("Isi file tidak sesuai dengan format $mimeType.")
+                    if (!matchesFileSignature(expectedMime, signatureBuffer.copyOf(signatureSize))) {
+                        throw IllegalStateException("Isi file tidak sesuai dengan format $expectedMime.")
                     }
 
                     output.commit()
@@ -524,6 +537,13 @@ object AppDownloadManager {
         } catch (e: Exception) {
             Toast.makeText(context, "Tidak dapat membuka file: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    internal fun resolveExpectedMime(fileName: String, requestedMime: String): String {
+        val normalized = requestedMime.substringBefore(';').trim().lowercase()
+        return if (normalized.isBlank() || normalized == "application/octet-stream" ||
+            normalized == "binary/octet-stream"
+        ) guessMime(fileName) else normalized
     }
 
     internal fun ensureExtension(name: String, mimeType: String): String {
