@@ -5,10 +5,24 @@ import dev.andikune.iottools.tools.qr.validateBarcodeInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QrBarcodeValidationTest {
+    @Test
+    fun onlyOpensWellFormedHttpAndHttpsScanResults() {
+        assertEquals("https://example.com/path", normalizeScannedHttpUrl("https://example.com/path"))
+        assertEquals("http://example.com", normalizeScannedHttpUrl("http://example.com"))
+        assertNull(normalizeScannedHttpUrl("javascript:alert(1)"))
+        assertNull(normalizeScannedHttpUrl("file:///etc/passwd"))
+        assertNull(normalizeScannedHttpUrl("data:text/html,hello"))
+        assertNull(normalizeScannedHttpUrl("https://user:pass@example.com"))
+        assertNull(normalizeScannedHttpUrl("https://example.com:70000"))
+        assertNull(normalizeScannedHttpUrl("https://example.com/\\u0000"))
+        assertNull(normalizeScannedHttpUrl("https:///missing-host"))
+    }
+
     @Test
     fun validatesEan13DataAndCheckDigits() {
         assertTrue(isValidEan13Input("899123456789"))
