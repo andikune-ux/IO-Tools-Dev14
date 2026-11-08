@@ -264,7 +264,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added shared hostname normalization using URI and IDN rules; invalid schemes, embedded credentials, control characters, malformed labels and invalid TLS ports are rejected before network operations.
 - DNS and TCP latency now use the same normalized host. TCP timing starts separately for each port attempt, so a failed 443 attempt no longer inflates a successful 80 measurement.
 - Local interface enumeration now runs on IO instead of the Compose main thread.
-- Public IP lookup now accepts HTTPS JSON responses only, disables redirects, applies connection/read timeouts, caps the response at 64 KB, handles temporary zero-byte reads without spinning, and always disconnects the connection.
+- Public IP lookup now accepts HTTPS JSON responses only, disables redirects, applies connection/read timeouts, caps the response at 64 KB, handles temporary zero-byte reads without spinning, and always disconnects the connection. WHOIS reads are also capped at 120,000 characters using a bounded reader instead of unbounded `readLine()` allocation.
 - TLS inspection parses host and port safely and continues to rely on the platform's normal certificate/hostname validation; it does not install a permissive trust manager.
 - WHOIS domain and referral server values are validated as DNS names before connecting or writing to TCP port 43, preventing CR/LF query injection and arbitrary referral hosts.
 - Added regression tests for IDN/host normalization, WHOIS domain restrictions and TLS host/port parsing.
