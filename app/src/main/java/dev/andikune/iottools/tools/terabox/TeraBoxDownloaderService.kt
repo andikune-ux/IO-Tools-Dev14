@@ -66,6 +66,7 @@ object TeraBoxDownloaderService {
         val host = uri.host?.lowercase() ?: return null
         if (uri.scheme?.lowercase() != "https") return null
         if (uri.userInfo != null || uri.query != null || uri.fragment != null) return null
+        if (!uri.path.isNullOrEmpty() && uri.path != "/") return null
         if (host == "localhost" || !host.contains('.') ||
             host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))) return null
         if (uri.port != -1 && uri.port !in 1..65535) return null
