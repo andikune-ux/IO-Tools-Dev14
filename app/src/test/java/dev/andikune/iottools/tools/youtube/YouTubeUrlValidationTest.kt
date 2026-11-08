@@ -21,6 +21,8 @@ class YouTubeUrlValidationTest {
         assertEquals("137+bestaudio/137", YouTubeDownloaderService.buildFormatSelector("137", hasAudio = false))
         assertNull(YouTubeDownloaderService.buildFormatSelector("137+140", hasAudio = false))
         assertNull(YouTubeDownloaderService.buildFormatSelector("bestvideo;best", hasAudio = false))
+        assertNull(YouTubeDownloaderService.buildFormatSelector("format id", hasAudio = true))
+        assertEquals("140", YouTubeDownloaderService.buildFormatSelector(" 140 ", hasAudio = true))
     }
 
     @Test
@@ -31,6 +33,8 @@ class YouTubeUrlValidationTest {
         assertTrue(YouTubeDownloaderService.isSupportedFormatExtension("m4a", audioOnly = true))
         assertTrue(YouTubeDownloaderService.isSupportedFormatExtension("webm", audioOnly = true))
         assertFalse(YouTubeDownloaderService.isSupportedFormatExtension("unknown", audioOnly = true))
+        assertTrue(YouTubeDownloaderService.isSupportedFormatExtension(".MP4", audioOnly = false))
+        assertTrue(YouTubeDownloaderService.isSupportedFormatExtension(" .MP3 ", audioOnly = true))
     }
 
     @Test
