@@ -59,7 +59,7 @@ object MediaStoreSaver {
     }
 
     fun sanitizeFileName(raw: String, fallback: String = "file"): String {
-        val cleaned = raw
+        val cleaned = raw.take(512)
             .replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_")
             .trim()
             .trim('.')
@@ -102,13 +102,22 @@ object MediaStoreSaver {
         context.contentResolver.openInputStream(uri)?.use { input ->
             ByteArrayOutputStream().use { output ->
                 val buffer = ByteArray(32 * 1024)
-                var total = 0
+                var total = 0L
                 while (true) {
                     val read = input.read(buffer)
                     if (read < 0) break
-                    if (read == 0) continue
-                    total += read
-                    if (total > maxBytes) throw IOException("File melebihi batas baca $maxBytes byte.")
+                    if (read == 0) {
+                        val single = input.read()
+                        if (single < 0) break
+                        total++
+                        if (total > maxBytes.toLong()) {
+                            throw IOException("File melebihi batas baca $maxBytes byte.")
+                        }
+                        output.write(single)
+                        continue
+                    }
+                    total += read.toLong()
+                    if (total > maxBytes.toLong()) throw IOException("File melebihi batas baca $maxBytes byte.")
                     output.write(buffer, 0, read)
                 }
                 output.toByteArray()
