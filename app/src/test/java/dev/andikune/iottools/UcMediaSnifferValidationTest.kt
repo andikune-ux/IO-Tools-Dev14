@@ -41,5 +41,6 @@ class UcMediaSnifferValidationTest {
         assertNull(UcMediaSnifferService.classifyMediaUrl("https://cdn.example.com/image.jpg"))
         assertNull(UcMediaSnifferService.classifyMediaUrl("https://ads.example.com/analytics/video.mp4"))
         assertNull(UcMediaSnifferService.classifyMediaUrl("javascript:alert(1)"))
+        assertNull(UcMediaSnifferService.classifyMediaUrl("http://127.0.0.1/private.mp4"))
     }
 }
