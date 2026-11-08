@@ -377,7 +377,7 @@ object MediaStoreSaver {
     }.getOrNull()
 
     private fun sanitizeSubDirectory(raw: String): String {
-        val parts = raw.replace('\\\\', '/').split('/')
+        val parts = raw.replace('\\', '/').split('/')
             .map { it.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().trim('.') }
             .filter { it.isNotBlank() && it != "." && it != ".." }
         return parts.joinToString("/").ifBlank { "IO-Tools" }
