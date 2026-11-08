@@ -3,6 +3,8 @@ package dev.andikune.iottools.tools.youtube
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -47,6 +49,7 @@ data class YouTubeVideoData(
 object YouTubeDownloaderService {
 
     private val cancelledProcesses = ConcurrentHashMap.newKeySet<String>()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     internal fun buildFormatSelector(formatId: String, hasAudio: Boolean): String? {
         val safeId = formatId.trim()
@@ -141,6 +144,7 @@ object YouTubeDownloaderService {
         videoTitle: String,
         videoId: String,
         onStarted: (String) -> Unit = {},
+        onProgress: (Float, Long) -> Unit = { _, _ -> },
         onFinished: (String, Result<Uri>) -> Unit = { _, _ -> }
     ): String? {
         val safeTitle = MediaStoreSaver.sanitizeFileName(videoTitle, "YT_$videoId").take(100)
@@ -184,7 +188,11 @@ object YouTubeDownloaderService {
                     }
                 }
                 if (processId in cancelledProcesses) throw CancellationException("Unduhan dibatalkan.")
-                YoutubeDL.getInstance().execute(request, processId)
+                YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
+                    mainHandler.post {
+                        if (processId !in cancelledProcesses) onProgress(progress, eta)
+                    }
+                }
                 if (processId in cancelledProcesses) throw CancellationException("Unduhan dibatalkan.")
                 val downloaded = outputDir.listFiles()
                     ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
