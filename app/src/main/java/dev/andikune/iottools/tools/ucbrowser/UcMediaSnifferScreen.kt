@@ -407,7 +407,7 @@ fun UcMediaSnifferScreen() {
 
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (item.isStreamHls) AccentAmber.copy(alpha = 0.15f) else AccentCyan.copy(alpha = 0.15f)
+                                color = if (item.isStreamHls || item.isDash) AccentAmber.copy(alpha = 0.15f) else AccentCyan.copy(alpha = 0.15f)
                             ) {
                                 Text(
                                     text = item.format,
