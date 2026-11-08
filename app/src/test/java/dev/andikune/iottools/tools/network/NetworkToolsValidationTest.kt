@@ -34,6 +34,14 @@ class NetworkToolsValidationTest {
     }
 
     @Test
+    fun boundsWhoisResponseBeforeBuildingLargeStrings() {
+        assertEquals("abc", readWhoisResponse(java.io.StringReader("abc"), 3))
+        assertEquals(true, runCatching {
+            readWhoisResponse(java.io.StringReader("abcd"), 3)
+        }.isFailure)
+    }
+
+    @Test
     fun normalizesDnsAndNetworkHosts() {
         assertEquals("example.com", normalizeNetworkHost("HTTPS://Example.COM/path"))
         assertEquals("xn--bcher-kva.example", normalizeNetworkHost("bücher.example"))
