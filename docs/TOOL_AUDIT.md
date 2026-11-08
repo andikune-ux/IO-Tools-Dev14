@@ -6,7 +6,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 
 | Tool | Implementation found | Current verification | Remaining checks |
 |---|---|---|---|
-| QR & Barcode | ZXing generation and camera scanner | Existing source review | Camera permission, focus, low-light and supported formats on devices |
+| QR & Barcode | ZXing QR/Data Matrix and 1D barcode generation plus camera scanner | EAN-13/Code 39/Code 128 validation regression tests added; camera not device-verified | Camera permission, autofocus, low-light, scanner compatibility and generated output on devices |
 | Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading | Existing source review | Large images, orientation variants, storage output and EXIF stripping on devices |
 | PDF Tools | PDFBox merge/split/rotate/protect/compress; Android PdfRenderer for raster recompression | Existing source review | Encrypted PDFs, malformed files, large documents, page order and output compatibility |
 | File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename | Existing source review | Very large files, duplicate target names, read-only providers and rename conflicts |
@@ -183,3 +183,13 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added regression tests for TikTok/Douyin page URLs and media CDN allowlisting.
 - Remaining verification: device-level tests for short links, public video metadata, true no-watermark format selection, MP4 download, MP3 extraction, and rate-limit/login errors. The extractor may fail when TikTok requires login or changes its anti-bot behavior; no private-content or access-control bypass is implemented.
 - Upstream format distinction reference: [yt-dlp TikTok extractor](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/tiktok.py).
+
+
+## QR & Barcode Studio — focused repair pass (2026-11-09)
+
+- Corrected the EAN-13 placeholder and added validation for either 12 data digits (ZXing calculates the check digit) or 13 digits with a valid checksum.
+- Added explicit input checks for Code 39's supported character set and Code 128's ASCII range so invalid data produces a clear message before ZXing runs.
+- Fixed one-dimensional barcode sizing: Code 128, Code 39 and EAN-13 now render in a landscape aspect ratio instead of being stretched into a square QR-like image.
+- Editing the payload or changing barcode type clears the old generated bitmap, preventing a stale image from being saved after the input changes.
+- Added JVM regression tests for EAN-13 checksum and supported character sets.
+- Remaining verification: scan generated QR/barcode images with multiple external scanner apps and test camera permission, focus, and low-light behavior on physical devices.
