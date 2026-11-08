@@ -180,8 +180,8 @@ private fun SecureNotesCard(context: Context) {
             status = "Judul dan isi catatan wajib diisi."
             return
         }
-        if (passphrase.length < 4) {
-            status = "Passphrase minimal 4 karakter."
+        if (passphrase.length < 12) {
+            status = "Passphrase minimal 12 karakter."
             return
         }
         busy = true
@@ -256,7 +256,7 @@ private fun SecureNotesCard(context: Context) {
             value = passphrase,
             onValueChange = { passphrase = it },
             label = "Passphrase",
-            placeholder = "Minimal 4 karakter"
+            placeholder = "Minimal 12 karakter"
         )
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
