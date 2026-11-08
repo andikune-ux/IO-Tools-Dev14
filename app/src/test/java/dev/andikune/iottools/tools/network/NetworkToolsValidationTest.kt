@@ -74,6 +74,7 @@ class NetworkToolsValidationTest {
             "fc00::1",
             "fe80::1",
             "2001:db8::1",
+            "2001::1",
             "::ffff:127.0.0.1",
             "::ffff:192.168.1.1"
         ).forEach { address ->
