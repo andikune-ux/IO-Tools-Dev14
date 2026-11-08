@@ -31,22 +31,20 @@ object TeraBoxDownloaderService {
 
     fun extractShareId(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        val patterns = listOf(
-            Pattern.compile("(?:terabox\\.com|teraboxapp\\.com|1024tera\\.com|teraboxlink\\.com|freeterabox\\.com)/s/([^/?#&\\s]+)"),
-            Pattern.compile("surl=([^&\\s]+)"),
-            Pattern.compile("^1[a-zA-Z0-9_-]{6,}$")
-        )
+        if (clean.matches(Regex("^1[A-Za-z0-9_-]{6,}$"))) return clean.removePrefix("1")
 
-        for (pattern in patterns) {
-            val matcher = pattern.matcher(clean)
-            if (matcher.find()) {
-                val group = matcher.group(1) ?: matcher.group(0)
-                if (!group.isNullOrBlank()) {
-                    return group.removePrefix("1")
-                }
-            }
-        }
-        return null
+        val uri = runCatching { Uri.parse(clean) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (uri.scheme !in setOf("http", "https")) return null
+        val allowedHosts = setOf("terabox.com", "teraboxapp.com", "1024tera.com", "teraboxlink.com", "freeterabox.com")
+        if (host !in allowedHosts && allowedHosts.none { host.endsWith(".$it") }) return null
+
+        val segments = uri.pathSegments
+        val shareIndex = segments.indexOf("s")
+        val pathId = if (shareIndex >= 0 && shareIndex + 1 < segments.size) segments[shareIndex + 1] else null
+        val queryId = uri.getQueryParameter("surl")
+        val candidate = pathId ?: queryId ?: return null
+        return candidate.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{6,}$")) }
     }
 
     /**
