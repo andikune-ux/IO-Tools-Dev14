@@ -91,6 +91,12 @@ internal fun isPublicWhoisAddress(address: InetAddress): Boolean {
         }
     }
     if (bytes.size == 16) {
+        val isIpv4Mapped = bytes.take(10).all { it.toInt() == 0 } &&
+            (bytes[10].toInt() and 0xff) == 0xff &&
+            (bytes[11].toInt() and 0xff) == 0xff
+        if (isIpv4Mapped) {
+            return isPublicWhoisAddress(InetAddress.getByAddress(bytes.copyOfRange(12, 16)))
+        }
         val first = bytes[0].toInt() and 0xff
         val second = bytes[1].toInt() and 0xff
         if ((first and 0xfe) == 0xfc) return false // Unique-local IPv6.
