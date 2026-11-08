@@ -177,10 +177,11 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 
 - Removed the hard-coded TikWM public API dependency. Public TikTok/Douyin metadata and formats are now extracted by the locally integrated yt-dlp engine.
 - Added TikTok/Douyin URL validation and HTTPS CDN allowlisting for extractor-provided media URLs.
-- The no-watermark video selection explicitly excludes the extractor's `download_addr` format and any format whose note identifies it as watermarked. If no non-watermarked format is exposed, the app returns an error instead of mislabeling a watermarked stream.
+- The no-watermark video selection explicitly excludes the extractor's `download_addr` format and any format whose note identifies it as watermarked. The selected format ID is validated before it is passed to yt-dlp. If no non-watermarked format is exposed, the app returns an error instead of mislabeling a watermarked stream.
+- Video downloads now re-run yt-dlp against the original public TikTok page and select the chosen format together with `bestaudio` when the chosen video stream is video-only. FFmpeg merges the streams into MP4; already-muxed formats are not given a second audio stream. The app no longer saves a video-only CDN stream under an MP4 label.
 - Audio download now runs yt-dlp extraction against the original public post URL and converts to MP3 through FFmpeg, rather than assuming an arbitrary direct audio URL is already MP3.
 - Sharing uses the original TikTok/Douyin page URL instead of a short-lived CDN link. Preview is restricted to allowed HTTPS media CDN hosts.
-- Added regression tests for TikTok/Douyin page URLs and media CDN allowlisting.
+- Added regression tests for TikTok/Douyin page URLs, media CDN allowlisting, and safe format-selector construction for muxed versus separate audio/video.
 - Remaining verification: device-level tests for short links, public video metadata, true no-watermark format selection, MP4 download, MP3 extraction, and rate-limit/login errors. The extractor may fail when TikTok requires login or changes its anti-bot behavior; no private-content or access-control bypass is implemented.
 - Upstream format distinction reference: [yt-dlp TikTok extractor](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/tiktok.py).
 
