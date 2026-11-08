@@ -196,14 +196,15 @@ object AppDownloadManager {
                     if (key.isNotBlank() && value.isNotBlank()) reqBuilder.header(key, value)
                 }
 
-                currentCall = client.newCall(reqBuilder.build())
+                val call = client.newCall(reqBuilder.build())
+                currentCall = call
                 if (activeDownloadId != downloadId || !isActive) {
-                    currentCall?.cancel()
+                    call.cancel()
                     return@launch
                 }
-                activeCall = currentCall
+                activeCall = call
 
-                currentCall.execute().use { response ->
+                call.execute().use { response ->
                     if (activeDownloadId != downloadId || !isActive) {
                         throw CancellationException("Unduhan dibatalkan.")
                     }
@@ -385,6 +386,7 @@ object AppDownloadManager {
     }
 
     fun cancelDownload() {
+        activeDownloadId = downloadSequence.incrementAndGet()
         activeCall?.cancel()
         activeCall = null
         activeJob?.cancel()
