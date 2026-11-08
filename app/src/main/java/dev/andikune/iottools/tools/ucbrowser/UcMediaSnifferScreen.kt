@@ -45,7 +45,7 @@ fun UcMediaSnifferScreen() {
     var captureWebView by remember { mutableStateOf<WebView?>(null) }
     var snifferResult by remember { mutableStateOf<SniffingResult?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    DisposableEffect(Unit) {
+    DisposableEffect(captureWebView) {
         onDispose {
             captureWebView?.apply {
                 stopLoading()
