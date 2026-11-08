@@ -52,20 +52,21 @@ object YouTubeDownloaderService {
         val idPattern = Regex("^[A-Za-z0-9_-]{11}$")
         if (idPattern.matches(clean)) return clean
 
-        val uri = runCatching { Uri.parse(clean) }.getOrNull() ?: return null
+        val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
-        if (uri.scheme !in setOf("http", "https")) return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
         if (host != "youtu.be" && host != "youtube.com" && !host.endsWith(".youtube.com")) return null
 
+        val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
+        val queryId = uri.rawQuery.orEmpty().split('&')
+            .firstOrNull { it.substringBefore('=') == "v" }
+            ?.substringAfter('=', "")
         val candidate = when {
-            host == "youtu.be" -> uri.pathSegments.firstOrNull()
-            uri.path == "/watch" -> uri.getQueryParameter("v")
-            else -> {
-                val segments = uri.pathSegments
-                if (segments.size >= 2 && segments[0] in setOf("embed", "shorts", "v", "live")) {
-                    segments[1]
-                } else null
-            }
+            host == "youtu.be" -> segments.firstOrNull()
+            uri.path == "/watch" -> queryId
+            else -> if (segments.size >= 2 && segments[0] in setOf("embed", "shorts", "v", "live")) {
+                segments[1]
+            } else null
         } ?: return null
         return candidate.takeIf { idPattern.matches(it) }
     }
