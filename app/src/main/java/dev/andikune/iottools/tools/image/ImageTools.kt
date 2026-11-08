@@ -82,20 +82,28 @@ fun ImageTools() {
             outputName = ""
             outputSize = 0L
             scope.launch {
-                val loaded = loadImage(context, uri)
+                val (loaded, metadata) = withContext(Dispatchers.IO) {
+                    val decoded = loadImage(context, uri)
+                    val details = if (decoded == null) null else Triple(
+                        MediaStoreSaver.displayName(context, uri) ?: "gambar",
+                        MediaStoreSaver.fileSize(context, uri),
+                        readExif(context, uri)
+                    )
+                    decoded to details
+                }
                 if (token != imageLoadToken) {
                     loaded?.recycle()
                     return@launch
                 }
-                if (loaded == null) {
+                if (loaded == null || metadata == null) {
                     error = "Gambar tidak dapat dibaca."
                 } else {
                     bitmap = loaded
-                    sourceName = MediaStoreSaver.displayName(context, uri) ?: "gambar"
-                    sourceSize = MediaStoreSaver.fileSize(context, uri)
+                    sourceName = metadata.first
+                    sourceSize = metadata.second
                     targetWidth = loaded.width.toString()
                     targetHeight = loaded.height.toString()
-                    exifSummary = readExif(context, uri)
+                    exifSummary = metadata.third
                 }
             }
         }
@@ -114,9 +122,12 @@ fun ImageTools() {
                 if (saved == null) {
                     error = note
                 } else {
-                    val name = MediaStoreSaver.displayName(context, saved) ?: "hasil"
+                    val (name, size) = withContext(Dispatchers.IO) {
+                        (MediaStoreSaver.displayName(context, saved) ?: "hasil") to
+                            MediaStoreSaver.fileSize(context, saved)
+                    }
                     outputName = name
-                    outputSize = MediaStoreSaver.fileSize(context, saved)
+                    outputSize = size
                     message = "$note Tersimpan sebagai $name (${formatBytes(outputSize)})."
                     Toast.makeText(context, "Tersimpan di Pictures/IO-Tools", Toast.LENGTH_SHORT).show()
                 }
@@ -477,7 +488,11 @@ private suspend fun loadImage(context: Context, uri: Uri): Bitmap? = withContext
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
 
         var sample = 1
-        while (bounds.outWidth / sample > 4096 || bounds.outHeight / sample > 4096) {
+        while (
+            bounds.outWidth / sample > 4096 ||
+            bounds.outHeight / sample > 4096 ||
+            (bounds.outWidth.toLong() / sample) * (bounds.outHeight.toLong() / sample) > 16_000_000L
+        ) {
             sample *= 2
         }
         val options = BitmapFactory.Options().apply {
