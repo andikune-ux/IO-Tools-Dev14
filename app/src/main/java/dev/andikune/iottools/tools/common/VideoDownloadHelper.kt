@@ -34,12 +34,12 @@ object VideoDownloadHelper {
 
     internal fun isSecurePublicMediaUrl(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase() ?: return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
         if (host == "localhost" || host.endsWith(".local") ||
-            host.endsWith(".internal") || host.endsWith(".lan") ||
+            host.endsWith(".internal") || host.endsWith(".lan") || host.endsWith(".home.arpa") ||
             !host.contains('.') || host.contains(':') ||
-            host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))
+            host.matches(Regex("^[0-9.]+$"))
         ) return false
         return true
     }
