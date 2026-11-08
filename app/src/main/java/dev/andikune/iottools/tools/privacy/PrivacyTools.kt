@@ -624,18 +624,26 @@ internal object Base32 {
     }
 }
 
-private object VaultCrypto {
+internal object VaultCrypto {
     private const val ITERATIONS = 120_000
     private const val KEY_BITS = 256
+    private val supportedKdfs = setOf("PBKDF2WithHmacSHA256", "PBKDF2WithHmacSHA1")
 
     fun encrypt(plain: String, passphrase: String): String {
+        require(passphrase.length in 12..128) { "Passphrase harus berisi 12–128 karakter." }
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val kdf = if (runCatching { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256") }.isSuccess) {
+            "PBKDF2WithHmacSHA256"
+        } else {
+            "PBKDF2WithHmacSHA1"
+        }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.ENCRYPT_MODE, deriveKey(passphrase, salt, kdf), GCMParameterSpec(128, iv))
         val encrypted = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
         return listOf(
-            "v1",
+            "v2",
+            kdf,
             Base64.encodeToString(salt, Base64.NO_WRAP),
             Base64.encodeToString(iv, Base64.NO_WRAP),
             Base64.encodeToString(encrypted, Base64.NO_WRAP)
@@ -643,25 +651,58 @@ private object VaultCrypto {
     }
 
     fun decrypt(payload: String, passphrase: String): String {
+        require(passphrase.length in 1..128) { "Passphrase tidak valid." }
         val parts = payload.split(":")
-        if (parts.size != 4 || parts[0] != "v1") throw IllegalArgumentException("Format ciphertext tidak dikenal.")
-        val salt = Base64.decode(parts[1], Base64.NO_WRAP)
-        val iv = Base64.decode(parts[2], Base64.NO_WRAP)
-        val encrypted = Base64.decode(parts[3], Base64.NO_WRAP)
+        return when {
+            parts.size == 5 && parts[0] == "v2" -> {
+                val kdf = parts[1]
+                require(kdf in supportedKdfs) { "Algoritma derivasi key tidak dikenal." }
+                decryptParts(parts[2], parts[3], parts[4], passphrase, kdf)
+            }
+            parts.size == 4 && parts[0] == "v1" -> {
+                // Backward compatibility for earlier notes that did not store
+                // which PBKDF2 provider was selected on the originating device.
+                runCatching {
+                    decryptParts(parts[1], parts[2], parts[3], passphrase, "PBKDF2WithHmacSHA256")
+                }.recoverCatching {
+                    decryptParts(parts[1], parts[2], parts[3], passphrase, "PBKDF2WithHmacSHA1")
+                }.getOrThrow()
+            }
+            else -> throw IllegalArgumentException("Format ciphertext tidak dikenal.")
+        }
+    }
+
+    private fun decryptParts(
+        saltText: String,
+        ivText: String,
+        encryptedText: String,
+        passphrase: String,
+        kdf: String
+    ): String {
+        val salt = Base64.decode(saltText, Base64.NO_WRAP)
+        val iv = Base64.decode(ivText, Base64.NO_WRAP)
+        val encrypted = Base64.decode(encryptedText, Base64.NO_WRAP)
+        require(salt.size == 16 && iv.size == 12 && encrypted.size >= 16) {
+            "Ciphertext tidak lengkap atau rusak."
+        }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt, kdf), GCMParameterSpec(128, iv))
         return String(cipher.doFinal(encrypted), Charsets.UTF_8)
     }
 
-    private fun deriveKey(passphrase: String, salt: ByteArray): SecretKeySpec {
-        val algorithm = runCatching { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256") }
-            .getOrElse { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1") }
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt, ITERATIONS, KEY_BITS)
-        val key = algorithm.generateSecret(spec).encoded
-        return SecretKeySpec(key, "AES")
+    private fun deriveKey(passphrase: String, salt: ByteArray, kdf: String): SecretKeySpec {
+        require(kdf in supportedKdfs)
+        val password = passphrase.toCharArray()
+        val spec = PBEKeySpec(password, salt, ITERATIONS, KEY_BITS)
+        return try {
+            val key = SecretKeyFactory.getInstance(kdf).generateSecret(spec).encoded
+            SecretKeySpec(key, "AES")
+        } finally {
+            spec.clearPassword()
+            password.fill('\\u0000')
+        }
     }
 }
-
 
 internal data class TotpLoadResult(val secret: String, val error: String? = null)
 
