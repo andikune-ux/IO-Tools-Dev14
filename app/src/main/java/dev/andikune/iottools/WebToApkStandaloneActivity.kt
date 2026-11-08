@@ -207,6 +207,11 @@ class WebToApkStandaloneActivity : ComponentActivity() {
             !host.contains(':')
     }
 
+    private fun sanitizeDownloadFileName(rawName: String): String =
+        rawName.map { char ->
+            if (char.isLetterOrDigit() || char in "._- ()") char else '_'
+        }.joinToString("").trim().trim('.').take(180).ifBlank { "download.bin" }
+
     private fun setupDownloads() {
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             if (!isSafeDownloadUrl(url)) {
@@ -214,10 +219,8 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 return@setDownloadListener
             }
             try {
-                val fileName = URLUtil.guessFileName(
-                    url,
-                    contentDisposition,
-                    mimeType ?: "application/octet-stream"
+                val fileName = sanitizeDownloadFileName(
+                    URLUtil.guessFileName(url, contentDisposition, mimeType ?: "application/octet-stream")
                 )
                 val request = DownloadManager.Request(Uri.parse(url)).apply {
                     setMimeType(mimeType ?: "application/octet-stream")
