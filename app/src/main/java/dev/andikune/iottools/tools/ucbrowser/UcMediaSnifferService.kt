@@ -213,7 +213,9 @@ object UcMediaSnifferService {
                 .header("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7")
                 .build()
 
+            var resolvedPageUrl = urlString
             val html = client.newCall(request).execute().use { response ->
+                resolvedPageUrl = response.request.url.toString()
                 if (!response.isSuccessful) {
                     throw IllegalStateException("HTTP ${response.code}: Gagal membuka website.")
                 }
@@ -222,7 +224,7 @@ object UcMediaSnifferService {
                     contentType.contains("mpegurl") ||
                     contentType.contains("dash+xml")
                 ) {
-                    val direct = classifyMediaUrl(urlString, urlString, contentType)
+                    val direct = classifyMediaUrl(resolvedPageUrl, resolvedPageUrl, contentType)
                         ?: throw IllegalStateException("Respons berupa media, tetapi format URL tidak didukung.")
                     return@withContext Result.success(
                         SniffingResult(
@@ -269,11 +271,11 @@ object UcMediaSnifferService {
                         ?.replace("&amp;", "&")
                         ?.trim()
                         ?: return@forEach
-                    resolveAbsoluteUrl(urlString, candidate)?.let(candidates::add)
+                    resolveAbsoluteUrl(resolvedPageUrl, candidate)?.let(candidates::add)
                 }
             }
 
-            val media = candidates.mapNotNull { classifyMediaUrl(it, urlString) }.distinctBy { it.url }
+            val media = candidates.mapNotNull { classifyMediaUrl(it, resolvedPageUrl) }.distinctBy { it.url }
             if (media.isEmpty()) {
                 throw IllegalStateException(
                     "Belum ada URL media langsung di HTML awal. Buka player di browser tertanam, tekan Play, lalu tunggu permintaan media terdeteksi."
