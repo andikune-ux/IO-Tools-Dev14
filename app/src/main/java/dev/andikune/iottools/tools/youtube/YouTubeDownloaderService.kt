@@ -51,6 +51,15 @@ object YouTubeDownloaderService {
     private val cancelledProcesses = ConcurrentHashMap.newKeySet<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    internal fun isSupportedFormatExtension(extension: String, audioOnly: Boolean): Boolean {
+        val ext = extension.trim().lowercase().removePrefix(".")
+        return if (audioOnly) {
+            ext in setOf("mp3", "m4a", "aac", "opus", "ogg", "oga", "wav", "webm")
+        } else {
+            ext in setOf("mp4", "m4v", "mov", "webm", "mkv")
+        }
+    }
+
     internal fun buildFormatSelector(formatId: String, hasAudio: Boolean): String? {
         val safeId = formatId.trim()
         if (!safeId.matches(Regex("^[A-Za-z0-9_.-]{1,80}$"))) return null
@@ -105,6 +114,7 @@ object YouTubeDownloaderService {
                 val acodec = item.optString("acodec", "none")
                 val audioOnly = vcodec == "none" && acodec != "none"
                 if (vcodec == "none" && !audioOnly) continue
+                if (!isSupportedFormatExtension(ext, audioOnly)) continue
                 val height = item.optInt("height", 0)
                 val resolution = if (audioOnly) "Audio" else if (height > 0) "${height}p" else item.optString("resolution", "Video")
                 val note = item.optString("format_note").takeIf { it.isNotBlank() }
