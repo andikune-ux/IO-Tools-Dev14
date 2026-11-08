@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_ready: ${{ steps.signing.outputs.release_ready }}
+      publish_ready: ${{ steps.signing.outputs.publish_ready }}
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -57,50 +58,57 @@ jobs:
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
             test -s "$GITHUB_WORKSPACE/my-upload-key.jks"
             echo "release_ready=true" >> "$GITHUB_OUTPUT"
+            echo "publish_ready=true" >> "$GITHUB_OUTPUT"
+            echo "Using the configured upload keystore for the production-signed release APK."
           else
-            echo "release_ready=false" >> "$GITHUB_OUTPUT"
-            echo "Release signing secrets are not configured; building a debug APK only."
+            echo "release_ready=true" >> "$GITHUB_OUTPUT"
+            echo "publish_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Production signing secrets are not configured. Building the release variant with a temporary CI debug key; this APK is for build validation only and cannot be used for production updates or publishing."
           fi
 
       - name: Run unit tests
         run: gradle testDebugUnitTest --stacktrace
 
       - name: Build signed release APK
-        if: steps.signing.outputs.release_ready == 'true'
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          KEY_ALIAS: ${{ env.ANDROID_KEY_ALIAS }}
+          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && format('{0}/my-upload-key.jks', github.workspace) || format('{0}/debug.keystore', github.workspace) }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
         run: gradle assembleRelease --stacktrace
 
       - name: Build debug APK
-        if: steps.signing.outputs.release_ready != 'true'
         run: gradle assembleDebug --stacktrace
 
       - name: Prepare APK artifact
         id: apk
         shell: bash
         run: |
-          if [[ "${{ steps.signing.outputs.release_ready }}" == "true" ]]; then
-            APK_PATH="app/build/outputs/apk/release/app-release.apk"
-            cp "$APK_PATH" "iD-Tools-Dev14-Release.apk"
+          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$RELEASE_APK"
+          test -s "$DEBUG_APK"
+          if [[ "${{ steps.signing.outputs.publish_ready }}" == "true" ]]; then
+            cp "$RELEASE_APK" "iD-Tools-Dev14-Release.apk"
+            echo "artifact_name=iD-Tools-Dev14-Release" >> "$GITHUB_OUTPUT"
           else
-            APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-            cp "$APK_PATH" "iD-Tools-Dev14-Debug.apk"
+            cp "$RELEASE_APK" "iD-Tools-Dev14-Release-CI-Validation-Only.apk"
+            echo "artifact_name=iD-Tools-Dev14-Release-CI-Validation-Only" >> "$GITHUB_OUTPUT"
           fi
-          test -s "$APK_PATH"
-          echo "path=$([[ "${{ steps.signing.outputs.release_ready }}" == "true" ]] && echo iD-Tools-Dev14-Release.apk || echo iD-Tools-Dev14-Debug.apk)" >> "$GITHUB_OUTPUT"
+          cp "$DEBUG_APK" "iD-Tools-Dev14-Debug.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iD-Tools-Dev14-APK
-          path: ${{ steps.apk.outputs.path }}
+          name: ${{ steps.apk.outputs.artifact_name }}
+          path: |
+            iD-Tools-Dev14-*.apk
           retention-days: 30
 
   publish:
     name: Publish signed release
     needs: build
-    if: needs.build.outputs.release_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -109,7 +117,7 @@ jobs:
       - name: Download signed APK
         uses: actions/download-artifact@v4
         with:
-          name: iD-Tools-Dev14-APK
+          name: iD-Tools-Dev14-Release
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -119,6 +127,6 @@ jobs:
           body: |
             ### iD-Tools Dev14.Apk
             - Package: `dev.andikune.iottools`
-            - Signed release build produced by GitHub Actions.
+            - Production-signed release build produced by GitHub Actions.
             - Install/update using the same release signing key.
           files: iD-Tools-Dev14-Release.apk
