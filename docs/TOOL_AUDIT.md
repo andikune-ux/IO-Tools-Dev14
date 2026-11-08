@@ -16,7 +16,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
 | TikTok / YouTube / Instagram / TeraBox | YouTube and Instagram public media metadata use local yt-dlp; TeraBox supports a user-controlled Cloudflare Worker resolver; TikTok remains resolver-backed | URL/CDN and Worker endpoint validation regression tests added; changes pushed without waiting for CI per workflow | YouTube/Instagram device-level extraction and downloads; TeraBox Worker deployment, auth, public-share and download behavior; TikTok resolver runtime |
 | UC Media Sniffer | Static HTML scan plus embedded WebView network-request and video-element capture; progressive, HLS and DASH classification | URL/media classification regression tests added; WebView and download behavior not device-verified | Player interaction, request headers/referrer, HLS/DASH extraction, dynamic players, blob/DRM limitations and false positives |
-| Download Manager | OkHttp streaming, progress state, MediaStore output, share/play and cancellation | Source review; cancellation now cancels the OkHttp call | Interrupted network, unknown content length, disk full, duplicate names and Android 7–9 permissions |
+| Download Manager | OkHttp streaming, progress state, MediaStore output, share/play, cancellation, HTTPS/redirect validation, MIME and file-signature checks | URL/MIME/signature helper regression tests added; runtime transfer tests not yet run | Real HTTP interruption, content-length mismatch, disk full, duplicate names, redirect chains, and Android 7–9 storage behavior |
 
 ## Important behavior and constraints
 
@@ -159,3 +159,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - `blob:` URLs are deliberately ignored because they are not standalone network media URLs. The sniffer does not export WebView cookies or replay login sessions; authentication-gated media may be detected but is not guaranteed to download. DRM-protected streams and decryption are not supported.
 - Added Robolectric regression tests for URL normalization, direct/HLS/DASH classification, and rejection of blob/tracking URLs.
 - Remaining verification: test the embedded player on physical Android devices and representative public/authorized pages; confirm HLS/DASH yt-dlp extraction, referrer handling, FFmpeg merge, and MediaStore output. The WebView capture is not a guarantee that every site's player exposes a downloadable stream.
+
+
+## Shared Download Manager — focused repair pass (2026-11-09)
+
+- Added HTTPS-only public URL validation. Credentials in URLs, local hostnames, and IP-literal targets are rejected before the request is started.
+- Revalidates the final URL after redirects so an HTTPS download cannot silently downgrade to HTTP or redirect to a local address.
+- Checks response Content-Type against the expected MIME family, rejects HTML and unexpected JSON error bodies, and validates common file signatures (MP4/QuickTime, WebM/Matroska, FLV, MP3/AAC/OGG/WAV, JPEG/PNG/WebP/GIF, PDF and ZIP).
+- Rejects empty responses and content-length mismatches before publishing the MediaStore item. Incomplete output is aborted rather than reported as a successful download.
+- Added a generation ID and synchronized active-call registration so an older cancelled transfer cannot overwrite the progress or active-call state of a newer download.
+- Cancellation now updates the visible state immediately. Unknown file types receive a `.bin` fallback instead of being mislabeled as MP4.
+- Added regression tests for secure URL validation, MIME compatibility and common file signatures.
+- Remaining verification: device-level tests for redirects, CDN downloads, unknown content length, interrupted transfers, storage exhaustion, and legacy Android storage permissions. The shared manager still uses one active transfer slot at a time by design.
