@@ -3,6 +3,7 @@ package dev.andikune.iottools
 import dev.andikune.iottools.builder.WebToApkConfig
 import dev.andikune.iottools.builder.WebToApkPipeline
 import dev.andikune.iottools.tools.instagram.InstagramDownloaderService
+import dev.andikune.iottools.tools.pdf.PdfEngine
 import dev.andikune.iottools.tools.terabox.TeraBoxDownloaderService
 import dev.andikune.iottools.tools.youtube.YouTubeDownloaderService
 import org.junit.Assert.assertEquals
@@ -80,10 +81,10 @@ class ExampleRobolectricTest {
   @Test
   fun testTeraBoxShareIdExtractor() {
     val id1 = TeraBoxDownloaderService.extractShareId("https://terabox.com/s/1aB2cD3eF4g")
-    assertNotNull(id1)
+    assertEquals("aB2cD3eF4g", id1)
 
     val id2 = TeraBoxDownloaderService.extractShareId("https://1024tera.com/s/1xyz9876543")
-    assertNotNull(id2)
+    assertEquals("xyz9876543", id2)
   }
 
   @Test
@@ -117,6 +118,29 @@ class ExampleRobolectricTest {
     assertNull(YouTubeDownloaderService.extractVideoId("https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ"))
     assertNull(InstagramDownloaderService.extractShortcode("https://instagram.com.evil.test/reel/ABC123/"))
     assertNull(TeraBoxDownloaderService.extractShareId("https://terabox.com.evil.test/s/1abcdefg"))
+  }
+
+  @Test
+  fun pdfPageRangeParserHandlesRangesAndRejectsInvalidInput() {
+    assertEquals(listOf(0..0, 2..4, 6..6), PdfEngine.parseRanges("1,3-5,7", 7))
+    assertEquals((0..2).toList().map { it..it }, PdfEngine.parseRanges("", 3))
+    assertThrows(IllegalArgumentException::class.java) {
+      PdfEngine.parseRanges("0-2", 5)
+    }
+    assertThrows(IllegalArgumentException::class.java) {
+      PdfEngine.parseRanges("4-2", 5)
+    }
+    assertThrows(IllegalArgumentException::class.java) {
+      PdfEngine.parseRanges("1,8", 5)
+    }
+  }
+
+  @Test
+  fun mediaExtractorsAcceptSupportedUrlFormsAndRejectInvalidSchemes() {
+    assertEquals("dQw4w9WgXcQ", YouTubeDownloaderService.extractVideoId("https://m.youtube.com/watch?v=dQw4w9WgXcQ"))
+    assertNull(YouTubeDownloaderService.extractVideoId("javascript:alert(1)"))
+    assertNull(InstagramDownloaderService.extractShortcode("ftp://instagram.com/p/ABC123"))
+    assertNull(TeraBoxDownloaderService.extractShareId("https://example.com/s/1abcdefg"))
   }
 
 }
