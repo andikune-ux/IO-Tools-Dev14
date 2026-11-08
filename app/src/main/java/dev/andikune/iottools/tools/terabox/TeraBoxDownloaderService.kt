@@ -113,16 +113,19 @@ object TeraBoxDownloaderService {
 
             val responseJson = client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val detail = runCatching {
-                        JSONObject(body).optJSONObject("error")?.optString("message")
-                    }.getOrNull().orEmpty()
+                if (body.isBlank()) {
+                    throw IllegalStateException("Worker mengembalikan respons kosong (HTTP ${response.code}).")
+                }
+                val parsed = runCatching { JSONObject(body) }.getOrElse {
                     throw IllegalStateException(
-                        detail.ifBlank { "Worker mengembalikan HTTP ${response.code}." }
+                        if (response.isSuccessful) "Worker mengembalikan JSON yang tidak valid."
+                        else "Worker mengembalikan HTTP ${response.code} dengan respons yang tidak valid."
                     )
                 }
-                if (body.isBlank()) throw IllegalStateException("Worker mengembalikan respons kosong.")
-                JSONObject(body)
+                if (!response.isSuccessful && parsed.optString("status") != "error") {
+                    throw IllegalStateException("Worker mengembalikan HTTP ${response.code}.")
+                }
+                parsed
             }
 
             if (responseJson.optString("status") != "success") {
