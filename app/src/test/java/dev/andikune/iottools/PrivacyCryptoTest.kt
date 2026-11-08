@@ -11,6 +11,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import android.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+import java.security.SecureRandom
 
 @RunWith(RobolectricTestRunner::class)
 class PrivacyCryptoTest {
@@ -40,6 +47,28 @@ class PrivacyCryptoTest {
     fun totpMatchesRfc6238Sha1TestVector() {
         val secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
         assertEquals("287082", generateTotp(secret, 1L))
+    }
+
+    @Test
+    fun decryptsLegacyV1NotesUsingSha1Kdf() {
+        val plaintext = "Legacy encrypted note"
+        val passphrase = "legacy passphrase"
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val spec = PBEKeySpec(passphrase.toCharArray(), salt, 120_000, 256)
+        val keyBytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(spec).encoded
+        spec.clearPassword()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(keyBytes, "AES"), GCMParameterSpec(128, iv))
+        val encrypted = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        val payload = listOf(
+            "v1",
+            Base64.encodeToString(salt, Base64.NO_WRAP),
+            Base64.encodeToString(iv, Base64.NO_WRAP),
+            Base64.encodeToString(encrypted, Base64.NO_WRAP)
+        ).joinToString(":")
+
+        assertEquals(plaintext, VaultCrypto.decrypt(payload, passphrase))
     }
 
     @Test
