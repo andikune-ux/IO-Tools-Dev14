@@ -7,9 +7,9 @@ import org.junit.Test
 class MediaStoreSaverValidationTest {
     @Test
     fun sanitizesPathSeparatorsAndControlCharacters() {
-        val name = MediaStoreSaver.sanitizeFileName("../folder\\\\video?.mp4")
+        val name = MediaStoreSaver.sanitizeFileName("../folder\\video?.mp4")
         assertFalse(name.contains('/'))
-        assertFalse(name.contains('\\\\'))
+        assertFalse(name.contains('\\'))
         assertFalse(name.contains('?'))
         assertFalse(name.any { it.isISOControl() })
     }
