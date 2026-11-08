@@ -39,13 +39,19 @@ object VideoDownloadHelper {
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
     internal fun isSecurePublicMediaUrl(rawUrl: String): Boolean {
+        if (rawUrl.isBlank() || rawUrl.length > 8192 || rawUrl.any { it.isISOControl() }) return false
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
         val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
-        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
-        if (host == "localhost" || host.endsWith(".local") ||
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
+            (uri.port != -1 && uri.port !in 1..65535) || host.length > 253
+        ) return false
+        if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
             host.endsWith(".internal") || host.endsWith(".lan") || host.endsWith(".home.arpa") ||
-            !host.contains('.') || host.contains(':') ||
-            host.matches(Regex("^[0-9.]+$"))
+            host.contains(':') || host.matches(Regex("^[0-9.]+$")) ||
+            host.split('.').any { label ->
+                label.isBlank() || label.length > 63 ||
+                    !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+            }
         ) return false
         return true
     }
@@ -79,6 +85,8 @@ object VideoDownloadHelper {
             if (mapped) return isPublicAddress(InetAddress.getByAddress(bytes.copyOfRange(12, 16)))
             val first = bytes[0].toInt() and 0xff
             val second = bytes[1].toInt() and 0xff
+            // Only global-unicast 2000::/3 addresses are accepted for remote media.
+            if (first !in 0x20..0x3f) return false
             if ((first and 0xfe) == 0xfc) return false
             if (first == 0xfe && (second and 0xc0) == 0x80) return false
             if (first == 0x20 && second == 0x01 &&
