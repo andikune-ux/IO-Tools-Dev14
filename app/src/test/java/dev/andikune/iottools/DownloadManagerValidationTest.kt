@@ -19,7 +19,9 @@ class DownloadManagerValidationTest {
     @Test
     fun rejectsUnexpectedContentTypesForRequestedMedia() {
         assertTrue(AppDownloadManager.isCompatibleContentType("video/mp4", "video/mp4"))
-        assertTrue(AppDownloadManager.isCompatibleContentType("video/mp4", "video/webm"))
+        assertFalse(AppDownloadManager.isCompatibleContentType("video/mp4", "video/webm"))
+        assertFalse(AppDownloadManager.isCompatibleContentType("video/mp4", "video/quicktime"))
+        assertTrue(AppDownloadManager.isCompatibleContentType("video/mp4", "video/mp4; codecs=avc1"))
         assertTrue(AppDownloadManager.isCompatibleContentType("video/mp4", "application/octet-stream"))
         assertFalse(AppDownloadManager.isCompatibleContentType("video/mp4", "application/json"))
         assertFalse(AppDownloadManager.isCompatibleContentType("image/jpeg", "text/html"))
