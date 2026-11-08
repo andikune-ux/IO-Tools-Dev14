@@ -448,31 +448,26 @@ private fun lookupPublicIp(): String {
 }
 
 private fun inspectSsl(input: String): String {
-    val cleaned = input.trim()
-        .removePrefix("https://")
-        .removePrefix("http://")
-        .substringBefore('/')
-    if (cleaned.isBlank()) return "Masukkan domain yang valid."
-    val host = cleaned.substringBefore(':')
-    val port = cleaned.substringAfter(':', "443").toIntOrNull() ?: 443
-    val url = URL("https://$host:$port")
+    val target = parseSslTarget(input)
+        ?: return "Masukkan host dan port TLS yang valid (port 1–65535)."
+    val urlHost = if (target.host.contains(':')) "[${target.host}]" else target.host
+    val url = URL("https://$urlHost:${target.port}")
 
     return try {
         val connection = url.openConnection() as HttpsURLConnection
         connection.connectTimeout = 8000
         connection.readTimeout = 8000
         connection.requestMethod = "HEAD"
-        connection.connect()
         try {
+            connection.connect()
             val cert = connection.serverCertificates.firstOrNull() as? X509Certificate
                 ?: return "TLS terhubung tetapi sertifikat tidak tersedia."
-            val now = System.currentTimeMillis()
-            val remaining = (cert.notAfter.time - now) / (1000L * 60 * 60 * 24)
+            val remaining = (cert.notAfter.time - System.currentTimeMillis()) / (1000L * 60 * 60 * 24)
             buildString {
-                appendLine("Host: $host:$port")
+                appendLine("Host: ${target.host}:${target.port}")
                 appendLine("Cipher: ${connection.cipherSuite}")
-                appendLine("Subject: ${cert.subjectDN.name}")
-                appendLine("Issuer: ${cert.issuerDN.name}")
+                appendLine("Subject: ${cert.subjectX500Principal.name}")
+                appendLine("Issuer: ${cert.issuerX500Principal.name}")
                 appendLine("Valid from: ${cert.notBefore}")
                 appendLine("Valid until: ${cert.notAfter} (${remaining.coerceAtLeast(0)} hari lagi)")
                 appendLine("Signature: ${cert.sigAlgName}")
@@ -483,18 +478,18 @@ private fun inspectSsl(input: String): String {
             connection.disconnect()
         }
     } catch (e: Exception) {
-        "Pemeriksaan TLS gagal: ${e.message ?: e.javaClass.simpleName}\nTidak ada sertifikat palsu yang ditampilkan."
+        "Pemeriksaan TLS gagal: ${e.message ?: e.javaClass.simpleName}\nSertifikat yang tidak tervalidasi tidak ditampilkan sebagai tepercaya."
     }
 }
 
 private object WhoisClient {
     fun query(input: String): String {
-        val domain = normalizeDomain(input)
-        if (!domain.contains('.')) throw IllegalArgumentException("Domain tidak valid.")
+        val domain = normalizeWhoisDomain(input)
+            ?: throw IllegalArgumentException("Domain WHOIS tidak valid.")
 
         val iana = runCatching { rawQuery("whois.iana.org", domain, 8000) }.getOrElse { "" }
         val referral = Regex("(?im)^refer:\\s*(\\S+)").find(iana)?.groupValues?.get(1)
-        val server = referral?.trim()?.ifBlank { null }
+        val server = referral?.let { normalizeWhoisDomain(it) }
             ?: fallbackServer(domain)
 
         val result = if (server != null && server != "whois.iana.org") {
@@ -510,16 +505,7 @@ private object WhoisClient {
         return result.trim()
     }
 
-    private fun normalizeDomain(input: String): String {
-        return input.trim()
-            .removePrefix("https://")
-            .removePrefix("http://")
-            .substringBefore('/')
-            .substringBefore('?')
-            .substringBefore(':')
-            .trim('.')
-            .lowercase()
-    }
+
 
     private fun fallbackServer(domain: String): String? = when {
         domain.endsWith(".com") || domain.endsWith(".net") -> "whois.verisign-grs.com"
@@ -532,8 +518,12 @@ private object WhoisClient {
     }
 
     private fun rawQuery(server: String, domain: String, timeoutMs: Int): String {
+        val safeServer = normalizeWhoisDomain(server)
+            ?: throw IllegalArgumentException("WHOIS referral server tidak valid.")
+        val safeDomain = normalizeWhoisDomain(domain)
+            ?: throw IllegalArgumentException("Domain WHOIS tidak valid.")
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(server, 43), timeoutMs)
+            socket.connect(InetSocketAddress(safeServer, 43), timeoutMs)
             socket.soTimeout = timeoutMs
             socket.getOutputStream().write("$domain\r\n".toByteArray(Charsets.US_ASCII))
             socket.getOutputStream().flush()
