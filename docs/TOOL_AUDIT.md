@@ -131,10 +131,10 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Removed the brittle Instagram embed HTML regex parser and hard-coded SnapInsta/Cobalt public resolver calls.
 - Metadata extraction now runs through the locally integrated yt-dlp engine, using JSON metadata and extractor-provided formats rather than assuming a third-party endpoint returns a working direct URL.
 - Added support for extractor `entries` so carousel posts can be represented as multiple media items.
-- Direct media candidates are accepted only over HTTPS from `cdninstagram.com` / `fbcdn.net` hosts. This prevents arbitrary page URLs or unrelated hosts from being passed into the download manager.
+- Direct media candidates are accepted only over HTTPS from `cdninstagram.com` / `fbcdn.net` hosts. Host labels, URL length, credentials, IP-like hosts and non-standard ports are validated before a CDN URL can be passed into the downloader.
 - Preserved the actual supported media extension (MP4/MOV/WebM and JPEG/PNG/WebP) and map it to the corresponding MIME type instead of labeling every video as MP4 and every photo as JPEG.
 - Carousel state is carried on each extracted media item so the selected carousel entry is downloaded with `--playlist-items` instead of accidentally treating it as a standalone post. Output type is checked against the selected photo/video item before saving.
-- Added regression tests for Instagram shortcode parsing, untrusted host rejection, HTTPS media CDN allowlisting, media-type classification, and carousel item state.
+- Added regression tests for Instagram shortcode parsing, untrusted host rejection, HTTPS media CDN allowlisting, media-type classification, and carousel item state. Unknown or extensionless media formats are no longer silently classified as photos; the selector requires a recognized image extension or a video codec/extension before exposing a media item.
 - Private/login-gated or deleted posts are reported as unsupported; this implementation does not automate login or bypass account restrictions.
 - Remaining verification: CI compile/unit tests and device-level tests against public, authorized Reels, single-photo posts, and carousel posts. yt-dlp's Instagram extractor can change with platform updates, so no universal availability claim is made.
 
