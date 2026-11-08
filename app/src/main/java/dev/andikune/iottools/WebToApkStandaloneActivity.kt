@@ -203,7 +203,7 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
         return host != "localhost" && !host.endsWith(".local") &&
             !host.endsWith(".internal") && !host.endsWith(".lan") &&
-            host.contains('.') && !host.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) &&
+            host.contains('.') && !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
             !host.contains(':')
     }
 
