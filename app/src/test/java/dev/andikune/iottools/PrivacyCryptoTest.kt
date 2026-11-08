@@ -3,12 +3,16 @@ package dev.andikune.iottools
 import dev.andikune.iottools.tools.privacy.Base32
 import dev.andikune.iottools.tools.privacy.VaultCrypto
 import dev.andikune.iottools.tools.privacy.generateTotp
+import dev.andikune.iottools.tools.privacy.generatePassword
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class PrivacyCryptoTest {
     @Test
     fun base32RoundTripsAndRejectsNonCanonicalInput() {
@@ -17,7 +21,19 @@ class PrivacyCryptoTest {
         assertEquals(source.toList(), Base32.decode(encoded).toList())
         assertEquals("foo", String(Base32.decode("MZXW6===")))
         assertNotNull(runCatching { Base32.decode("MZXW7") }.exceptionOrNull())
+        assertNotNull(runCatching { Base32.decode("MZXW6=") }.exceptionOrNull())
         assertNotNull(runCatching { Base32.decode("A") }.exceptionOrNull())
+    }
+
+    @Test
+    fun passwordGeneratorHonorsSelectedCharacterGroups() {
+        val password = generatePassword(64, true, true, true, true)
+        assertEquals(64, password.length)
+        assertTrue(password.any { it.isUpperCase() })
+        assertTrue(password.any { it.isLowerCase() })
+        assertTrue(password.any { it.isDigit() })
+        assertTrue(password.any { "!@#\$%^&*()-_=+[]{}".contains(it) })
+        assertEquals("", generatePassword(16, false, false, false, false))
     }
 
     @Test
