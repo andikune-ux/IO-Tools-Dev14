@@ -92,6 +92,15 @@ internal fun normalizeNetworkHost(input: String): String? {
     ) return null
     if (uri.rawAuthority?.contains('@') == true) return null
     val authority = uri.rawAuthority ?: return null
+    val explicitPort = when {
+        authority.startsWith("[") && "]:" in authority ->
+            authority.substringAfter("]:").toIntOrNull() ?: return null
+        !authority.startsWith("[") && authority.count { it == ':' } == 1 &&
+            authority.substringAfterLast(':').all(Char::isDigit) ->
+            authority.substringAfterLast(':').toIntOrNull() ?: return null
+        else -> null
+    }
+    if (explicitPort != null && explicitPort !in 1..65535) return null
     val rawHost = when {
         authority.startsWith("[") -> authority.substringBefore("]")
         else -> authority.substringBeforeLast(':').takeIf {
