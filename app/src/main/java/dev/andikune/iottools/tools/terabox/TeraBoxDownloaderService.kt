@@ -72,16 +72,19 @@ object TeraBoxDownloaderService {
     fun normalizeResolverBaseUrl(rawUrl: String): String? {
         val clean = rawUrl.trim().trimEnd('/')
         val uri = runCatching { URI(clean) }.getOrNull() ?: return null
-        val host = uri.host?.lowercase() ?: return null
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return null
         if (uri.scheme?.lowercase() != "https") return null
         if (uri.userInfo != null || uri.query != null || uri.fragment != null) return null
         if (!uri.path.isNullOrEmpty() && uri.path != "/") return null
+        val port = uri.port
+        if (port != -1 && port !in 1..65535) return null
+        val looksLikeIp = host.matches(Regex("^[0-9.]+$")) ||
+            host.matches(Regex("(?i)^(0x[0-9a-f]+\\.?)+$")) ||
+            host.startsWith("[") || host.contains(':')
         if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal") ||
-            host.endsWith(".lan") || host.endsWith(".home.arpa") || !host.contains('.') || host.contains(':') ||
-            host.matches(Regex("^[0-9.]+$"))
+            host.endsWith(".lan") || host.endsWith(".home.arpa") || !host.contains('.') || looksLikeIp
         ) return null
-        if (uri.port != -1 && uri.port !in 1..65535) return null
-        return "https://$host" + if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"
+        return "https://$host" + if (port == -1 || port == 443) "" else ":$port"
     }
 
     internal fun isWorkerResourceUrl(rawUrl: String, baseUrl: String): Boolean {
