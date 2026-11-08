@@ -41,8 +41,6 @@ object TeraBoxDownloaderService {
 
     fun extractShareId(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        if (clean.matches(Regex("^1[A-Za-z0-9_-]{6,}$"))) return clean.removePrefix("1")
-
         val uri = runCatching { URI(clean) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
