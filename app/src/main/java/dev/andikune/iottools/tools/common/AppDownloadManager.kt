@@ -208,8 +208,8 @@ object AppDownloadManager {
                     if (activeDownloadId != downloadId || !isActive) {
                         throw CancellationException("Unduhan dibatalkan.")
                     }
-                    if (response.request.url.scheme != "https") {
-                        throw IllegalStateException("Server mengalihkan unduhan ke koneksi non-HTTPS.")
+                    if (!isSecureDownloadUrl(response.request.url.toString())) {
+                        throw IllegalStateException("Server mengalihkan unduhan ke URL yang tidak aman.")
                     }
                     if (!response.isSuccessful) {
                         throw IllegalStateException("Server mengembalikan HTTP ${response.code}.")
@@ -219,6 +219,9 @@ object AppDownloadManager {
                     val contentType = response.header("Content-Type").orEmpty().lowercase()
                     if (contentType.contains("text/html")) {
                         throw IllegalStateException("Tautan mengembalikan halaman HTML, bukan file media.")
+                    }
+                    if (contentType.contains("application/json") && !mimeType.startsWith("application/json")) {
+                        throw IllegalStateException("Server mengembalikan JSON error, bukan file yang diminta.")
                     }
                     if (!isCompatibleContentType(mimeType, contentType)) {
                         throw IllegalStateException(
@@ -387,6 +390,14 @@ object AppDownloadManager {
 
     fun cancelDownload() {
         activeDownloadId = downloadSequence.incrementAndGet()
+        if (_downloadState.value.isDownloading) {
+            _downloadState.value = _downloadState.value.copy(
+                isDownloading = false,
+                indeterminate = false,
+                status = DownloadStatus.IDLE,
+                statusMessage = "Unduhan dibatalkan."
+            )
+        }
         activeCall?.cancel()
         activeCall = null
         activeJob?.cancel()
