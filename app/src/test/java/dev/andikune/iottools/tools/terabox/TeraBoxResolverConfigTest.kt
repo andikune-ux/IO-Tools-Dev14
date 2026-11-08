@@ -7,9 +7,10 @@ import org.junit.Test
 class TeraBoxResolverConfigTest {
     @Test
     fun extractsShareIdsFromSupportedDomains() {
-        assertEquals("Abcdefgh", TeraBoxDownloaderService.extractShareId("https://terabox.com/s/1Abcdefgh"))
-        assertEquals("Abcdefgh", TeraBoxDownloaderService.extractShareId("https://www.1024terabox.com/s/1Abcdefgh"))
+        assertEquals("1Abcdefgh", TeraBoxDownloaderService.extractShareId("https://terabox.com/s/1Abcdefgh"))
+        assertEquals("1Abcdefgh", TeraBoxDownloaderService.extractShareId("https://www.1024terabox.com/s/1Abcdefgh"))
         assertEquals("Abcdefgh", TeraBoxDownloaderService.extractShareId("https://1024tera.com/?surl=Abcdefgh"))
+        assertEquals("1Abcdefgh", TeraBoxDownloaderService.extractShareId("https://terabox.com/s/1Abcdefgh"))
     }
 
     @Test
