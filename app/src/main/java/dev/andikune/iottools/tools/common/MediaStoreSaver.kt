@@ -359,8 +359,9 @@ object MediaStoreSaver {
         relativePath: String,
         collection: Uri
     ): Boolean? = runCatching {
-        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
-        val args = arrayOf(name, "${relativePath.trimEnd('/')}/%")
+        val normalizedPath = relativePath.trimEnd('/')
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND (${MediaStore.MediaColumns.RELATIVE_PATH}=? OR ${MediaStore.MediaColumns.RELATIVE_PATH}=?)"
+        val args = arrayOf(name, normalizedPath, "$normalizedPath/")
         context.contentResolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns._ID),
