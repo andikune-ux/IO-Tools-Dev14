@@ -117,7 +117,7 @@ fun TeraBoxDownloaderScreen() {
             CyberTerminalHeader(
                 title = "TERABOX DOWNLOADER",
                 subtitle = "Unduh file dari share publik melalui Worker pribadi",
-                statusText = "VIDEO READY",
+                statusText = "WORKER READY",
                 statusColor = AccentAmber
             )
         }
@@ -396,7 +396,7 @@ fun TeraBoxDownloaderScreen() {
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("UNDUH VIDEO ASLI (MP4)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("UNDUH FILE", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -409,7 +409,7 @@ fun TeraBoxDownloaderScreen() {
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Bagikan Direct Link", fontSize = 12.sp, color = TextPrimary)
+                            Text("Bagikan Link Share", fontSize = 12.sp, color = TextPrimary)
                         }
                     }
                 }
