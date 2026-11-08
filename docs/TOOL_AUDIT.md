@@ -15,7 +15,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Audio & Video | MediaExtractor/MediaMuxer metadata, audio extraction, fast trim and frame capture | Existing source review; fast trim starts at a prior sync frame | Codec/container combinations, variable frame rate, rotation, long media and device codec support |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
 | TikTok / YouTube / Instagram / TeraBox | YouTube and Instagram public media metadata use local yt-dlp; TeraBox supports a user-controlled Cloudflare Worker resolver; TikTok remains resolver-backed | URL/CDN and Worker endpoint validation regression tests added; changes pushed without waiting for CI per workflow | YouTube/Instagram device-level extraction and downloads; TeraBox Worker deployment, auth, public-share and download behavior; TikTok resolver runtime |
-| UC Media Sniffer | Parses public page HTML and identifies direct media URLs | Source review | HLS/DASH manifests, authenticated streams, dynamic JavaScript players and false positives |
+| UC Media Sniffer | Static HTML scan plus embedded WebView network-request and video-element capture; progressive, HLS and DASH classification | URL/media classification regression tests added; WebView and download behavior not device-verified | Player interaction, request headers/referrer, HLS/DASH extraction, dynamic players, blob/DRM limitations and false positives |
 | Download Manager | OkHttp streaming, progress state, MediaStore output, share/play and cancellation | Source review; cancellation now cancels the OkHttp call | Interrupted network, unknown content length, disk full, duplicate names and Android 7–9 permissions |
 
 ## Important behavior and constraints
@@ -147,3 +147,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added regression tests for TeraBox share URL hosts/schemes and secure Worker endpoint validation.
 - Setup requirement: deploy your own Worker, configure `TERABOX_COOKIE` as a server-side secret (for example `wrangler secret put TERABOX_COOKIE`), optionally configure `API_KEY` (the app sends `Authorization: Bearer ...`), then enter the HTTPS Worker origin in the app. Never put a TeraBox session cookie into the APK, app UI, source code or Git repository.
 - Remaining verification: deploy and test a Worker against an authorized public share, including metadata response, file bytes, Range/resume behavior, and expired-link recovery. The Android integration deliberately does not claim to work until a Worker endpoint is configured.
+
+
+## UC Media Sniffer — focused repair pass (2026-11-09)
+
+- Replaced static-HTML-only assumptions with a visible embedded WebView capture flow. `shouldInterceptRequest` and `onLoadResource` observe eligible media requests; page-finished JavaScript inspection reads ordinary `video` / `source` element URLs.
+- Added explicit URL normalization and HTTP(S)-only checks. Non-HTTP schemes, credential-bearing target URLs, localhost and `.local` targets are rejected.
+- Added media classification for progressive MP4/M4V/MOV/WebM/FLV, HLS `.m3u8`, and DASH `.mpd`; tracking/advertising paths and non-media assets are filtered.
+- Added a browser capture panel so the user can press Play to trigger network requests when static HTML contains no media URL.
+- Progressive media downloads now preserve the page referrer and the app user agent. HLS/DASH manifests are passed to yt-dlp/FFmpeg; the manifest itself is no longer saved and mislabeled as an MP4 file.
+- `blob:` URLs are deliberately ignored because they are not standalone network media URLs. DRM-protected streams, login-protected streams that cannot be accessed without the user's own authorized session, and decryption are not supported.
+- Added Robolectric regression tests for URL normalization, direct/HLS/DASH classification, and rejection of blob/tracking URLs.
+- Remaining verification: test the embedded player on physical Android devices and representative public/authorized pages; confirm HLS/DASH yt-dlp extraction, referrer handling, FFmpeg merge, and MediaStore output. The WebView capture is not a guarantee that every site's player exposes a downloadable stream.
