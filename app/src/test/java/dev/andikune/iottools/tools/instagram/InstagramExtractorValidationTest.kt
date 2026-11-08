@@ -25,6 +25,7 @@ class InstagramExtractorValidationTest {
         assertEquals(null, InstagramDownloaderService.normalizeInstagramUrl("https://instagram.com.evil.example/p/ABC123/"))
         assertEquals(null, InstagramDownloaderService.normalizeInstagramUrl("ftp://www.instagram.com/p/ABC123/"))
         assertEquals(null, InstagramDownloaderService.normalizeInstagramUrl("https://user:pass@www.instagram.com/p/ABC123/"))
+        assertEquals(null, InstagramDownloaderService.normalizeInstagramUrl("https://www.instagram.com:444/p/ABC123/"))
     }
 
     @Test
@@ -33,6 +34,7 @@ class InstagramExtractorValidationTest {
         assertTrue(InstagramDownloaderService.isAllowedMediaUrl("https://scontent-lax3-1.fbcdn.net/photo.jpg"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("http://scontent.cdninstagram.com/video.mp4"))
         assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://cdninstagram.com.evil.example/video.mp4"))
+        assertFalse(InstagramDownloaderService.isAllowedMediaUrl("https://scontent.cdninstagram.com:444/video.mp4"))
     }
 
     @Test
@@ -48,6 +50,7 @@ class InstagramExtractorValidationTest {
     fun classifiesImageFormatsWithoutMistakingMissingCodecForVideo() {
         assertFalse(InstagramDownloaderService.isVideoMediaFormat(null, "jpg"))
         assertFalse(InstagramDownloaderService.isVideoMediaFormat("none", "webp"))
+        assertFalse(InstagramDownloaderService.isVideoMediaFormat("none", "mp4"))
         assertTrue(InstagramDownloaderService.isVideoMediaFormat("h264", "mp4"))
         assertTrue(InstagramDownloaderService.isVideoMediaFormat(null, "mp4"))
     }
