@@ -8,6 +8,7 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -229,7 +230,11 @@ fun MediaTools() {
                             val uri = selectedMediaUri ?: return@CyberButton
                             val start = startSec.toLongOrNull() ?: 0L
                             val end = endSec.toLongOrNull() ?: 0L
-                            val timeError = validateMediaTimeRange(start * 1000, end * 1000, mediaDurationMs)
+                            if (start > Long.MAX_VALUE / 1000L || end > Long.MAX_VALUE / 1000L) {
+                                operationResult = "Waktu terlalu besar."
+                                return@CyberButton
+                            }
+                            val timeError = validateMediaTimeRange(start * 1000L, end * 1000L, mediaDurationMs)
                             if (timeError != null) {
                                 operationResult = timeError
                                 return@CyberButton
@@ -291,17 +296,20 @@ fun MediaTools() {
                                 isProcessing = true
                                 operationResult = null
                                 val bitmap = captureFrameFromVideo(context, uri, validSecond * 1_000_000L)
+                                extractedFrameBitmap?.recycle()
                                 extractedFrameBitmap = bitmap
                                 if (bitmap == null) {
                                     operationResult = "Gagal mengambil frame."
                                 } else {
-                                    val saved = MediaStoreSaver.saveBitmap(
-                                        context,
-                                        bitmap,
-                                        MediaStoreSaver.timestampName("frame_${validSecond}s", "jpg"),
-                                        Bitmap.CompressFormat.JPEG,
-                                        92
-                                    )
+                                    val saved = withContext(Dispatchers.IO) {
+                                        MediaStoreSaver.saveBitmap(
+                                            context,
+                                            bitmap,
+                                            MediaStoreSaver.timestampName("frame_${validSecond}s", "jpg"),
+                                            Bitmap.CompressFormat.JPEG,
+                                            92
+                                        )
+                                    }
                                     operationResult = if (saved != null) {
                                         "Frame ${bitmap.width}x${bitmap.height} tersimpan sebagai ${MediaStoreSaver.displayName(context, saved)} di Pictures/IO-Tools."
                                     } else {
@@ -590,7 +598,21 @@ suspend fun captureFrameFromVideo(context: Context, uri: Uri, timeUs: Long): Bit
     val retriever = MediaMetadataRetriever()
     try {
         retriever.setDataSource(context, uri)
-        retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        val frame = if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 2048, 2048)
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        } ?: return@withContext null
+
+        val scale = minOf(1f, 2048f / frame.width, 2048f / frame.height)
+        if (scale >= 1f) frame else {
+            Bitmap.createScaledBitmap(
+                frame,
+                (frame.width * scale).toInt().coerceAtLeast(1),
+                (frame.height * scale).toInt().coerceAtLeast(1),
+                true
+            ).also { if (it !== frame) frame.recycle() }
+        }
     } catch (_: Exception) {
         null
     } finally {
