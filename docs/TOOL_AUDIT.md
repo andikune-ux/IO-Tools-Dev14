@@ -10,7 +10,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading/removal | Resize memory-limit regression tests added; processing moved to IO | Large images, orientation variants, transparency, storage output and EXIF stripping on devices |
 | PDF Tools | PDFBox merge/split/rotate/AES-256 protect/compress; Android PdfRenderer for raster recompression with scratch-file buffering | Range/password/rotation/compression-bound regression tests added; device PDF compatibility not verified | Encrypted inputs, malformed files, very large PDFs, page order, scratch storage and output compatibility |
 | File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename with collision preflight | Filename-safety regression tests added; hash stream loop corrected | Very large files, provider-specific rename failures, read-only folders and partial rename behavior |
-| Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Existing source review | Offline state, captive portals, IPv6, slow DNS and provider rate limits |
+| Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Host/port and WHOIS injection regression tests added; public IP response size bounded | Offline/captive portal behavior, IPv6 across OEM stacks, slow DNS and provider rate limits |
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
 | Audio & Video | MediaExtractor/MediaMuxer metadata, AAC/AMR demux, keyframe trim with rotation metadata, scaled frame capture | Timestamp validation regression tests added; device codec behavior not verified | Codec/container combinations, variable frame rate, rotation, long media, muxer support and device codec compatibility |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
@@ -239,3 +239,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added safe filename sanitization, duplicate-target detection, existing-name conflict preflight and output length limits. The operation refuses to start if it would collide with an existing file.
 - Added regression tests for generated batch names and path-separator sanitization.
 - Remaining verification: test large-file hashing against known digests, SAF providers that reject rename, read-only folders, and partial failures on physical devices.
+
+
+## Network Recon — focused repair pass (2026-11-09)
+
+- Added shared hostname normalization using URI and IDN rules; invalid schemes, embedded credentials, control characters, malformed labels and invalid TLS ports are rejected before network operations.
+- DNS and TCP latency now use the same normalized host. TCP timing starts separately for each port attempt, so a failed 443 attempt no longer inflates a successful 80 measurement.
+- Local interface enumeration now runs on IO instead of the Compose main thread.
+- Public IP lookup now accepts HTTPS JSON responses only, disables redirects, applies connection/read timeouts, caps the response at 64 KB and always disconnects the connection.
+- TLS inspection parses host and port safely and continues to rely on the platform's normal certificate/hostname validation; it does not install a permissive trust manager.
+- WHOIS domain and referral server values are validated as DNS names before connecting or writing to TCP port 43, preventing CR/LF query injection and arbitrary referral hosts.
+- Added regression tests for IDN/host normalization, WHOIS domain restrictions and TLS host/port parsing.
+- Remaining verification: test DNS A/AAAA, IPv6, TCP timeout/refusal, valid/expired/self-signed TLS certificates, WHOIS referral chains and captive-portal behavior on real networks.
