@@ -90,20 +90,30 @@ internal fun normalizeNetworkHost(input: String): String? {
     if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
         (uri.port != -1 && uri.port !in 1..65535)
     ) return null
-    val rawHost = uri.host?.removePrefix("[")?.removeSuffix("]") ?: return null
+    if (uri.rawAuthority?.contains('@') == true) return null
+    val authority = uri.rawAuthority ?: return null
+    val rawHost = when {
+        authority.startsWith("[") -> authority.substringBefore("]")
+        else -> authority.substringBeforeLast(':').takeIf {
+            authority.count { ch -> ch == ':' } == 1 && authority.substringAfterLast(':').all(Char::isDigit)
+        } ?: authority
+    }.removePrefix("[").removeSuffix("]")
+    if (rawHost.isBlank()) return null
     if (rawHost.contains(':')) {
         return rawHost.takeIf { it.matches(Regex("^[0-9a-fA-F:.]+$")) }
     }
     val host = runCatching { IDN.toASCII(rawHost, IDN.USE_STD3_ASCII_RULES).lowercase() }.getOrNull()
         ?: return null
     if (host.length > 253 || host.isBlank()) return null
-    val labels = host.trimEnd('.').split('.')
+    val normalizedHost = host.trimEnd('.')
+    if (normalizedHost.isBlank()) return null
+    val labels = normalizedHost.split('.')
     if (labels.any { label ->
             label.isBlank() || label.length > 63 ||
                 !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
         }
     ) return null
-    return host.trimEnd('.')
+    return normalizedHost
 }
 
 internal fun normalizeWhoisDomain(input: String): String? {
