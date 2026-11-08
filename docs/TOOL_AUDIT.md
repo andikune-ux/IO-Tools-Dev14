@@ -90,7 +90,7 @@ Implemented:
 Important remaining YouTube work:
 - The integration does not yet bundle the QuickJS-NG native runtime and yt-dlp EJS solver assets described by SnapNet. Current YouTube extraction may therefore return incomplete formats or fail when the platform requires an external JavaScript challenge solver. Do not advertise complete YouTube compatibility until this is bundled and tested.
 - The wrapper dependency's bundled yt-dlp/Python version and Android ABI coverage must be verified from the resolved AAR and on actual devices.
-- The current download integration reports completion via Toast but does not yet publish yt-dlp progress into the shared Download Manager progress state.
+- The current download integration exposes an active/canceling state and a cancel action, but does not yet publish actual yt-dlp progress into the shared Download Manager progress state.
 - Test public, non-DRM media with user authorization on real ARM64 and 32-bit ARM devices; validate merged audio/video, audio extraction, cancellation, and low-storage failure.
 
 The current CI run is the first compile gate for this integration. A green Gradle build proves dependency and source compatibility only; it does not prove YouTube extraction or real media download. See [SnapNet's documented QuickJS/EJS architecture](https://github.com/hoodmoshla/SnapNet) and [yt-dlp EJS requirements](https://github.com/yt-dlp/yt-dlp/wiki/ejs).
@@ -120,8 +120,9 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Restored yt-dlp's default partial-file behavior instead of disabling `.part` files. This prevents incomplete output from being treated as a finished download.
 - Disabled optional thumbnail, info JSON, and subtitle sidecar output so the output directory contains the intended media artifact.
 - Added explicit MIME mappings for MP4, WebM, MKV, MOV, M4V, and common audio formats. Unknown output extensions now fail visibly rather than being mislabeled as MP4.
-- Added unit regression tests for supported YouTube URL forms, rejection of untrusted hosts / malformed IDs, and safe format selector construction.
+- Added unit regression tests for supported YouTube URL forms, rejection of untrusted hosts / malformed IDs, and safe format selector construction. Metadata requests now canonicalize all accepted URL forms to a standard HTTPS watch URL; credentials, unapproved subdomains and unusual ports are rejected.
 - Format metadata now records whether a selected video stream already contains audio. yt-dlp adds `bestaudio` only for video-only formats, avoiding unnecessary duplicate audio tracks; format IDs are validated before being used in yt-dlp selectors.
+- The selected download process ID is now wired to a visible Cancel action. Cancellation is checked before and after yt-dlp execution, and each per-process cache directory is removed after success, failure or cancellation.
 - Remaining verification: run CI on this revision, then test metadata and actual video/audio downloads on physical Android devices. YouTube EJS challenge solving and ABI/runtime packaging still require device-level confirmation. A green compile is not proof of extractor success.
 
 
