@@ -229,8 +229,9 @@ fun MediaTools() {
                             val uri = selectedMediaUri ?: return@CyberButton
                             val start = startSec.toLongOrNull() ?: 0L
                             val end = endSec.toLongOrNull() ?: 0L
-                            if (end <= start) {
-                                operationResult = "Waktu selesai harus lebih besar dari waktu mulai."
+                            val timeError = validateMediaTimeRange(start * 1000, end * 1000, mediaDurationMs)
+                            if (timeError != null) {
+                                operationResult = timeError
                                 return@CyberButton
                             }
                             scope.launch {
@@ -275,11 +276,18 @@ fun MediaTools() {
                         color = AccentRose,
                         onClick = {
                             val uri = selectedMediaUri ?: return@CyberButton
-                            val second = targetSecond.toLongOrNull() ?: 1L
+                            val second = targetSecond.toLongOrNull()
+                            val frameError = second?.let { validateFrameTime(it, mediaDurationMs) }
+                                ?: "Masukkan waktu frame yang valid."
+                            if (frameError != null) {
+                                operationResult = frameError
+                                return@CyberButton
+                            }
+                            val validSecond = second ?: return@CyberButton
                             scope.launch {
                                 isProcessing = true
                                 operationResult = null
-                                val bitmap = captureFrameFromVideo(context, uri, second * 1_000_000L)
+                                val bitmap = captureFrameFromVideo(context, uri, validSecond * 1_000_000L)
                                 extractedFrameBitmap = bitmap
                                 if (bitmap == null) {
                                     operationResult = "Gagal mengambil frame."
@@ -287,7 +295,7 @@ fun MediaTools() {
                                     val saved = MediaStoreSaver.saveBitmap(
                                         context,
                                         bitmap,
-                                        MediaStoreSaver.timestampName("frame_${second}s", "jpg"),
+                                        MediaStoreSaver.timestampName("frame_${validSecond}s", "jpg"),
                                         Bitmap.CompressFormat.JPEG,
                                         92
                                     )
@@ -326,6 +334,24 @@ fun MediaTools() {
             }
         }
     }
+}
+
+internal fun validateMediaTimeRange(startMs: Long, endMs: Long, durationMs: Long): String? {
+    if (startMs < 0L || endMs <= startMs) return "Rentang waktu tidak valid."
+    if (durationMs <= 0L) return "Durasi media tidak dapat dibaca."
+    if (startMs >= durationMs || endMs > durationMs) {
+        return "Rentang trim harus berada di dalam durasi media (${durationMs / 1000} detik)."
+    }
+    return null
+}
+
+internal fun validateFrameTime(second: Long, durationMs: Long): String? {
+    if (second < 0L) return "Waktu frame tidak boleh negatif."
+    if (durationMs <= 0L) return "Durasi media tidak dapat dibaca."
+    if (second > (durationMs - 1L) / 1000L) {
+        return "Waktu frame berada di luar durasi media."
+    }
+    return null
 }
 
 suspend fun extractMediaMetadata(context: Context, uri: Uri): Pair<String, Long> = withContext(Dispatchers.IO) {
