@@ -197,7 +197,12 @@ object VideoDownloadHelper {
         while (output.size() < maxBytes) {
             val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
             if (read < 0) break
-            if (read == 0) continue
+            if (read == 0) {
+                val single = input.read()
+                if (single < 0) break
+                output.write(single)
+                continue
+            }
             output.write(buffer, 0, read)
         }
         return output.toByteArray()
