@@ -49,20 +49,25 @@ object YouTubeDownloaderService {
      */
     fun extractVideoId(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        val patterns = listOf(
-            Pattern.compile("(?:v=|/v/|youtu\\.be/|/embed/|/shorts/|\\?v=)([^#&?\\s]{11})"),
-            Pattern.compile("^([a-zA-Z0-9_-]{11})$")
-        )
-        for (pattern in patterns) {
-            val matcher = pattern.matcher(clean)
-            if (matcher.find()) {
-                val group = matcher.group(1)
-                if (!group.isNullOrBlank() && group.length == 11) {
-                    return group
-                }
+        val idPattern = Regex("^[A-Za-z0-9_-]{11}$")
+        if (idPattern.matches(clean)) return clean
+
+        val uri = runCatching { Uri.parse(clean) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (uri.scheme !in setOf("http", "https")) return null
+        if (host != "youtu.be" && host != "youtube.com" && !host.endsWith(".youtube.com")) return null
+
+        val candidate = when {
+            host == "youtu.be" -> uri.pathSegments.firstOrNull()
+            uri.path == "/watch" -> uri.getQueryParameter("v")
+            else -> {
+                val segments = uri.pathSegments
+                if (segments.size >= 2 && segments[0] in setOf("embed", "shorts", "v", "live")) {
+                    segments[1]
+                } else null
             }
-        }
-        return null
+        } ?: return null
+        return candidate.takeIf { idPattern.matches(it) }
     }
 
     /**
