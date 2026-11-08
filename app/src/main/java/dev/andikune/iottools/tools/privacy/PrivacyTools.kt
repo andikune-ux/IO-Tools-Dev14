@@ -3,6 +3,8 @@ package dev.andikune.iottools.tools.privacy
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.widget.Toast
 import androidx.compose.foundation.background
