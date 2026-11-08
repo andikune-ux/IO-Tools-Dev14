@@ -88,8 +88,8 @@ Implemented:
 - Add GPL-3.0 `LICENSE` and third-party notices.
 
 Important remaining YouTube work:
-- The integration does not yet bundle the QuickJS-NG native runtime and yt-dlp EJS solver assets described by SnapNet. Current YouTube extraction may therefore return incomplete formats or fail when the platform requires an external JavaScript challenge solver. Do not advertise complete YouTube compatibility until this is bundled and tested.
-- The wrapper dependency's bundled yt-dlp/Python version and Android ABI coverage must be verified from the resolved AAR and on actual devices.
+- The declared `youtubedl-android:0.18.1` runtime includes a QuickJS native runtime path and automatically appends `--js-runtimes quickjs:<path>` plus the FFmpeg location to yt-dlp requests. The earlier missing-JavaScript-runtime concern is therefore not an outstanding source integration gap; the resolved AAR's ABI contents and real YouTube EJS challenge solving still require device-level verification.
+- The wrapper dependency's bundled yt-dlp/Python/QuickJS versions and Android ABI coverage must still be verified from the resolved AAR and on actual devices.
 - The current download integration exposes an active/canceling state and a cancel action, but does not yet publish actual yt-dlp progress into the shared Download Manager progress state.
 - Test public, non-DRM media with user authorization on real ARM64 and 32-bit ARM devices; validate merged audio/video, audio extraction, cancellation, and low-storage failure.
 
@@ -123,7 +123,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added unit regression tests for supported YouTube URL forms, rejection of untrusted hosts / malformed IDs, and safe format selector construction. Metadata requests now canonicalize all accepted URL forms to a standard HTTPS watch URL; credentials, unapproved subdomains and unusual ports are rejected.
 - Format metadata now records whether a selected video stream already contains audio. yt-dlp adds `bestaudio` only for video-only formats, avoiding unnecessary duplicate audio tracks; format IDs are validated before being used in yt-dlp selectors.
 - The selected download process ID is now wired to a visible Cancel action. Cancellation is checked before and after yt-dlp execution, and each per-process cache directory is removed after success, failure or cancellation.
-- Remaining verification: run CI on this revision, then test metadata and actual video/audio downloads on physical Android devices. YouTube EJS challenge solving and ABI/runtime packaging still require device-level confirmation. A green compile is not proof of extractor success.
+- Remaining verification: run CI on this revision, then test metadata and actual video/audio downloads on physical Android devices. Version 0.18.1 provides QuickJS/EJS integration in the wrapper, but actual challenge solving and ABI/runtime packaging still require device-level confirmation. A green compile is not proof of extractor success.
 
 
 ## Instagram media extractor — focused repair pass (2026-11-09)
