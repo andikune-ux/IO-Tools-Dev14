@@ -2,6 +2,8 @@ package dev.andikune.iottools.tools.network
 import dev.andikune.iottools.tools.network.normalizeNetworkHost
 import dev.andikune.iottools.tools.network.normalizeWhoisDomain
 import dev.andikune.iottools.tools.network.parseSslTarget
+import dev.andikune.iottools.tools.network.isPublicWhoisAddress
+import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -23,6 +25,26 @@ class NetworkToolsValidationTest {
         assertNull(normalizeWhoisDomain("localhost"))
         assertNull(normalizeWhoisDomain("192.168.1.1"))
         assertNull(normalizeWhoisDomain("example.com\r\ncommand"))
+    }
+
+    @Test
+    fun blocksPrivateAndReservedWhoisReferralAddresses() {
+        listOf(
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.1.1",
+            "224.0.0.1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1"
+        ).forEach { address ->
+            assertEquals(false, isPublicWhoisAddress(InetAddress.getByName(address)))
+        }
+        assertEquals(true, isPublicWhoisAddress(InetAddress.getByName("8.8.8.8")))
+        assertEquals(true, isPublicWhoisAddress(InetAddress.getByName("2001:4860:4860::8888")))
     }
 
     @Test
