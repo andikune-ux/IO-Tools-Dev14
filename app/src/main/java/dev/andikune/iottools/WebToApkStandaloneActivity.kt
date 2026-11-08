@@ -43,6 +43,10 @@ class WebToApkStandaloneActivity : ComponentActivity() {
     private var isCameraAllowed = false
     private var isAudioAllowed = false
     private var isLocationAllowed = false
+    private var pendingWebPermissionRequest: PermissionRequest? = null
+    private var pendingWebPermissionResources: Array<String> = emptyArray()
+    private var pendingGeolocationOrigin: String? = null
+    private var pendingGeolocationCallback: GeolocationPermissions.Callback? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 
@@ -177,10 +181,8 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         val wanted = mutableListOf<String>()
         if (isCameraAllowed) wanted.add(Manifest.permission.CAMERA)
         if (isAudioAllowed) wanted.add(Manifest.permission.RECORD_AUDIO)
-        if (isLocationAllowed) {
-            wanted.add(Manifest.permission.ACCESS_FINE_LOCATION)
-            wanted.add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        }
+        if (config.permFineLocation) wanted.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (config.permCoarseLocation) wanted.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33 && config.permPostNotifications) {
             wanted.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -195,8 +197,22 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         }
     }
 
+    private fun isSafeDownloadUrl(rawUrl: String): Boolean {
+        val uri = runCatching { java.net.URI(rawUrl.trim()) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        return host != "localhost" && !host.endsWith(".local") &&
+            !host.endsWith(".internal") && !host.endsWith(".lan") &&
+            host.contains('.') && !host.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) &&
+            !host.contains(':')
+    }
+
     private fun setupDownloads() {
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            if (!isSafeDownloadUrl(url)) {
+                Toast.makeText(this, "Unduhan hanya menerima URL HTTPS publik.", Toast.LENGTH_LONG).show()
+                return@setDownloadListener
+            }
             try {
                 val fileName = URLUtil.guessFileName(
                     url,
@@ -415,49 +431,67 @@ class WebToApkStandaloneActivity : ComponentActivity() {
 
             override fun onPermissionRequest(request: PermissionRequest?) {
                 if (request == null) return
-                val granted = mutableListOf<String>()
-
-                for (res in request.resources) {
-                    if (res == PermissionRequest.RESOURCE_VIDEO_CAPTURE) {
-                        if (!isCameraAllowed) {
-                            request.deny()
-                            Toast.makeText(this@WebToApkStandaloneActivity, "Izin Kamera dinonaktifkan di konfigurasi", Toast.LENGTH_SHORT).show()
-                            return
-                        } else {
-                            if (ContextCompat.checkSelfPermission(this@WebToApkStandaloneActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                granted.add(res)
-                            } else {
-                                ActivityCompat.requestPermissions(this@WebToApkStandaloneActivity, arrayOf(Manifest.permission.CAMERA), 201)
+                val requestedResources = request.resources
+                val requiredPermissions = mutableListOf<String>()
+                for (resource in requestedResources) {
+                    when (resource) {
+                        PermissionRequest.RESOURCE_VIDEO_CAPTURE -> {
+                            if (!isCameraAllowed) {
+                                request.deny()
+                                Toast.makeText(this@WebToApkStandaloneActivity, "Izin Kamera dinonaktifkan di konfigurasi.", Toast.LENGTH_SHORT).show()
+                                return
                             }
+                            requiredPermissions.add(Manifest.permission.CAMERA)
                         }
-                    } else if (res == PermissionRequest.RESOURCE_AUDIO_CAPTURE) {
-                        if (!isAudioAllowed) {
+                        PermissionRequest.RESOURCE_AUDIO_CAPTURE -> {
+                            if (!isAudioAllowed) {
+                                request.deny()
+                                Toast.makeText(this@WebToApkStandaloneActivity, "Izin mikrofon dinonaktifkan di konfigurasi.", Toast.LENGTH_SHORT).show()
+                                return
+                            }
+                            requiredPermissions.add(Manifest.permission.RECORD_AUDIO)
+                        }
+                        else -> {
                             request.deny()
                             return
-                        } else {
-                            if (ContextCompat.checkSelfPermission(this@WebToApkStandaloneActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                granted.add(res)
-                            } else {
-                                ActivityCompat.requestPermissions(this@WebToApkStandaloneActivity, arrayOf(Manifest.permission.RECORD_AUDIO), 202)
-                            }
                         }
                     }
                 }
 
-                if (granted.isNotEmpty()) request.grant(granted.toTypedArray()) else request.deny()
+                val missing = requiredPermissions.distinct().filter {
+                    ContextCompat.checkSelfPermission(this@WebToApkStandaloneActivity, it) != PackageManager.PERMISSION_GRANTED
+                }
+                if (missing.isEmpty()) {
+                    request.grant(requestedResources)
+                } else {
+                    pendingWebPermissionRequest?.deny()
+                    pendingWebPermissionRequest = request
+                    pendingWebPermissionResources = requestedResources
+                    ActivityCompat.requestPermissions(this@WebToApkStandaloneActivity, missing.toTypedArray(), 201)
+                }
             }
 
             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                if (!isLocationAllowed) {
-                    callback?.invoke(origin, false, false)
-                } else {
-                    if (ContextCompat.checkSelfPermission(this@WebToApkStandaloneActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                        callback?.invoke(origin, true, false)
-                    } else {
-                        ActivityCompat.requestPermissions(this@WebToApkStandaloneActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 203)
-                        callback?.invoke(origin, true, false)
-                    }
+                val configured = buildList {
+                    if (config.permFineLocation) add(Manifest.permission.ACCESS_FINE_LOCATION)
+                    if (config.permCoarseLocation) add(Manifest.permission.ACCESS_COARSE_LOCATION)
                 }
+                if (!isLocationAllowed || configured.isEmpty()) {
+                    callback?.invoke(origin, false, false)
+                    return
+                }
+                if (configured.any {
+                        ContextCompat.checkSelfPermission(this@WebToApkStandaloneActivity, it) == PackageManager.PERMISSION_GRANTED
+                    }
+                ) {
+                    callback?.invoke(origin, true, false)
+                    return
+                }
+
+                pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)
+                pendingGeolocationOrigin = origin
+                pendingGeolocationCallback = callback
+                ActivityCompat.requestPermissions(this@WebToApkStandaloneActivity, configured.toTypedArray(), 203)
             }
         }
     }
@@ -470,7 +504,43 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         })
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            201 -> {
+                val request = pendingWebPermissionRequest
+                val resources = pendingWebPermissionResources
+                pendingWebPermissionRequest = null
+                pendingWebPermissionResources = emptyArray()
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+                if (granted && request != null && !isFinishing && !isDestroyed) {
+                    request.grant(resources)
+                } else {
+                    request?.deny()
+                }
+            }
+            203 -> {
+                val origin = pendingGeolocationOrigin
+                val callback = pendingGeolocationCallback
+                pendingGeolocationOrigin = null
+                pendingGeolocationCallback = null
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+                callback?.invoke(origin, granted && isLocationAllowed, false)
+            }
+        }
+    }
+
     override fun onDestroy() {
+        pendingWebPermissionRequest?.deny()
+        pendingWebPermissionRequest = null
+        pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)
+        pendingGeolocationCallback = null
         if (config.clearCacheOnExit) {
             webView.clearCache(true)
             WebStorage.getInstance().deleteAllData()
