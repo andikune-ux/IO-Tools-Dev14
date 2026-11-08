@@ -52,7 +52,7 @@ object TeraBoxDownloaderService {
 
     fun extractShareId(rawUrl: String): String? {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return null
-        val host = uri.host?.lowercase() ?: return null
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
         if (host !in allowedShareHosts && allowedShareHosts.none { host.endsWith(".$it") }) return null
 
@@ -77,8 +77,8 @@ object TeraBoxDownloaderService {
         if (uri.userInfo != null || uri.query != null || uri.fragment != null) return null
         if (!uri.path.isNullOrEmpty() && uri.path != "/") return null
         if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal") ||
-            host.endsWith(".lan") || !host.contains('.') || host.contains(':') ||
-            host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))
+            host.endsWith(".lan") || host.endsWith(".home.arpa") || !host.contains('.') || host.contains(':') ||
+            host.matches(Regex("^[0-9.]+$"))
         ) return null
         if (uri.port != -1 && uri.port !in 1..65535) return null
         return "https://$host" + if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"
