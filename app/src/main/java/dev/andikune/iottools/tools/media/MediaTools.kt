@@ -348,7 +348,9 @@ fun MediaTools() {
 }
 
 internal fun validateMediaTimeRange(startMs: Long, endMs: Long, durationMs: Long): String? {
-    if (startMs < 0L || endMs <= startMs) return "Rentang waktu tidak valid."
+    if (startMs < 0L || endMs <= startMs ||
+        startMs > Long.MAX_VALUE / 1000L || endMs > Long.MAX_VALUE / 1000L
+    ) return "Rentang waktu tidak valid."
     if (durationMs <= 0L) return "Durasi media tidak dapat dibaca."
     if (startMs >= durationMs || endMs > durationMs) {
         return "Rentang trim harus berada di dalam durasi media (${durationMs / 1000} detik)."
@@ -357,7 +359,7 @@ internal fun validateMediaTimeRange(startMs: Long, endMs: Long, durationMs: Long
 }
 
 internal fun validateFrameTime(second: Long, durationMs: Long): String? {
-    if (second < 0L) return "Waktu frame tidak boleh negatif."
+    if (second < 0L || second > Long.MAX_VALUE / 1_000_000L) return "Waktu frame tidak valid."
     if (durationMs <= 0L) return "Durasi media tidak dapat dibaca."
     if (second > (durationMs - 1L) / 1000L) {
         return "Waktu frame berada di luar durasi media."
