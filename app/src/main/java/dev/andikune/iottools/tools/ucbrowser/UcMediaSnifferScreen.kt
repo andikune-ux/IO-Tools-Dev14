@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import android.webkit.WebView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -41,8 +42,19 @@ fun UcMediaSnifferScreen() {
     var isLoading by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
     var currentPageTitle by remember { mutableStateOf("Web Video Source") }
+    var captureWebView by remember { mutableStateOf<WebView?>(null) }
     var snifferResult by remember { mutableStateOf<SniffingResult?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(Unit) {
+        onDispose {
+            captureWebView?.apply {
+                stopLoading()
+                removeAllViews()
+                destroy()
+            }
+        }
+    }
+
     var statusLogs by remember {
         mutableStateOf(
             listOf(
@@ -246,24 +258,26 @@ fun UcMediaSnifferScreen() {
                         color = TextSecondary
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    key(inputUrl) {
-                        AndroidView(
-                            factory = { webContext ->
-                                UcMediaSnifferService.createCaptureWebView(
-                                    context = webContext,
-                                    targetUrl = inputUrl,
-                                    onPageTitle = { title ->
-                                        currentPageTitle = title
-                                        snifferResult = snifferResult?.copy(pageTitle = title)
-                                    },
-                                    onMediaDetected = { item -> addCapturedMedia(item) }
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(380.dp)
-                        )
-                    }
+                    AndroidView(
+                        factory = { webContext ->
+                            UcMediaSnifferService.createCaptureWebView(
+                                context = webContext,
+                                targetUrl = inputUrl,
+                                onPageTitle = { title ->
+                                    currentPageTitle = title
+                                    snifferResult = snifferResult?.copy(pageTitle = title)
+                                },
+                                onMediaDetected = { item -> addCapturedMedia(item) }
+                            ).also { captureWebView = it }
+                        },
+                        update = { webView ->
+                            val nextUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+                            if (nextUrl != null && webView.url != nextUrl) webView.loadUrl(nextUrl)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp)
+                    )
                 }
             }
         }
