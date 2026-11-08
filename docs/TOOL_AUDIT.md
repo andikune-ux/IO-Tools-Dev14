@@ -153,7 +153,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 
 ## Web-to-APK Builder — focused repair pass (2026-11-09)
 
-- Fixed generated and in-app WebView permission handling: camera/microphone PermissionRequest objects are retained while Android runtime permission prompts are shown, then granted only after the OS returns a successful result. Denied or unsupported WebView resources remain denied.
+- Fixed generated and in-app WebView permission handling: camera/microphone PermissionRequest objects are retained while Android runtime permission prompts are shown, then granted only after the OS returns a successful result. Canceled page requests clear pending state; denied or unsupported WebView resources remain denied.
 - Geolocation is no longer granted before Android permission approval. The origin callback is retained until the runtime permission result arrives; only configured fine/coarse location permissions are requested.
 - Coarse-only configuration now works in the standalone activity loaded from assets/config.json; it no longer silently checks only the fine-location toggle.
 - WebView-triggered downloads require an initial public HTTPS URL without embedded credentials or local/IP-literal hostnames. Suggested filenames are reduced to a safe basename before passing them to Android DownloadManager.
