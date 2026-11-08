@@ -479,6 +479,14 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                 }
             }
 
+            override fun onPermissionRequestCanceled(request: PermissionRequest?) {
+                if (pendingWebPermissionRequest === request) {
+                    pendingWebPermissionRequest = null
+                    pendingWebPermissionResources = emptyArray()
+                }
+                request?.deny()
+            }
+
             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                 val configured = buildList {
                     if (config.permFineLocation) add(Manifest.permission.ACCESS_FINE_LOCATION)
