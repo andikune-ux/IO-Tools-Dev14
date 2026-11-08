@@ -158,9 +158,9 @@ object UcMediaSnifferService {
             val candidates = linkedSetOf<String>()
             val patterns = listOf(
                 Regex("""<(?:video|source)[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
-                Regex("""(https?://[^"'\\s<>]+\\.(?:mp4|m3u8|mpd|webm|flv|m4v|mov)(?:\\?[^"'\\s<>]*)?)""", RegexOption.IGNORE_CASE),
-                Regex("""(https?:\\/\\/[^"'\\s<>]+\\.(?:mp4|m3u8|mpd|webm)(?:\\?[^"'\\s<>]*)?)""", RegexOption.IGNORE_CASE),
-                Regex("""(?:file|url|source|video_url)["']?\\s*:\\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                Regex("""(https?://[^"'\s<>]+\.(?:mp4|m3u8|mpd|webm|flv|m4v|mov)(?:\?[^"'\s<>]*)?)""", RegexOption.IGNORE_CASE),
+                Regex("""(https?://[^"'\s<>]+\.(?:mp4|m3u8|mpd|webm)(?:\?[^"'\s<>]*)?)""", RegexOption.IGNORE_CASE),
+                Regex("""(?:file|url|source|video_url)["']?\s*:\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
             )
             patterns.forEach { pattern ->
                 pattern.findAll(html).forEach { match ->
@@ -242,6 +242,7 @@ object UcMediaSnifferService {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     onPageTitle(view?.title?.takeIf { it.isNotBlank() } ?: "Web Video Source")
+                    val currentPageUrl = view?.url ?: normalizedUrl
                     view?.evaluateJavascript(
                         "JSON.stringify(Array.from(document.querySelectorAll('video,video source,source')).map(e => e.currentSrc || e.src).filter(Boolean))"
                     ) { value ->
@@ -251,7 +252,7 @@ object UcMediaSnifferService {
                         for (index in 0 until urls.length()) {
                             val candidate = urls.optString(index)
                             if (candidate.isNotBlank() && !candidate.startsWith("blob:")) {
-                                reportCandidate(candidate, view.url ?: normalizedUrl)
+                                reportCandidate(candidate, currentPageUrl)
                             }
                         }
                     }
