@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.widget.Toast
@@ -662,51 +663,83 @@ private object VaultCrypto {
 }
 
 
+internal data class TotpLoadResult(val secret: String, val error: String? = null)
+
 private object TotpSecretStorage {
     private const val ALIAS = "io_tools_totp_secret_v1"
     private const val PREFS_NAME = "io_tools_vault"
     private const val CIPHER_KEY = "totp_secret_cipher"
     private const val LEGACY_KEY = "totp_secret"
 
-    fun load(context: Context): String {
+    fun load(context: Context): TotpLoadResult {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val payload = prefs.getString(CIPHER_KEY, null)
         if (payload.isNullOrBlank()) {
             val legacy = prefs.getString(LEGACY_KEY, null).orEmpty()
+            if (legacy.isBlank()) return TotpLoadResult("")
             if (legacy == "JBSWY3DPEHPK3PXP") {
                 prefs.edit().remove(LEGACY_KEY).apply()
-                return ""
+                return TotpLoadResult("")
             }
-            if (legacy.isNotBlank()) {
-                val migrated = runCatching { save(context, legacy) }.isSuccess
-                if (migrated) prefs.edit().remove(LEGACY_KEY).apply()
+            val migration = runCatching { save(context, legacy) }
+            prefs.edit().remove(LEGACY_KEY).apply()
+            return if (migration.isSuccess) {
+                TotpLoadResult(legacy)
+            } else {
+                TotpLoadResult("", "Secret lama tidak dapat dimigrasikan ke penyimpanan terenkripsi. Masukkan ulang secret lalu simpan.")
             }
-            return legacy
         }
+
         return runCatching {
             val parts = payload.split(":")
-            require(parts.size == 2)
+            require(parts.size == 2) { "Format ciphertext TOTP tidak dikenal." }
             val iv = Base64.decode(parts[0], Base64.NO_WRAP)
             val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
-            require(iv.size == 12 && encrypted.size >= 16)
+            require(iv.size == 12 && encrypted.size >= 16) { "Ciphertext TOTP tidak lengkap." }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
-            String(cipher.doFinal(encrypted), Charsets.UTF_8)
-        }.getOrDefault("")
+            val secret = String(cipher.doFinal(encrypted), Charsets.UTF_8)
+            require(Base32.decode(secret).size >= 10) { "Secret TOTP tersimpan tidak valid." }
+            TotpLoadResult(secret)
+        }.getOrElse {
+            // Keep the ciphertext intact. A transient Keystore failure must not
+            // silently erase the user's only encrypted copy.
+            TotpLoadResult("", "Secret tersimpan tidak dapat dibuka. Ciphertext tetap dipertahankan; periksa Android Keystore atau masukkan ulang secret.")
+        }
     }
 
     fun save(context: Context, secret: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (secret.isBlank()) {
-            prefs.edit().remove(CIPHER_KEY).remove(LEGACY_KEY).apply()
-            return
-        }
+        val decoded = Base32.decode(secret)
+        require(decoded.size >= 10) { "Secret TOTP minimal 80 bit." }
+
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            keyStore.deleteEntry(ALIAS)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        }
         val encrypted = cipher.doFinal(secret.toByteArray(Charsets.UTF_8))
         val payload = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
             Base64.encodeToString(encrypted, Base64.NO_WRAP)
-        prefs.edit().putString(CIPHER_KEY, payload).remove(LEGACY_KEY).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(CIPHER_KEY, payload)
+            .remove(LEGACY_KEY)
+            .apply()
+    }
+
+    fun delete(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(CIPHER_KEY)
+            .remove(LEGACY_KEY)
+            .apply()
+        runCatching {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            keyStore.deleteEntry(ALIAS)
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
