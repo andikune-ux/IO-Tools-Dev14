@@ -17,6 +17,6 @@ class MediaStoreSaverValidationTest {
     @Test
     fun boundsOutputFileNamesAndUsesFallbackForEmptyNames() {
         assertTrue(MediaStoreSaver.sanitizeFileName("x".repeat(1000)).length <= 180)
-        assertTrue(MediaStoreSaver.sanitizeFileName("\\u0000\\r\\n").isNotBlank())
+        assertTrue(MediaStoreSaver.sanitizeFileName("\u0000\r\n").isNotBlank())
     }
 }
