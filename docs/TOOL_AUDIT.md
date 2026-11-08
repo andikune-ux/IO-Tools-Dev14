@@ -153,11 +153,11 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 
 - Replaced static-HTML-only assumptions with a visible embedded WebView capture flow. `shouldInterceptRequest` and `onLoadResource` observe eligible media requests; page-finished JavaScript inspection reads ordinary `video` / `source` element URLs.
 - Added explicit URL normalization and HTTP(S)-only checks. Non-HTTP schemes, credential-bearing target URLs, localhost, local hostnames, and IP-literal targets are rejected for both navigation and captured media.
-- Added media classification for progressive MP4/M4V/MOV/WebM/FLV, HLS `.m3u8`, and DASH `.mpd`; tracking/advertising paths and non-media assets are filtered.
+- Added media classification for progressive MP4/M4V/MOV/WebM/FLV, HLS `.m3u8`, and DASH `.mpd`; extensionless CDN URLs are now classified from the WebView response MIME type as well as the URL path. Tracking/advertising paths and non-media assets are filtered.
 - Added a browser capture panel so the user can press Play to trigger network requests when static HTML contains no media URL.
 - Progressive media downloads now preserve the page referrer and the app user agent. HLS/DASH manifests are passed to yt-dlp/FFmpeg; the manifest itself is no longer saved and mislabeled as an MP4 file.
 - `blob:` URLs are deliberately ignored because they are not standalone network media URLs. The sniffer does not export WebView cookies or replay login sessions; authentication-gated media may be detected but is not guaranteed to download. DRM-protected streams and decryption are not supported.
-- Added Robolectric regression tests for URL normalization, direct/HLS/DASH classification, and rejection of blob/tracking URLs.
+- Added Robolectric regression tests for URL normalization, direct/HLS/DASH classification, extensionless MIME-based detection, and rejection of blob/tracking URLs.
 - Remaining verification: test the embedded player on physical Android devices and representative public/authorized pages; confirm HLS/DASH yt-dlp extraction, referrer handling, FFmpeg merge, and MediaStore output. The WebView capture is not a guarantee that every site's player exposes a downloadable stream.
 
 
