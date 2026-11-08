@@ -12,7 +12,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename | Existing source review | Very large files, duplicate target names, read-only providers and rename conflicts |
 | Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Existing source review | Offline state, captive portals, IPv6, slow DNS and provider rate limits |
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
-| Audio & Video | MediaExtractor/MediaMuxer metadata, audio extraction, fast trim and frame capture | Existing source review; fast trim starts at a prior sync frame | Codec/container combinations, variable frame rate, rotation, long media and device codec support |
+| Audio & Video | MediaExtractor/MediaMuxer metadata, AAC/AMR demux, keyframe trim with rotation metadata, scaled frame capture | Timestamp validation regression tests added; device codec behavior not verified | Codec/container combinations, variable frame rate, rotation, long media, muxer support and device codec compatibility |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
 | TikTok / YouTube / Instagram / TeraBox | YouTube, Instagram and TikTok public media extraction use local yt-dlp; TeraBox supports a user-controlled Cloudflare Worker resolver | URL/CDN and Worker endpoint validation regression tests added; TikTok changes pushed without waiting for CI per workflow | YouTube/Instagram/TikTok device-level extraction and downloads; TikTok watermark-free format availability; TeraBox Worker deployment, auth, public-share and download behavior |
 | UC Media Sniffer | Static HTML scan plus embedded WebView network-request and video-element capture; progressive, HLS and DASH classification | URL/media classification regression tests added; WebView and download behavior not device-verified | Player interaction, request headers/referrer, HLS/DASH extraction, dynamic players, blob/DRM limitations and false positives |
@@ -205,3 +205,13 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - PDF document resources are closed in a `finally` block, and resized temporary bitmaps are recycled even if encoding fails.
 - Added regression tests for accepted and rejected resize dimensions.
 - Remaining verification: exercise large images, EXIF orientations, transparent PNG-to-JPEG conversion, WebP support and PDF output on physical devices with different memory capacities.
+
+
+## Audio & Video Lab — focused repair pass (2026-11-09)
+
+- Added metadata-load generation tracking so an older asynchronous file scan cannot overwrite information for a newly selected media file. File size and display-name queries now run off the UI thread.
+- Audio demux now bounds its sample buffer to 64 KB–32 MB, checks that samples exist, and selects an output container based on codec: AAC to M4A/MP4 and AMR to 3GP. Unsupported codecs fail explicitly instead of being mislabeled as M4A.
+- Fast trim now validates the requested range against actual media duration, requires a video track and at least one video sample, bounds sample buffers, and preserves supported 0/90/180/270-degree rotation metadata.
+- Frame capture validates the requested timestamp against media duration, uses scaled frame extraction on Android 8.1+ and caps output frames at 2048 pixels per side. Frame saving runs on IO.
+- Added regression tests for trim range, frame timestamp, and overflow validation.
+- Remaining verification: test AAC/AMR demux, codec/container edge cases, keyframe trim accuracy, rotation, variable frame rate, and frame capture on physical devices and representative media files.
