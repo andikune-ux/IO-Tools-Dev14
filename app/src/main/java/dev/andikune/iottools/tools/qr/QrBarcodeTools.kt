@@ -344,11 +344,12 @@ fun QrBarcodeTools() {
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Salin")
                             }
-                            if (text.startsWith("http://", true) || text.startsWith("https://", true)) {
+                            val safeScannedUrl = normalizeScannedHttpUrl(text)
+                            if (safeScannedUrl != null) {
                                 OutlinedButton(
                                     onClick = {
                                         runCatching {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(text)))
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeScannedUrl)))
                                         }.onFailure {
                                             Toast.makeText(context, "Tautan tidak dapat dibuka.", Toast.LENGTH_SHORT).show()
                                         }
@@ -417,6 +418,17 @@ private fun buildScanOptions(): ScanOptions = ScanOptions().apply {
     setBeepEnabled(false)
     setOrientationLocked(false)
     setBarcodeImageEnabled(false)
+}
+
+internal fun normalizeScannedHttpUrl(raw: String): String? {
+    val clean = raw.trim()
+    if (clean.isBlank() || clean.length > 4096 || clean.any { it.isISOControl() }) return null
+    val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") ||
+        uri.host.isNullOrBlank() || uri.userInfo != null ||
+        (uri.port != -1 && uri.port !in 1..65535)
+    ) return null
+    return uri.toASCIIString()
 }
 
 internal fun validateBarcodeInput(value: String, format: BarcodeFormat): String? {
