@@ -247,6 +247,7 @@ private fun SecureNotesCard(context: Context) {
             result.onSuccess { (savedTitle, savedBody) ->
                 title = savedTitle
                 body = savedBody
+                passphrase = ""
                 status = "Catatan berhasil didekripsi."
             }.onFailure {
                 status = "Dekripsi gagal: passphrase salah atau data rusak."
@@ -306,6 +307,7 @@ private fun SecureNotesCard(context: Context) {
                 Text("Tersimpan: $cipherLength karakter ciphertext", color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 IconButton(
                     onClick = {
+                        if (busy) return@IconButton
                         prefs.edit().remove("note_cipher").apply()
                         hasSaved = false
                         cipherLength = 0
@@ -579,11 +581,22 @@ internal object Base32 {
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
     fun decode(input: String): ByteArray {
-        val cleaned = input.uppercase().replace(Regex("[\\s-]"), "").trimEnd('=')
+        val raw = input.uppercase().replace(Regex("[\\s-]"), "")
+        val padding = raw.takeLastWhile { it == '=' }.length
+        val cleaned = raw.dropLast(padding)
         if (cleaned.isEmpty()) throw IllegalArgumentException("Secret Base32 kosong.")
         if (cleaned.length > 128) throw IllegalArgumentException("Secret Base32 terlalu panjang.")
-        if (cleaned.length % 8 !in setOf(0, 2, 4, 5, 7)) {
-            throw IllegalArgumentException("Panjang secret Base32 tidak valid.")
+        if ('=' in cleaned) throw IllegalArgumentException("Padding Base32 hanya boleh berada di akhir.")
+        val expectedPadding = when (cleaned.length % 8) {
+            0 -> 0
+            2 -> 6
+            4 -> 4
+            5 -> 3
+            7 -> 1
+            else -> throw IllegalArgumentException("Panjang secret Base32 tidak valid.")
+        }
+        if (padding > 0 && (raw.length % 8 != 0 || padding != expectedPadding)) {
+            throw IllegalArgumentException("Padding Base32 tidak valid.")
         }
 
         val output = ByteArray((cleaned.length * 5) / 8)
