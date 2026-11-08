@@ -188,6 +188,9 @@ class WebToApkStandaloneActivity : ComponentActivity() {
         if (isAudioAllowed) wanted.add(Manifest.permission.RECORD_AUDIO)
         if (config.permFineLocation) wanted.add(Manifest.permission.ACCESS_FINE_LOCATION)
         if (config.permCoarseLocation) wanted.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 31 && config.permBluetoothConnect) {
+            wanted.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
         if (Build.VERSION.SDK_INT >= 33 && config.permPostNotifications) {
             wanted.add(Manifest.permission.POST_NOTIFICATIONS)
         }
