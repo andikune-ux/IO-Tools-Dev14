@@ -132,7 +132,8 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added support for extractor `entries` so carousel posts can be represented as multiple media items.
 - Direct media candidates are accepted only over HTTPS from `cdninstagram.com` / `fbcdn.net` hosts. This prevents arbitrary page URLs or unrelated hosts from being passed into the download manager.
 - Preserved the actual supported media extension (MP4/MOV/WebM and JPEG/PNG/WebP) and map it to the corresponding MIME type instead of labeling every video as MP4 and every photo as JPEG.
-- Added regression tests for Instagram shortcode parsing, untrusted host rejection, and HTTPS media CDN allowlisting.
+- Carousel state is carried on each extracted media item so the selected carousel entry is downloaded with `--playlist-items` instead of accidentally treating it as a standalone post. Output type is checked against the selected photo/video item before saving.
+- Added regression tests for Instagram shortcode parsing, untrusted host rejection, HTTPS media CDN allowlisting, media-type classification, and carousel item state.
 - Private/login-gated or deleted posts are reported as unsupported; this implementation does not automate login or bypass account restrictions.
 - Remaining verification: CI compile/unit tests and device-level tests against public, authorized Reels, single-photo posts, and carousel posts. yt-dlp's Instagram extractor can change with platform updates, so no universal availability claim is made.
 
