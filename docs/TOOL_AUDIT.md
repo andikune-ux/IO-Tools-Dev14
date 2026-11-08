@@ -37,3 +37,34 @@ Do not publish a release APK until all of the following are true:
 3. The release keystore fingerprint is confirmed to match the app already distributed to users. The previous workflow generated a new keystore during each run, so update-signature continuity must be checked explicitly.
 4. Camera, storage, SAF, MediaStore, PDF, media codec and WebView flows are tested on physical Android devices.
 5. Resolver-backed features are tested against permitted public test URLs and failures are shown clearly in the UI.
+
+
+## External implementation research (2026-11-08)
+
+The current resolver implementation is not production-reliable: it depends on hard-coded public Piped/Invidious/Cobalt/loader.to instances, an Instagram embed HTML pattern plus third-party converters, and several unverified TeraBox resolver endpoints. These endpoints are not stable service contracts. Empty catches also hide which upstream failed and why.
+
+### Public projects reviewed
+
+| Project / source | Useful engineering approach | License / integration constraint |
+|---|---|---|
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [yt-dlp EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/ejs) | Maintained extractor registry, format selection, metadata, retries, and external JavaScript challenge runtime for current YouTube extraction | Review yt-dlp and bundled component licenses before bundling. EJS requires a supported JS runtime and solver scripts; a plain HTTP call is not equivalent |
+| [youtubedl-android](https://github.com/yausername/youtubedl-android) | Android wrapper pattern for running yt-dlp locally, with optional FFmpeg and aria2 | GPL-3.0; adding it as a library can impose GPL obligations on distribution. Do not copy or bundle until the app's licensing strategy is explicitly compatible |
+| [NewPipe](https://github.com/TeamNewPipe/NewPipe) / NewPipe Extractor | Extractor-per-service architecture and site parsing when no suitable official API exists | GPL-3.0; NewPipe's own README warns against publishing NewPipe or forks on Google Play. Treat as a reference unless licensing/distribution is reviewed |
+| [parth-dl](https://github.com/parthmax2/parth-dl) | Instagram public-post extraction with layered public paths, rate limiting, retry/backoff, resumable transfer, and structured errors | MIT, but Python package; adapt the architecture or use a separately isolated runtime rather than copying Python implementation into Kotlin |
+| [Instaloader](https://github.com/instaloader/instaloader) | Mature Instagram media and metadata model; documents the difference between public content and session-required content | MIT; authenticated modes require the user's own valid session. Do not collect passwords or silently reuse browser credentials |
+| [Paidguy/terabox-api](https://github.com/Paidguy/terabox-api) | Multi-strategy public-share resolution, typed error responses, expiring-link recovery, and HLS proxy pattern | MIT, but requires a self-hosted Cloudflare Worker and an account session cookie. Do not embed a personal cookie or depend on an unknown public deployment |
+| [Android WebViewClient reference](https://developer.android.com/reference/android/webkit/WebViewClient) | `shouldInterceptRequest` can observe many network resource requests made by an embedded page | Does not observe `javascript:` or `blob:` URLs and only sees the initial URL on redirects; must combine with safe DOM/player instrumentation and explain unsupported cases |
+| [Media3 download guide](https://developer.android.com/media/media3/exoplayer/downloading-media) | Dedicated DownloadService/DownloadManager model for managed background downloads and supported HLS/DASH media | Use only for media the user is authorized to download; DRM-protected streams remain unsupported |
+
+### Implementation decisions
+
+1. **YouTube:** replace the brittle chain of anonymous public API instances with a maintained extractor engine. First prototype yt-dlp Android integration in an isolated branch and measure APK size, ABI coverage, runtime support (including EJS), startup, metadata, format selection, and a permitted test download. Compare NewPipe Extractor as an alternative only after GPL-3.0 and distribution implications are reviewed. Never label a stream as MP4 unless the extractor reports a compatible muxed format or the app successfully merges separate audio/video streams.
+2. **Instagram:** implement public-post support only, with structured extraction results, layered fallbacks, retry/backoff, and clear login-wall/private-content errors. Do not pretend that an embed page or generic converter guarantees access. Do not automate login or bypass private-account restrictions.
+3. **TeraBox:** stop treating unknown third-party resolver endpoints as dependable. Prefer a user-controlled/self-hosted integration based on documented public-share behavior, with explicit session setup if required, secrets stored server-side, expiry recovery, and typed upstream errors. No session cookie may be hard-coded in the APK or committed to Git.
+4. **UC Media Sniffer:** change from fetching static HTML only to a controlled in-app browser capture flow. Collect network resource URLs and player metadata, classify direct MP4/WebM and HLS/DASH manifests, deduplicate and validate candidates, and preserve the required request headers/referrer where allowed. Explicitly report that blob URLs, DRM, login-protected media, and inaccessible cross-origin resources may not be downloadable.
+5. **Shared transfer layer:** validate response status, content type, byte signature, size, and final file before reporting success. For HLS/DASH, use a manifest-aware downloader rather than saving the manifest as if it were an MP4. Keep cancellation, progress, retry limits, and MediaStore error propagation.
+6. **Per-feature workflow:** fix one tool at a time, add deterministic unit tests and mock-server integration tests, run the full unit/build pipeline, inspect logs and audit that feature, then move to the next tool. Real-device validation remains a separate release gate.
+
+### Research limitations
+
+This is a source/repository review, not proof that every upstream resolver currently works. Platform internals and public endpoints change frequently. No external repository code has been copied into IO Tools in this research pass; any future dependency must have its license, maintenance activity, Android compatibility, binary size, and transitive dependencies reviewed before adoption.
