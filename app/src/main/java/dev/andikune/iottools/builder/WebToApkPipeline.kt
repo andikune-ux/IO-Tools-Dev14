@@ -129,12 +129,12 @@ object WebToApkPipeline {
     $permissionTags$cameraFeatures$locationFeatures
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="${escapeXml(config.appName)}"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
         <activity
@@ -396,16 +396,26 @@ class MainActivity : ComponentActivity() {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
+        // Keep JavaScript for web apps, but deny access to local file URLs.
+        settings.allowFileAccess = false
+        settings.allowFileAccessFromFileURLs = false
+        settings.allowUniversalAccessFromFileURLs = false
+        settings.allowContentAccess = true // User-mediated file chooser only.
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settings.safeBrowsingEnabled = true
+        }
         settings.setSupportZoom(${config.enableZoomControls})
         settings.builtInZoomControls = ${config.enableZoomControls}
         settings.displayZoomControls = false
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.setSupportMultipleWindows(true)
+        settings.setSupportMultipleWindows(false)
+        settings.setJavaScriptCanOpenWindowsAutomatically(false)
         settings.setGeolocationEnabled(true)
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
 
         if (${config.enableDesktopMode}) {
             settings.userAgentString = settings.userAgentString.replace("Mobile", "eliboM")
@@ -425,10 +435,16 @@ class MainActivity : ComponentActivity() {
                 swipeRefresh?.isRefreshing = false
             }
 
-            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                swipeRefresh?.isRefreshing = false
-                val offlineHtml = "${escapeForStringLiteral(config.offlineFallbackHtml)}"
-                view?.loadDataWithBaseURL(null, offlineHtml, "text/html", "UTF-8", null)
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                if (request?.isForMainFrame == true) {
+                    swipeRefresh?.isRefreshing = false
+                    val offlineHtml = "${escapeForStringLiteral(config.offlineFallbackHtml)}"
+                    view?.loadDataWithBaseURL(null, offlineHtml, "text/html", "UTF-8", null)
+                }
             }
         }
 
@@ -444,26 +460,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Pop-up windows are disabled to keep all content in the hardened WebView.
             override fun onCreateWindow(
                 view: WebView?,
                 isDialog: Boolean,
                 isUserGesture: Boolean,
                 resultMsg: Message?
-            ): Boolean {
-                val message = resultMsg ?: return false
-                val transport = message.obj as? WebView.WebViewTransport ?: return false
-                val popup = WebView(this@MainActivity)
-                popup.webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
-                        request?.url?.let { webView.loadUrl(it.toString()) }
-                        popup.destroy()
-                        return true
-                    }
-                }
-                transport.webView = popup
-                message.sendToTarget()
-                return true
-            }
+            ): Boolean = false
 
             override fun onShowFileChooser(
                 webView: WebView?,
