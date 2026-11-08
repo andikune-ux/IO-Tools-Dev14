@@ -102,17 +102,20 @@ fun DataHashTools() {
                         hashScope.launch {
                             isHashingFile = true
                             fileHashes = emptyList()
-                            hashedFileName = DocumentFile.fromSingleUri(context, uri)?.name
-                                ?: uri.lastPathSegment.orEmpty()
-                            hashedFileSize = DocumentFile.fromSingleUri(context, uri)?.length() ?: 0L
-                            fileHashes = withContext(Dispatchers.IO) {
-                                runCatching { calculateFileDigests(context, uri) }
-                                    .getOrElse { error ->
-                                        Toast.makeText(context, "Gagal membaca file: ${error.message}", Toast.LENGTH_LONG).show()
-                                        emptyList()
-                                    }
+                            try {
+                                val metadata = withContext(Dispatchers.IO) {
+                                    val document = DocumentFile.fromSingleUri(context, uri)
+                                    (document?.name ?: uri.lastPathSegment.orEmpty()) to (document?.length() ?: 0L)
+                                }
+                                hashedFileName = metadata.first
+                                hashedFileSize = metadata.second
+                                fileHashes = withContext(Dispatchers.IO) { calculateFileDigests(context, uri) }
+                            } catch (error: Exception) {
+                                fileHashes = emptyList()
+                                Toast.makeText(context, "Gagal membaca file: ${error.message}", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isHashingFile = false
                             }
-                            isHashingFile = false
                         }
                     }
                 }
@@ -138,7 +141,7 @@ fun DataHashTools() {
 
                     CyberTextField(
                         value = hashInput,
-                        onValueChange = { hashInput = it },
+                        onValueChange = { hashInput = it.take(100_000) },
                         label = "Teks Input untuk Hash",
                         placeholder = "Masukkan string untuk dihitung hash checksum..."
                     )
@@ -212,7 +215,7 @@ fun DataHashTools() {
 
                     CyberTextField(
                         value = base64Input,
-                        onValueChange = { base64Input = it },
+                        onValueChange = { base64Input = it.take(1_000_000) },
                         label = if (isDecoding) "Ciphertext Base64" else "Plaintext Teks",
                         singleLine = false,
                         modifier = Modifier.height(100.dp)
@@ -273,7 +276,7 @@ fun DataHashTools() {
 
                     CyberTextField(
                         value = urlInput,
-                        onValueChange = { urlInput = it },
+                        onValueChange = { urlInput = it.take(1_000_000) },
                         label = "URL atau URI Parameter Target"
                     )
 
@@ -511,7 +514,8 @@ private fun calculateFileDigests(context: Context, uri: Uri): List<Pair<String, 
         val buffer = ByteArray(64 * 1024)
         while (true) {
             val read = stream.read(buffer)
-            if (read <= 0) break
+            if (read < 0) break
+            if (read == 0) continue
             digests.values.forEach { it.update(buffer, 0, read) }
             crc.update(buffer, 0, read)
         }
