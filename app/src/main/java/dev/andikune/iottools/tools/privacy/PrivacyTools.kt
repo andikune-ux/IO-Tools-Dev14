@@ -3,6 +3,7 @@ package dev.andikune.iottools.tools.privacy
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -346,7 +347,26 @@ private fun TotpCard(context: Context) {
             prefs.edit().putString("totp_account", it).apply()
         }, label = "Label akun")
         Spacer(modifier = Modifier.height(8.dp))
-        CyberTextField(value = secret, onValueChange = { secret = it }, label = "Secret Base32", placeholder = "Tempel secret Base32 dari layanan akun")
+        CyberTextField(value = secret, onValueChange = { secret = it.trim() }, label = "Secret Base32", placeholder = "Tempel secret dari layanan akun")
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    secret = Base32.encode(ByteArray(20).also { SecureRandom().nextBytes(it) })
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("BUAT SECRET BARU") }
+            OutlinedButton(
+                onClick = {
+                    val label = Uri.encode(account.ifBlank { "Akun" })
+                    val issuer = Uri.encode("IO Tools")
+                    val uri = "otpauth://totp/$issuer:$label?secret=$secret&issuer=$issuer&algorithm=SHA1&digits=6&period=30"
+                    copyText(context, uri, "TOTP setup URI")
+                },
+                enabled = secret.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) { Text("SALIN SETUP URI") }
+        }
         Spacer(modifier = Modifier.height(14.dp))
         Box(
             modifier = Modifier
@@ -453,6 +473,23 @@ private object Base32 {
             }
         }
         return if (index == output.size) output else output.copyOf(index)
+    }
+
+    fun encode(input: ByteArray): String {
+        if (input.isEmpty()) return ""
+        val result = StringBuilder()
+        var buffer = 0
+        var bitsLeft = 0
+        input.forEach { byte ->
+            buffer = (buffer shl 8) or (byte.toInt() and 0xff)
+            bitsLeft += 8
+            while (bitsLeft >= 5) {
+                result.append(ALPHABET[(buffer shr (bitsLeft - 5)) and 31])
+                bitsLeft -= 5
+            }
+        }
+        if (bitsLeft > 0) result.append(ALPHABET[(buffer shl (5 - bitsLeft)) and 31])
+        return result.toString()
     }
 }
 
