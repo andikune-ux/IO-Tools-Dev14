@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.qr
 import com.google.zxing.BarcodeFormat
 import dev.andikune.iottools.tools.qr.isValidEan13Input
 import dev.andikune.iottools.tools.qr.validateBarcodeInput

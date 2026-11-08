@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.common
 import dev.andikune.iottools.tools.common.AppDownloadManager
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

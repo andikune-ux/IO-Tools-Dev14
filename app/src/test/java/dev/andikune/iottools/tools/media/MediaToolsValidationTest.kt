@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.media
 import dev.andikune.iottools.tools.media.validateFrameTime
 import dev.andikune.iottools.tools.media.validateMediaTimeRange
 import org.junit.Assert.assertNull

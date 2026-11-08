@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.ucbrowser
 import dev.andikune.iottools.tools.ucbrowser.UcMediaSnifferService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

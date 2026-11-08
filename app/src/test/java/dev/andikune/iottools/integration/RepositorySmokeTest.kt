@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.integration
 import dev.andikune.iottools.builder.WebToApkConfig
 import dev.andikune.iottools.builder.WebToApkPipeline
 import dev.andikune.iottools.tools.instagram.InstagramDownloaderService
@@ -12,7 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ExampleRobolectricTest {
+class RepositorySmokeTest {
 
   @Test
   fun testConfigJsonGeneration() {

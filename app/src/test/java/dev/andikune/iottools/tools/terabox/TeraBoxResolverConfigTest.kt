@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.terabox
 import dev.andikune.iottools.tools.terabox.TeraBoxDownloaderService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

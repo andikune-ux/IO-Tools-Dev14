@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.youtube
 import dev.andikune.iottools.tools.youtube.YouTubeDownloaderService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

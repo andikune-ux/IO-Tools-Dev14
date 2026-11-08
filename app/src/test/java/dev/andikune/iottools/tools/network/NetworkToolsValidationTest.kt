@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.network
 import dev.andikune.iottools.tools.network.normalizeNetworkHost
 import dev.andikune.iottools.tools.network.normalizeWhoisDomain
 import dev.andikune.iottools.tools.network.parseSslTarget

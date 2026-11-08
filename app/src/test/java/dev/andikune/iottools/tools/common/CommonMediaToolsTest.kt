@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.common
 import dev.andikune.iottools.tools.common.MediaStoreSaver
 import dev.andikune.iottools.tools.common.VideoDownloadHelper
 import org.junit.Assert.assertEquals

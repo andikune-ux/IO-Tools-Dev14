@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.tiktok
 import dev.andikune.iottools.tools.tiktok.TikTokDownloaderService
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

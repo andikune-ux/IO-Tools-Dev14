@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.image
 import dev.andikune.iottools.tools.image.validateResizeDimensions
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull

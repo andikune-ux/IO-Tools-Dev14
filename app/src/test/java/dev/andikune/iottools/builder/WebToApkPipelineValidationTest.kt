@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.builder
 import dev.andikune.iottools.builder.WebToApkConfig
 import dev.andikune.iottools.builder.WebToApkPipeline
 import org.junit.Assert.assertFalse

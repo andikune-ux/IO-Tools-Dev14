@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.instagram
 import dev.andikune.iottools.tools.instagram.InstagramDownloaderService
 import dev.andikune.iottools.tools.instagram.InstagramMediaItem
 import org.junit.Assert.assertEquals

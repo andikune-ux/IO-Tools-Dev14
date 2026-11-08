@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.privacy
 import dev.andikune.iottools.tools.privacy.Base32
 import dev.andikune.iottools.tools.privacy.VaultCrypto
 import dev.andikune.iottools.tools.privacy.generateTotp

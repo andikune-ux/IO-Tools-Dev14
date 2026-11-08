@@ -1,5 +1,4 @@
-package dev.andikune.iottools
-
+package dev.andikune.iottools.tools.data
 import dev.andikune.iottools.tools.data.buildBatchRenameName
 import org.junit.Assert.assertEquals
 import org.junit.Test
