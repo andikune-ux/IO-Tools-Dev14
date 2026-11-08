@@ -34,12 +34,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
+import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.log2
 
@@ -309,14 +312,14 @@ private fun SecureNotesCard(context: Context) {
 @Composable
 private fun TotpCard(context: Context) {
     val prefs = remember { context.getSharedPreferences("io_tools_vault", Context.MODE_PRIVATE) }
-    var secret by remember { mutableStateOf(prefs.getString("totp_secret", "").orEmpty()) }
+    var secret by remember { mutableStateOf(TotpSecretStorage.load(context)) }
     var account by remember { mutableStateOf(prefs.getString("totp_account", "Akun saya").orEmpty()) }
     var code by remember { mutableStateOf("------") }
     var remaining by remember { mutableIntStateOf(30) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(secret) {
-        prefs.edit().putString("totp_secret", secret).apply()
+        withContext(Dispatchers.IO) { TotpSecretStorage.save(context, secret) }
         while (true) {
             val epoch = System.currentTimeMillis() / 1000
             val step = epoch / 30
