@@ -18,6 +18,7 @@ class TeraBoxResolverConfigTest {
         assertNull(TeraBoxDownloaderService.extractShareId("https://terabox.com.evil.example/s/1Abcdefgh"))
         assertNull(TeraBoxDownloaderService.extractShareId("https://evil.example/s/1Abcdefgh"))
         assertNull(TeraBoxDownloaderService.extractShareId("ftp://terabox.com/s/1Abcdefgh"))
+        assertNull(TeraBoxDownloaderService.extractShareId("1Abcdefgh"))
     }
 
     @Test
