@@ -145,11 +145,17 @@ internal fun isPublicWhoisAddress(address: InetAddress): Boolean {
         }
         val first = bytes[0].toInt() and 0xff
         val second = bytes[1].toInt() and 0xff
+        // WHOIS referrals must resolve to global-unicast IPv6 addresses only.
+        if (first !in 0x20..0x3f) return false
         if ((first and 0xfe) == 0xfc) return false // Unique-local IPv6.
         if (first == 0xfe && (second and 0xc0) == 0x80) return false // Link-local IPv6.
-        if (first == 0x20 && second == 0x01 &&
-            (bytes[2].toInt() and 0xff) == 0x0d && (bytes[3].toInt() and 0xff) == 0xb8
-        ) return false // Documentation prefix.
+        if (first == 0x20 && second == 0x01) {
+            val third = bytes[2].toInt() and 0xff
+            val fourth = bytes[3].toInt() and 0xff
+            if ((third == 0x00 && fourth <= 0x01) ||
+                (third == 0x0d && fourth == 0xb8)
+            ) return false // IETF special-purpose and documentation ranges.
+        }
     }
     return true
 }
