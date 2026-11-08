@@ -36,6 +36,27 @@ import java.net.URL
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
 
+internal fun readBoundedResponse(input: java.io.InputStream, maxBytes: Int): ByteArray {
+    require(maxBytes > 0) { "Batas respons harus lebih besar dari nol." }
+    val output = java.io.ByteArrayOutputStream(minOf(maxBytes, 8192))
+    val buffer = ByteArray(4096)
+    while (output.size() < maxBytes) {
+        val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+        if (read < 0) break
+        if (read == 0) {
+            val single = input.read()
+            if (single < 0) break
+            output.write(single)
+        } else {
+            output.write(buffer, 0, read)
+        }
+    }
+    if (output.size() == maxBytes && input.read() >= 0) {
+        throw IllegalStateException("Respons lookup melebihi batas $maxBytes byte.")
+    }
+    return output.toByteArray()
+}
+
 internal data class SslTarget(val host: String, val port: Int)
 
 internal fun normalizeNetworkHost(input: String): String? {
@@ -457,18 +478,7 @@ private fun lookupPublicIp(): String {
             if (!contentType.contains("json")) return null
             if (connection.contentLengthLong > 64 * 1024) return null
             val bytes = connection.inputStream.use { input ->
-                val output = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(4096)
-                var total = 0
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    if (read == 0) continue
-                    total += read
-                    if (total > 64 * 1024) throw IllegalStateException("Respons lookup terlalu besar.")
-                    output.write(buffer, 0, read)
-                }
-                output.toByteArray()
+                readBoundedResponse(input, 64 * 1024)
             }
             JSONObject(String(bytes, Charsets.UTF_8))
         } catch (_: Exception) {
