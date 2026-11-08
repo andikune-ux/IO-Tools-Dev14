@@ -45,7 +45,7 @@ fun InstagramDownloaderScreen() {
         mutableStateOf(
             listOf(
                 "[INIT] Instagram Media Extractor siap dijalankan.",
-                "[ENGINE] Mendukung Reels, Single Photo Post, Carousel & Video IGTV."
+                "[ENGINE] yt-dlp lokal untuk Post, Reels, Carousel & IGTV publik."
             )
         )
     }
@@ -87,7 +87,7 @@ fun InstagramDownloaderScreen() {
                 postResult = data
                 statusLogs = statusLogs + "[SUCCESS] Media berhasil diekstrak dalam ${elapsed}ms."
                 statusLogs = statusLogs + "[AUTHOR] @${data.ownerUsername} | Tipe: ${data.mediaType.name}"
-                statusLogs = statusLogs + "[MEDIA] Ditemukan ${data.mediaList.size} item media langsung."
+                statusLogs = statusLogs + "[MEDIA] Ditemukan ${data.mediaList.size} item media publik."
             }.onFailure { error ->
                 errorMessage = error.message ?: "Gagal memproses tautan Instagram."
                 statusLogs = statusLogs + "[ERROR] Gagal: ${error.message}"
@@ -369,6 +369,7 @@ fun InstagramDownloaderScreen() {
                                 onClick = {
                                     InstagramDownloaderService.enqueueDownload(
                                         context = context,
+                                        sourceUrl = post.sourceUrl,
                                         mediaItem = item,
                                         shortcode = post.shortcode,
                                         author = post.ownerUsername
