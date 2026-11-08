@@ -57,13 +57,14 @@ object InstagramDownloaderService {
 
     fun normalizeInstagramUrl(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        if (clean.isBlank()) return null
+        if (clean.isBlank() || clean.length > 2048 || clean.any { it.isISOControl() }) return null
         val candidate = if ("://" in clean) clean else "https://$clean"
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
         val allowedHosts = setOf("instagram.com", "www.instagram.com", "m.instagram.com", "instagr.am", "www.instagr.am")
         if (uri.scheme?.lowercase() !in setOf("http", "https") ||
-            uri.userInfo != null || host !in allowedHosts
+            uri.userInfo != null || (uri.port != -1 && uri.port !in setOf(80, 443)) ||
+            host !in allowedHosts
         ) return null
 
         val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
