@@ -42,13 +42,14 @@ object InstagramDownloaderService {
     private val client by lazy { VideoDownloadHelper.client }
 
     fun extractShortcode(rawUrl: String): String? {
-        val clean = rawUrl.trim()
-        val pattern = Pattern.compile("instagram\\.com/(?:p|reel|reels|tv)/([^/?#&\\s]+)")
-        val matcher = pattern.matcher(clean)
-        if (matcher.find()) {
-            return matcher.group(1)
-        }
-        return null
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (uri.scheme !in setOf("http", "https")) return null
+        if (host != "instagram.com" && !host.endsWith(".instagram.com")) return null
+        val segments = uri.pathSegments
+        val typeIndex = segments.indexOfFirst { it in setOf("p", "reel", "reels", "tv") }
+        if (typeIndex < 0 || typeIndex + 1 >= segments.size) return null
+        return segments[typeIndex + 1].takeIf { it.matches(Regex("^[A-Za-z0-9_-]+$")) }
     }
 
     /**
