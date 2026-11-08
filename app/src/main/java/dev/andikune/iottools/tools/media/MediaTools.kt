@@ -426,7 +426,7 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
     var muxer: MediaMuxer? = null
     val temp = File.createTempFile("trim_", ".mp4", context.cacheDir)
     try {
-        if (endMs <= startMs) throw IllegalArgumentException("Rentang waktu tidak valid.")
+        if (startMs < 0L || endMs <= startMs) throw IllegalArgumentException("Rentang waktu tidak valid.")
         extractor.setDataSource(context, uri, null)
         val mux = MediaMuxer(temp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         muxer = mux
@@ -444,8 +444,14 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
 
         val startUs = startMs * 1000
         val endUs = endMs * 1000
-        extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-        val buffer = ByteBuffer.allocate(1024 * 1024)
+        // A fast trim is keyframe-accurate, not frame-accurate. Start at the
+        // previous sync sample so the output always contains a decodable video GOP.
+        extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        val outputStartUs = extractor.sampleTime.takeIf { it >= 0L } ?: startUs
+        val maxInputSize = mapping.keys.mapNotNull { track ->
+            extractor.getTrackFormat(track).optInt(MediaFormat.KEY_MAX_INPUT_SIZE)
+        }.maxOrNull() ?: (1024 * 1024)
+        val buffer = ByteBuffer.allocate(maxInputSize.coerceIn(256 * 1024, 32 * 1024 * 1024))
         val info = MediaCodec.BufferInfo()
         while (true) {
             buffer.clear()
@@ -453,11 +459,11 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
             if (size < 0) break
             val timeUs = extractor.sampleTime
             if (timeUs > endUs) break
-            if (timeUs >= startUs) {
+            if (timeUs >= outputStartUs) {
                 val muxTrack = mapping[extractor.sampleTrackIndex] ?: continue
                 info.offset = 0
                 info.size = size
-                info.presentationTimeUs = timeUs - startUs
+                info.presentationTimeUs = timeUs - outputStartUs
                 info.flags = extractor.sampleFlags
                 mux.writeSampleData(muxTrack, buffer, info)
             }
