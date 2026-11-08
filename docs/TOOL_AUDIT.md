@@ -290,3 +290,13 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Removed the fake constant download ID from the native download helper; it no longer claims to return a real transfer identifier.
 - Added regression tests for output filename sanitization and secure stream URL validation.
 - Remaining verification: exercise MediaStore collection paths and duplicate names on Android 10+, legacy file creation on Android 7–9, FileProvider sharing, and real CDN redirects on devices.
+
+
+## TeraBox Direct Engine — focused repair pass (2026-11-09)
+
+- Corrected the Worker setup guide to match the implemented multi-file UI and the upstream API's password-protected share support.
+- Preserved the leading `1` in path-based share IDs, matching the upstream Worker response contract (`share.id`); added coverage for `surl` query links with and without that marker.
+- Hardened bounded Worker response reading: a temporary zero-byte stream read no longer stalls the parser, non-positive limits are rejected, and bodies larger than the configured 2 MB cap fail while a body exactly at the cap remains valid.
+- Added user-readable handling for Worker `budget_exhausted`, upstream availability/shape errors, and invalid-parameter errors.
+- Added JVM regression coverage for response stream edge cases and share-ID parsing.
+- Remaining verification: deploy a user-controlled Worker, run the upstream smoke test against an authorized public file and password-protected share, then verify multi-file folders, Range/resume, API-key auth, expired-link recovery and MediaStore output on an Android device. The app does not claim live TeraBox extraction until a real Worker deployment is configured and exercised.
