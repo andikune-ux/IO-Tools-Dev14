@@ -709,7 +709,13 @@ internal object VaultCrypto {
         }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt, kdf), GCMParameterSpec(128, iv))
-        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+        val plainBytes = cipher.doFinal(encrypted)
+        return try {
+            require(plainBytes.size <= 100_000) { "Catatan terdekripsi melebihi batas ukuran." }
+            String(plainBytes, Charsets.UTF_8)
+        } finally {
+            plainBytes.fill(0)
+        }
     }
 
     private fun deriveKey(passphrase: String, salt: ByteArray, kdf: String): SecretKeySpec {
