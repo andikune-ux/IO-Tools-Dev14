@@ -489,28 +489,42 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
 suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long): Result<Uri> = withContext(Dispatchers.IO) {
     val extractor = MediaExtractor()
     var muxer: MediaMuxer? = null
-    val temp = File.createTempFile("trim_", ".mp4", context.cacheDir)
+    var temp: File? = null
+    val retriever = MediaMetadataRetriever()
     try {
-        if (startMs < 0L || endMs <= startMs) throw IllegalArgumentException("Rentang waktu tidak valid.")
+        retriever.setDataSource(context, uri)
+        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        val rangeError = validateMediaTimeRange(startMs, endMs, durationMs)
+        if (rangeError != null) throw IllegalArgumentException(rangeError)
+        val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+        runCatching { retriever.release() }
+
+        temp = File.createTempFile("trim_", ".mp4", context.cacheDir)
         extractor.setDataSource(context, uri, null)
         val mux = MediaMuxer(temp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         muxer = mux
+
         val mapping = mutableMapOf<Int, Int>()
+        val trackMime = mutableMapOf<Int, String>()
         for (i in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(i)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
             if (mime.startsWith("video/") || mime.startsWith("audio/")) {
                 mapping[i] = mux.addTrack(format)
+                trackMime[i] = mime
                 extractor.selectTrack(i)
             }
         }
-        if (mapping.isEmpty()) throw IllegalStateException("Tidak ada track video/audio yang dapat di-mux.")
+        if (mapping.isEmpty() || trackMime.values.none { it.startsWith("video/") }) {
+            throw IllegalStateException("File tidak memiliki track video yang dapat dipotong.")
+        }
+        if (rotation in setOf(0, 90, 180, 270)) mux.setOrientationHint(rotation)
         mux.start()
 
-        val startUs = startMs * 1000
-        val endUs = endMs * 1000
-        // A fast trim is keyframe-accurate, not frame-accurate. Start at the
-        // previous sync sample so the output always contains a decodable video GOP.
+        val startUs = startMs * 1000L
+        val endUs = endMs * 1000L
+        // Fast trim is keyframe-accurate, not frame-accurate. Seek to the
+        // previous sync sample so the output starts with a decodable video GOP.
         extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
         val outputStartUs = extractor.sampleTime.takeIf { it >= 0L } ?: startUs
         val maxInputSize = mapping.keys.mapNotNull { track ->
@@ -518,22 +532,36 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
         }.maxOrNull() ?: (1024 * 1024)
         val buffer = ByteBuffer.allocate(maxInputSize.coerceIn(256 * 1024, 32 * 1024 * 1024))
         val info = MediaCodec.BufferInfo()
+        var sampleCount = 0
+        var videoSampleCount = 0
+
         while (true) {
             buffer.clear()
             val size = extractor.readSampleData(buffer, 0)
             if (size < 0) break
+            if (size > buffer.capacity()) {
+                throw IllegalStateException("Ukuran sample media melebihi buffer yang diizinkan.")
+            }
             val timeUs = extractor.sampleTime
             if (timeUs > endUs) break
             if (timeUs >= outputStartUs) {
-                val muxTrack = mapping[extractor.sampleTrackIndex] ?: continue
+                val sourceTrack = extractor.sampleTrackIndex
+                val muxTrack = mapping[sourceTrack]
+                    ?: throw IllegalStateException("Track sample tidak dikenali.")
                 info.offset = 0
                 info.size = size
                 info.presentationTimeUs = timeUs - outputStartUs
                 info.flags = extractor.sampleFlags
                 mux.writeSampleData(muxTrack, buffer, info)
+                sampleCount++
+                if (trackMime[sourceTrack]?.startsWith("video/") == true) videoSampleCount++
             }
             if (!extractor.advance()) break
         }
+        if (sampleCount == 0 || videoSampleCount == 0) {
+            throw IllegalStateException("Tidak ada frame video pada rentang waktu yang dipilih.")
+        }
+
         mux.stop()
         mux.release()
         muxer = null
@@ -550,10 +578,11 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
     } catch (e: Exception) {
         Result.failure(e)
     } finally {
+        runCatching { retriever.release() }
         runCatching { extractor.release() }
         runCatching { muxer?.stop() }
         runCatching { muxer?.release() }
-        temp.delete()
+        temp?.delete()
     }
 }
 
