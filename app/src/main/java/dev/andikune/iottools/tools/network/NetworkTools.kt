@@ -121,9 +121,13 @@ fun NetworkTools() {
 
         if (activeSubTool == 0) {
             item {
-                var localIps by remember { mutableStateOf(getLocalIpAddresses(context)) }
+                var localIps by remember { mutableStateOf(listOf("Memuat interface jaringan...")) }
                 var publicInfo by remember { mutableStateOf("Tekan tombol untuk melakukan lookup nyata.") }
                 var isLoading by remember { mutableStateOf(false) }
+
+                LaunchedEffect(Unit) {
+                    localIps = withContext(Dispatchers.IO) { getLocalIpAddresses(context) }
+                }
 
                 CyberCard(borderColor = AccentCyan) {
                     Text("Adapter & IP Publik", color = AccentCyan, fontWeight = FontWeight.Bold)
@@ -144,9 +148,12 @@ fun NetworkTools() {
                         onClick = {
                             coroutineScope.launch {
                                 isLoading = true
-                                localIps = getLocalIpAddresses(context)
-                                publicInfo = withContext(Dispatchers.IO) { lookupPublicIp() }
-                                isLoading = false
+                                try {
+                                    localIps = withContext(Dispatchers.IO) { getLocalIpAddresses(context) }
+                                    publicInfo = withContext(Dispatchers.IO) { lookupPublicIp() }
+                                } finally {
+                                    isLoading = false
+                                }
                             }
                         }
                     )
@@ -177,18 +184,24 @@ fun NetworkTools() {
                         onClick = {
                             coroutineScope.launch {
                                 isResolving = true
-                                val host = targetHost.trim().removePrefix("https://").removePrefix("http://").substringBefore('/')
-                                dnsResults = withContext(Dispatchers.IO) {
-                                    try {
+                                val host = normalizeNetworkHost(targetHost)
+                                if (host == null) {
+                                    dnsResults = listOf("Hostname tidak valid.")
+                                    isResolving = false
+                                    return@launch
+                                }
+                                try {
+                                    dnsResults = withContext(Dispatchers.IO) {
                                         InetAddress.getAllByName(host).map { address ->
                                             val type = if (address.address.size == 4) "A" else "AAAA"
                                             "$type  ${address.hostAddress}"
                                         }
-                                    } catch (e: Exception) {
-                                        listOf("Gagal: ${e.message ?: "host tidak ditemukan"}")
                                     }
+                                } catch (e: Exception) {
+                                    dnsResults = listOf("Gagal: ${e.message ?: "host tidak ditemukan"}")
+                                } finally {
+                                    isResolving = false
                                 }
-                                isResolving = false
                             }
                         }
                     )
@@ -230,30 +243,40 @@ fun NetworkTools() {
                             coroutineScope.launch {
                                 isPinging = true
                                 pingOutput = emptyList()
-                                val host = pingHost.trim().removePrefix("https://").removePrefix("http://").substringBefore('/')
+                                val host = normalizeNetworkHost(pingHost)
+                                if (host == null) {
+                                    pingOutput = listOf("Host tidak valid.")
+                                    isPinging = false
+                                    return@launch
+                                }
                                 val rtts = mutableListOf<Long>()
-                                var sent = 0
-                                for (i in 1..4) {
-                                    sent++
-                                    val line = withContext(Dispatchers.IO) {
-                                        val start = System.nanoTime()
-                                        fun attempt(port: Int): Long? = runCatching {
-                                            Socket().use { socket ->
-                                                socket.connect(InetSocketAddress(host, port), 2500)
+                                val sent = 4
+                                try {
+                                    for (i in 1..sent) {
+                                        val line = withContext(Dispatchers.IO) {
+                                            fun attempt(port: Int): Long? {
+                                                val start = System.nanoTime()
+                                                return runCatching {
+                                                    Socket().use { socket ->
+                                                        socket.connect(InetSocketAddress(host, port), 2500)
+                                                    }
+                                                    (System.nanoTime() - start) / 1_000_000
+                                                }.getOrNull()
                                             }
-                                            (System.nanoTime() - start) / 1_000_000
-                                        }.getOrNull()
 
-                                        val rtt = attempt(443) ?: attempt(80)
-                                        if (rtt != null) {
-                                            rtts.add(rtt)
-                                            "seq=$i  ${rtt}ms  TCP connected"
-                                        } else {
-                                            "seq=$i  timeout / refused"
+                                            val rtt = attempt(443) ?: attempt(80)
+                                            if (rtt != null) {
+                                                rtts.add(rtt)
+                                                "seq=$i  ${rtt}ms  TCP connected"
+                                            } else {
+                                                "seq=$i  timeout / refused"
+                                            }
                                         }
+                                        pingOutput = pingOutput + line
+                                        delay(250)
                                     }
-                                    pingOutput = pingOutput + line
-                                    delay(250)
+                                } finally {
+                                    isPinging = false
                                 }
                                 val received = rtts.size
                                 val loss = if (sent == 0) 100 else ((sent - received) * 100) / sent
@@ -263,7 +286,6 @@ fun NetworkTools() {
                                     "\n--- $sent dikirim, $received berhasil, loss $loss% | min ${rtts.min()}ms, avg ${rtts.average().toLong()}ms, max ${rtts.max()}ms ---"
                                 }
                                 pingOutput = pingOutput + stats
-                                isPinging = false
                             }
                         }
                     )
