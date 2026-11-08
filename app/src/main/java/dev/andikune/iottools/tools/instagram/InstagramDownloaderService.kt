@@ -228,16 +228,25 @@ object InstagramDownloaderService {
         author: String
     ) {
         val normalizedSource = normalizeInstagramUrl(sourceUrl)
-        if (normalizedSource == null || !isAllowedMediaUrl(mediaItem.url)) {
-            Toast.makeText(context, "URL media Instagram tidak valid.", Toast.LENGTH_LONG).show()
+        val sourceShortcode = extractShortcode(sourceUrl)
+        if (normalizedSource == null || sourceShortcode == null ||
+            shortcode != sourceShortcode || mediaItem.index !in 1..1000 ||
+            !isAllowedMediaUrl(mediaItem.url)
+        ) {
+            Toast.makeText(context, "URL atau item media Instagram tidak valid.", Toast.LENGTH_LONG).show()
             return
         }
 
         val processId = "instagram-$shortcode-${mediaItem.index}-${System.currentTimeMillis()}"
         val outputDir = File(context.cacheDir, "instagram-downloads/$processId").apply { mkdirs() }
+        if (!outputDir.isDirectory) {
+            Toast.makeText(context, "Tidak dapat membuat folder sementara Instagram.", Toast.LENGTH_LONG).show()
+            return
+        }
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching {
-                val outputTemplate = File(outputDir, "%(title).100B [%(id)s].%(ext)s").absolutePath
+                // Stable app-generated names avoid trusting post captions as filesystem paths.
+                val outputTemplate = File(outputDir, "IG_$shortcode-${mediaItem.index}.%(ext)s").absolutePath
                 val request = YoutubeDLRequest(normalizedSource).apply {
                     addOption("-o", outputTemplate)
                     addOption("--no-warnings")
