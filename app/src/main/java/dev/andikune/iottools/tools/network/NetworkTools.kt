@@ -64,7 +64,9 @@ internal fun normalizeNetworkHost(input: String): String? {
     if (clean.isBlank() || clean.any { it.isWhitespace() || it.isISOControl() }) return null
     val candidate = if ("://" in clean) clean else "https://$clean"
     val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
-    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
+        (uri.port != -1 && uri.port !in 1..65535)
+    ) return null
     val rawHost = uri.host?.removePrefix("[")?.removeSuffix("]") ?: return null
     if (rawHost.contains(':')) {
         return rawHost.takeIf { it.matches(Regex("^[0-9a-fA-F:.]+$")) }
