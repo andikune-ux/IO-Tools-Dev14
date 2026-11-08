@@ -71,10 +71,10 @@ jobs:
 
       - name: Build signed release APK
         env:
-          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && format('{0}/my-upload-key.jks', github.workspace) || format('{0}/debug.keystore', github.workspace) }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
+          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && format('{0}/my-upload-key.jks', github.workspace) || format('{0}/debug.keystore', github.workspace) }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
         run: gradle assembleRelease --stacktrace
 
       - name: Build debug APK
