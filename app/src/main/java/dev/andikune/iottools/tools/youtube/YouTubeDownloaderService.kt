@@ -20,6 +20,7 @@ data class YouTubeVideoFormat(
     val resolution: String,
     val ext: String,
     val isAudioOnly: Boolean,
+    val hasAudio: Boolean,
     val approximateSize: String,
     val directUrl: String
 )
@@ -42,6 +43,12 @@ data class YouTubeVideoData(
  * resolved again by yt-dlp at download time.
  */
 object YouTubeDownloaderService {
+
+    internal fun buildFormatSelector(formatId: String, hasAudio: Boolean): String? {
+        val safeId = formatId.trim()
+        if (!safeId.matches(Regex("^[A-Za-z0-9_.-]{1,80}$"))) return null
+        return if (hasAudio) safeId else "$safeId+bestaudio/$safeId"
+    }
 
     fun extractVideoId(rawUrl: String): String? {
         val clean = rawUrl.trim()
@@ -100,6 +107,7 @@ object YouTubeDownloaderService {
                     resolution = resolution,
                     ext = ext,
                     isAudioOnly = audioOnly,
+                    hasAudio = acodec != "none",
                     approximateSize = sizeLabel,
                     // Intentionally empty: expiring direct URLs are resolved by yt-dlp at download time.
                     directUrl = ""
@@ -122,6 +130,15 @@ object YouTubeDownloaderService {
 
     fun enqueueDownload(context: Context, format: YouTubeVideoFormat, videoTitle: String, videoId: String) {
         val safeTitle = MediaStoreSaver.sanitizeFileName(videoTitle, "YT_$videoId").take(100)
+        val formatSelector = if (format.isAudioOnly) {
+            format.formatId.takeIf { it.matches(Regex("^[A-Za-z0-9_.-]{1,80}$")) }
+        } else {
+            buildFormatSelector(format.formatId, format.hasAudio)
+        }
+        if (formatSelector == null) {
+            Toast.makeText(context, "ID format YouTube tidak valid.", Toast.LENGTH_LONG).show()
+            return
+        }
         val processId = "youtube-$videoId-${System.currentTimeMillis()}"
         val outputDir = File(context.cacheDir, "yt-dlp-downloads/$processId").apply { mkdirs() }
         CoroutineScope(Dispatchers.IO).launch {
@@ -139,11 +156,11 @@ object YouTubeDownloaderService {
                     addOption("--no-write-subs")
                     addOption("--no-write-auto-subs")
                     if (format.isAudioOnly) {
-                        addOption("-f", format.formatId)
+                        addOption("-f", formatSelector)
                         addOption("-x")
                         addOption("--audio-format", "mp3")
                     } else {
-                        addOption("-f", "${format.formatId}+bestaudio/${format.formatId}")
+                        addOption("-f", formatSelector)
                         addOption("--merge-output-format", "mp4")
                     }
                 }
