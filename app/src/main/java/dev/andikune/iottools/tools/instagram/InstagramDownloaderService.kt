@@ -154,8 +154,9 @@ object InstagramDownloaderService {
                 val url = format.optString("url")
                 val vcodec = format.optString("vcodec", "none")
                 val ext = format.optString("ext").lowercase()
-                isAllowedMediaUrl(url) && vcodec != "none" &&
-                    (ext in videoExtensions || ext.isBlank())
+                isAllowedMediaUrl(url) &&
+                    ((vcodec != "none" && (ext in videoExtensions || ext.isBlank())) ||
+                        ext in imageExtensions)
             }
             .maxByOrNull { it.optInt("height", 0) }
 
