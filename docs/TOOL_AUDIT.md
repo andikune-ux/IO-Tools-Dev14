@@ -11,7 +11,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 | PDF Tools | PDFBox merge/split/rotate/AES-256 protect/compress; Android PdfRenderer for raster recompression with scratch-file buffering | Range/password/rotation/compression-bound regression tests added; device PDF compatibility not verified | Encrypted inputs, malformed files, very large PDFs, page order, scratch storage and output compatibility |
 | File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename with collision preflight | Filename-safety regression tests added; hash stream loop corrected | Very large files, provider-specific rename failures, read-only folders and partial rename behavior |
 | Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Host/port and WHOIS injection regression tests added; public IP response size bounded | Offline/captive portal behavior, IPv6 across OEM stacks, slow DNS and provider rate limits |
-| Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
+| Privacy Vault | Secure password generation, versioned PBKDF2/AES-GCM notes, TOTP/HMAC-SHA1 with Android Keystore | Password/Base32/RFC 6238/crypto regression tests added; TOTP persistence is explicit | Keystore invalidation/restore, legacy migration, wrong-passphrase UX and device-specific crypto providers |
 | Audio & Video | MediaExtractor/MediaMuxer metadata, AAC/AMR demux, keyframe trim with rotation metadata, scaled frame capture | Timestamp validation regression tests added; device codec behavior not verified | Codec/container combinations, variable frame rate, rotation, long media, muxer support and device codec compatibility |
 | Web-to-APK | Generated Gradle project, manifest, standalone WebView container and ZIP export | Source review; generated WebView security defaults have unit assertions | Real project import/build/install, HTTPS sites, file picker, camera/mic/location permission prompts |
 | TikTok / YouTube / Instagram / TeraBox | YouTube, Instagram and TikTok public media extraction use local yt-dlp; TeraBox supports a user-controlled Cloudflare Worker resolver | URL/CDN and Worker endpoint validation regression tests added; TikTok changes pushed without waiting for CI per workflow | YouTube/Instagram/TikTok device-level extraction and downloads; TikTok watermark-free format availability; TeraBox Worker deployment, auth, public-share and download behavior |
@@ -251,3 +251,16 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - WHOIS domain and referral server values are validated as DNS names before connecting or writing to TCP port 43, preventing CR/LF query injection and arbitrary referral hosts.
 - Added regression tests for IDN/host normalization, WHOIS domain restrictions and TLS host/port parsing.
 - Remaining verification: test DNS A/AAAA, IPv6, TCP timeout/refusal, valid/expired/self-signed TLS certificates, WHOIS referral chains and captive-portal behavior on real networks.
+
+
+## Privacy Vault — focused repair pass (2026-11-09)
+
+- Password entropy now uses the exact selected character-pool sizes. Selecting no character groups yields no password instead of silently falling back to an unselected pool.
+- Secure Notes masks passphrases, bounds note/passphrase input, clears plaintext and passphrase after successful encryption, and clears the passphrase after successful decryption.
+- Secure Notes ciphertext is now versioned as `v2` and records the PBKDF2 provider (`PBKDF2WithHmacSHA256` or the explicit compatibility fallback). Legacy `v1` payloads are still attempted with both providers so older notes remain readable across provider differences.
+- PBKDF2 password character arrays and PBEKeySpec values are cleared after key derivation. AES-256-GCM authentication remains mandatory; tampered ciphertext fails decryption.
+- TOTP Base32 parsing now checks alphabet, length, canonical padding and unused trailing bits; secrets shorter than 80 bits are rejected. Added the RFC 6238 SHA-1 test vector.
+- TOTP secret persistence is explicit through Save/Delete actions. Initial load no longer triggers an automatic save that could erase ciphertext after a Keystore failure. Decryption failures preserve the encrypted payload and surface a warning; a permanently invalidated key is rotated only when the user explicitly saves a replacement secret.
+- TOTP secrets are masked in the UI and are stored with Android Keystore AES-GCM. Legacy plaintext migration is attempted once; plaintext legacy storage is removed after the migration attempt.
+- Added regression tests for password character groups, Base32 encoding/padding, RFC 6238 and Secure Notes encryption/tamper detection.
+- Remaining verification: exercise TOTP save/load across process restarts, Keystore invalidation, backup/restore, legacy migration, and Secure Notes v1 decryption on API 24+ devices.
