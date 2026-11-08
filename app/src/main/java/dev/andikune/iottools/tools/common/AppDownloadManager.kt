@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -57,6 +58,7 @@ object AppDownloadManager {
     val downloadState = _downloadState.asStateFlow()
 
     private var activeJob: Job? = null
+    @Volatile private var activeCall: Call? = null
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -105,6 +107,7 @@ object AppDownloadManager {
 
         activeJob = CoroutineScope(Dispatchers.IO).launch {
             var pending: MediaStoreSaver.PendingOutput? = null
+            var currentCall: Call? = null
             try {
                 val reqBuilder = Request.Builder()
                     .url(directUrl)
@@ -112,7 +115,9 @@ object AppDownloadManager {
                     .header("Accept", "*/*")
                 customHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
 
-                client.newCall(reqBuilder.build()).execute().use { response ->
+                currentCall = client.newCall(reqBuilder.build())
+                activeCall = currentCall
+                currentCall!!.execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalStateException("Server mengembalikan HTTP ${response.code}.")
                     }
@@ -248,11 +253,15 @@ object AppDownloadManager {
                         Toast.makeText(context, "Gagal mengunduh: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
+            } finally {
+                if (activeCall === currentCall) activeCall = null
             }
         }
     }
 
     fun cancelDownload() {
+        activeCall?.cancel()
+        activeCall = null
         activeJob?.cancel()
         activeJob = null
     }
