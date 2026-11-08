@@ -506,6 +506,10 @@ private object TotpSecretStorage {
         val payload = prefs.getString(CIPHER_KEY, null)
         if (payload.isNullOrBlank()) {
             val legacy = prefs.getString(LEGACY_KEY, null).orEmpty()
+            if (legacy == "JBSWY3DPEHPK3PXP") {
+                prefs.edit().remove(LEGACY_KEY).apply()
+                return ""
+            }
             if (legacy.isNotBlank()) {
                 val migrated = runCatching { save(context, legacy) }.isSuccess
                 if (migrated) prefs.edit().remove(LEGACY_KEY).apply()
