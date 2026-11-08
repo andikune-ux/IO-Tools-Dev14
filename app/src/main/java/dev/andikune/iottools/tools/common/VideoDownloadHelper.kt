@@ -20,12 +20,18 @@ object VideoDownloadHelper {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
-            .followRedirects(false)
+            .followRedirects(true)
             .dns { hostname ->
                 val resolved = InetAddress.getAllByName(hostname).filter(::isPublicAddress)
                 if (resolved.isEmpty()) throw UnknownHostException("Hostname tidak mengarah ke IP publik.")
                 resolved
             }
+            .build()
+    }
+
+    private val noRedirectClient by lazy {
+        client.newBuilder()
+            .followRedirects(false)
             .build()
     }
 
@@ -86,7 +92,7 @@ object VideoDownloadHelper {
         var request = initialRequest
         val redirectCodes = setOf(300, 301, 302, 303, 307, 308)
         for (redirectCount in 0..5) {
-            val response = client.newCall(request).execute()
+            val response = noRedirectClient.newCall(request).execute()
             if (response.code !in redirectCodes) return response
 
             val location = response.header("Location")
