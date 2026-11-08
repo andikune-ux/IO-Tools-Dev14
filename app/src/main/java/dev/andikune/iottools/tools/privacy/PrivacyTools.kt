@@ -536,6 +536,7 @@ private const val NUMBER_CHARS = "23456789"
 private const val SYMBOL_CHARS = "!@#\$%^&*()-_=+[]{}"
 
 internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbers: Boolean, symbols: Boolean): String {
+    require(length in 8..64) { "Panjang password harus 8–64 karakter." }
     val groups = mutableListOf<String>()
     if (upper) groups.add(UPPER_CHARS)
     if (lower) groups.add(LOWER_CHARS)
@@ -584,6 +585,7 @@ internal object Base32 {
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
     fun decode(input: String): ByteArray {
+        if (input.length > 256) throw IllegalArgumentException("Input Base32 terlalu panjang.")
         val raw = input.uppercase().replace(Regex("[\\s-]"), "")
         val padding = raw.takeLastWhile { it == '=' }.length
         val cleaned = raw.dropLast(padding)
@@ -646,6 +648,7 @@ internal object VaultCrypto {
     private val supportedKdfs = setOf("PBKDF2WithHmacSHA256", "PBKDF2WithHmacSHA1")
 
     fun encrypt(plain: String, passphrase: String): String {
+        require(plain.length <= 100_000) { "Catatan terlalu panjang (maksimal 100.000 karakter)." }
         require(passphrase.length in 12..128) { "Passphrase harus berisi 12–128 karakter." }
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
@@ -667,6 +670,7 @@ internal object VaultCrypto {
     }
 
     fun decrypt(payload: String, passphrase: String): String {
+        require(payload.length in 1..100_000) { "Ciphertext terlalu panjang atau kosong." }
         require(passphrase.length in 1..4096) { "Passphrase tidak valid." }
         val parts = payload.split(":")
         return when {
@@ -747,6 +751,9 @@ private object TotpSecretStorage {
             }
         }
 
+        if (payload.length > 1024) {
+            return TotpLoadResult("", "Ciphertext TOTP melebihi batas ukuran; data tetap dipertahankan.")
+        }
         return runCatching {
             val parts = payload.split(":")
             require(parts.size == 2) { "Format ciphertext TOTP tidak dikenal." }
