@@ -65,7 +65,15 @@ internal fun readWhoisResponse(reader: java.io.Reader, maxChars: Int): String {
         val remaining = maxChars - output.length
         val read = reader.read(buffer, 0, minOf(buffer.size, remaining + 1))
         if (read < 0) break
-        if (read == 0) continue
+        if (read == 0) {
+            val single = reader.read()
+            if (single < 0) break
+            if (output.length >= maxChars) {
+                throw IllegalStateException("Respons WHOIS melebihi batas $maxChars karakter.")
+            }
+            output.append(single.toChar())
+            continue
+        }
         if (read > remaining) throw IllegalStateException("Respons WHOIS melebihi batas $maxChars karakter.")
         output.append(buffer, 0, read)
     }
