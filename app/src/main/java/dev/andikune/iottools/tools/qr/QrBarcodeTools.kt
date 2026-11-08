@@ -421,6 +421,20 @@ private fun buildScanOptions(): ScanOptions = ScanOptions().apply {
 
 internal fun validateBarcodeInput(value: String, format: BarcodeFormat): String? {
     if (value.isBlank()) return "Isi teks atau tautan terlebih dahulu."
+    val utf8Length = value.toByteArray(Charsets.UTF_8).size
+    if (value.length > 4096) return "Isi kode terlalu panjang (maksimal 4096 karakter)."
+    if (format == BarcodeFormat.QR_CODE && utf8Length > 2953) {
+        return "QR Code mendukung maksimal 2953 byte pada tingkat koreksi standar."
+    }
+    if (format == BarcodeFormat.DATA_MATRIX && utf8Length > 1555) {
+        return "Data Matrix mendukung maksimal 1555 byte."
+    }
+    if (format == BarcodeFormat.CODE_39 && value.length > 80) {
+        return "Code 39 dibatasi maksimal 80 karakter."
+    }
+    if (format == BarcodeFormat.CODE_128 && value.length > 256) {
+        return "Code 128 dibatasi maksimal 256 karakter."
+    }
     return when (format) {
         BarcodeFormat.EAN_13 -> if (!isValidEan13Input(value)) {
             "EAN-13 membutuhkan 12 digit data, atau 13 digit dengan digit pemeriksa yang valid."
@@ -428,8 +442,8 @@ internal fun validateBarcodeInput(value: String, format: BarcodeFormat): String?
         BarcodeFormat.CODE_39 -> if (!value.all { it in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" }) {
             "Code 39 hanya menerima huruf kapital A-Z, angka, spasi, dan karakter - . $ / + %."
         } else null
-        BarcodeFormat.CODE_128 -> if (value.any { it.code > 127 }) {
-            "Code 128 standar hanya mendukung karakter ASCII."
+        BarcodeFormat.CODE_128 -> if (value.any { it.code !in 32..126 }) {
+            "Code 128 standar hanya mendukung karakter ASCII yang dapat dicetak."
         } else null
         else -> null
     }
