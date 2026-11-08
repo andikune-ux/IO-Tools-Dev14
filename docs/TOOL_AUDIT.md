@@ -204,7 +204,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added explicit input checks for Code 39's supported character set and Code 128's ASCII range so invalid data produces a clear message before ZXing runs.
 - Fixed one-dimensional barcode sizing: Code 128, Code 39 and EAN-13 now render in a landscape aspect ratio instead of being stretched into a square QR-like image.
 - Editing the payload or changing barcode type clears the old generated bitmap, preventing a stale image from being saved after the input changes.
-- Added JVM regression tests for EAN-13 checksum and supported character sets.
+- Added payload bounds for QR, Data Matrix, Code 39 and Code 128 to avoid unbounded matrix allocation; Code 128 now rejects non-printable ASCII control characters. Added JVM regression tests for EAN-13 checksum, supported character sets and payload limits.
 - Remaining verification: scan generated QR/barcode images with multiple external scanner apps and test camera permission, focus, and low-light behavior on physical devices.
 
 
