@@ -92,4 +92,23 @@ class ExampleRobolectricTest {
     assertNotNull(helper.DEFAULT_USER_AGENT)
     assertTrue(helper.DEFAULT_USER_AGENT.contains("Android"))
   }
+  @Test
+  fun generatedWebToApkUsesSecureWebViewDefaults() {
+    val config = WebToApkConfig(
+      appName = "Secure Sample",
+      packageName = "dev.andikune.securesample",
+      webUrl = "https://example.com"
+    )
+    val manifest = WebToApkPipeline.generatePatchedManifest(config)
+    val activity = WebToApkPipeline.generateStandaloneMainActivity(config)
+
+    assertTrue(manifest.contains("android:allowBackup=\"false\""))
+    assertTrue(manifest.contains("android:usesCleartextTraffic=\"false\""))
+    assertTrue(activity.contains("settings.allowFileAccess = false"))
+    assertTrue(activity.contains("settings.allowUniversalAccessFromFileURLs = false"))
+    assertTrue(activity.contains("WebSettings.MIXED_CONTENT_NEVER_ALLOW"))
+    assertTrue(activity.contains("settings.safeBrowsingEnabled = true"))
+    assertTrue(activity.contains("setAcceptThirdPartyCookies(webView, false)"))
+  }
+
 }
