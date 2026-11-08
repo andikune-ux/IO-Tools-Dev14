@@ -9,7 +9,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.widget.Toast
 import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.FFmpeg
+import com.yausername.ffmpeg.FFmpeg
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
