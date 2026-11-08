@@ -69,8 +69,8 @@ object AppDownloadManager {
         OkHttpClient.Builder()
             .connectTimeout(25, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -96,7 +96,7 @@ object AppDownloadManager {
         val actual = actualMime.substringBefore(';').trim().lowercase()
         if (actual.isBlank() || actual == "application/octet-stream" || actual == "binary/octet-stream") return true
         if (expected.isBlank() || expected == "application/octet-stream") return true
-        return actual == expected || actual.startsWith(expected.substringBefore('/') + "/")
+        return actual == expected
     }
 
     internal fun matchesFileSignature(mimeType: String, header: ByteArray): Boolean {
@@ -128,6 +128,54 @@ object AppDownloadManager {
                     startsWith(0x50, 0x4b, 0x07, 0x08)
             else -> true
         }
+    }
+
+    private fun executeWithSecureRedirects(
+        initialRequest: Request,
+        shouldContinue: () -> Boolean,
+        onCallCreated: (Call) -> Unit
+    ): okhttp3.Response {
+        var request = initialRequest
+        val redirectCodes = setOf(300, 301, 302, 303, 307, 308)
+
+        for (redirectCount in 0..5) {
+            if (!shouldContinue()) throw CancellationException("Unduhan dibatalkan.")
+            val call = client.newCall(request)
+            onCallCreated(call)
+            val response = call.execute()
+
+            if (response.code !in redirectCodes) return response
+
+            val location = response.header("Location")
+            val nextUrl = location?.let { response.request.url.resolve(it) }
+            if (nextUrl == null || !isSecureDownloadUrl(nextUrl.toString())) {
+                response.close()
+                throw IllegalStateException("Redirect mengarah ke URL yang tidak aman atau tidak valid.")
+            }
+            if (redirectCount == 5) {
+                response.close()
+                throw IllegalStateException("Terlalu banyak redirect saat mengunduh file.")
+            }
+
+            val previousUrl = response.request.url
+            val changedOrigin = previousUrl.scheme != nextUrl.scheme ||
+                previousUrl.host != nextUrl.host ||
+                previousUrl.port != nextUrl.port
+            response.close()
+
+            request = request.newBuilder()
+                .url(nextUrl)
+                .apply {
+                    if (changedOrigin) {
+                        removeHeader("Authorization")
+                        removeHeader("Cookie")
+                        removeHeader("Proxy-Authorization")
+                    }
+                }
+                .build()
+        }
+
+        throw IllegalStateException("Gagal mengikuti redirect unduhan.")
     }
 
     fun startDownload(
@@ -198,22 +246,22 @@ object AppDownloadManager {
                     if (key.isNotBlank() && value.isNotBlank()) reqBuilder.header(key, value)
                 }
 
-                val call = client.newCall(reqBuilder.build())
-                currentCall = call
-                val registered = synchronized(downloadLock) {
-                    if (activeDownloadId == downloadId && isActive) {
-                        activeCall = call
-                        true
-                    } else {
-                        false
+                executeWithSecureRedirects(
+                    initialRequest = reqBuilder.build(),
+                    shouldContinue = { activeDownloadId == downloadId && isActive },
+                    onCallCreated = { call ->
+                        currentCall = call
+                        val registered = synchronized(downloadLock) {
+                            if (activeDownloadId == downloadId && isActive) {
+                                activeCall = call
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        if (!registered) call.cancel()
                     }
-                }
-                if (!registered) {
-                    call.cancel()
-                    return@launch
-                }
-
-                call.execute().use { response ->
+                ).use { response ->
                     if (activeDownloadId != downloadId || !isActive) {
                         throw CancellationException("Unduhan dibatalkan.")
                     }
