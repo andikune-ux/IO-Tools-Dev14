@@ -145,6 +145,10 @@ object YouTubeDownloaderService {
                 formats = formats.distinctBy { it.formatId },
                 directStreamUrl = ""
             )
+        }.onFailure { error ->
+            // runCatching also catches CancellationException; restore structured
+            // cancellation so leaving the screen cancels metadata extraction promptly.
+            if (error is CancellationException) throw error
         }
     }
 
