@@ -166,7 +166,7 @@ fun MediaTools() {
                     Text("Ekstrak audio lossless", color = AccentEmerald, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Demux track audio tanpa transcode. Cocok untuk MP4/M4A dengan codec AAC/AMR. Jika codec tidak didukung muxer MP4, proses akan menampilkan error yang jelas.",
+                        "Demux track audio tanpa transcode. Mendukung AAC ke M4A dan AMR ke 3GP. Codec lain ditolak dengan pesan yang jelas.",
                         color = TextSecondary,
                         fontSize = 11.sp
                     )
@@ -407,8 +407,9 @@ suspend fun extractMediaMetadata(context: Context, uri: Uri): Pair<String, Long>
 suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withContext(Dispatchers.IO) {
     val extractor = MediaExtractor()
     var muxer: MediaMuxer? = null
-    val temp = File.createTempFile("audio_", ".m4a", context.cacheDir)
+    var temp: File? = null
     try {
+        temp = File.createTempFile("audio_", ".tmp", context.cacheDir)
         extractor.setDataSource(context, uri, null)
         var audioTrackIndex = -1
         var audioFormat: MediaFormat? = null
@@ -421,27 +422,47 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
             }
         }
         if (audioTrackIndex < 0 || audioFormat == null) {
-            throw IllegalStateException("Video tidak memiliki track audio.")
+            throw IllegalStateException("File tidak memiliki track audio.")
         }
+
+        val audioMime = audioFormat.getString(MediaFormat.KEY_MIME).orEmpty()
+        val (container, extension, outputMime) = when (audioMime) {
+            "audio/mp4a-latm" -> Triple(MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4, "m4a", "audio/mp4")
+            "audio/3gpp", "audio/amr-wb" -> Triple(MediaMuxer.OutputFormat.MUXER_OUTPUT_3GPP, "3gp", "audio/3gpp")
+            else -> throw IllegalStateException(
+                "Codec $audioMime tidak didukung untuk demux lossless. Saat ini didukung AAC dan AMR."
+            )
+        }
+
         extractor.selectTrack(audioTrackIndex)
-        val mux = MediaMuxer(temp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val mux = MediaMuxer(temp.absolutePath, container)
         muxer = mux
         val muxTrack = mux.addTrack(audioFormat)
         mux.start()
 
-        val buffer = ByteBuffer.allocate((audioFormat.optInt(MediaFormat.KEY_MAX_INPUT_SIZE) ?: 512 * 1024).coerceAtLeast(64 * 1024))
+        val maxInputSize = (audioFormat.optInt(MediaFormat.KEY_MAX_INPUT_SIZE) ?: (512 * 1024))
+            .coerceIn(64 * 1024, 32 * 1024 * 1024)
+        val buffer = ByteBuffer.allocate(maxInputSize)
         val info = MediaCodec.BufferInfo()
+        var sampleCount = 0
+
         while (true) {
             buffer.clear()
             val size = extractor.readSampleData(buffer, 0)
             if (size < 0) break
+            if (size > buffer.capacity()) {
+                throw IllegalStateException("Ukuran sample audio melebihi buffer yang diizinkan.")
+            }
             info.offset = 0
             info.size = size
             info.presentationTimeUs = extractor.sampleTime
             info.flags = extractor.sampleFlags
             mux.writeSampleData(muxTrack, buffer, info)
+            sampleCount++
             if (!extractor.advance()) break
         }
+        if (sampleCount == 0) throw IllegalStateException("Track audio tidak berisi sample yang dapat diekstrak.")
+
         mux.stop()
         mux.release()
         muxer = null
@@ -449,8 +470,8 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
         val saved = temp.inputStream().use { input ->
             MediaStoreSaver.saveStream(
                 context,
-                MediaStoreSaver.timestampName("audio", "m4a"),
-                "audio/mp4",
+                MediaStoreSaver.timestampName("audio", extension),
+                outputMime,
                 input
             )
         } ?: throw IllegalStateException("Gagal menyimpan audio ke penyimpanan publik.")
@@ -461,7 +482,7 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
         runCatching { extractor.release() }
         runCatching { muxer?.stop() }
         runCatching { muxer?.release() }
-        temp.delete()
+        temp?.delete()
     }
 }
 
