@@ -384,7 +384,7 @@ object ApkPackagingEngine {
             host != "localhost" && !host.endsWith(".local") &&
                 !host.endsWith(".internal") && !host.endsWith(".lan") &&
                 host.contains('.') &&
-                !host.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) &&
+                !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
                 !host.contains(':')
         ) { "URL website harus mengarah ke hostname HTTPS publik." }
         require(url.length <= 2048) { "URL website terlalu panjang (maksimal 2048 karakter)." }
