@@ -19,6 +19,8 @@ class UcMediaSnifferValidationTest {
         assertNull(UcMediaSnifferService.normalizeTargetUrl("https://user:pass@example.com/watch"))
         assertNull(UcMediaSnifferService.normalizeTargetUrl("https://localhost/watch"))
         assertNull(UcMediaSnifferService.normalizeTargetUrl("https://media.local/watch"))
+        assertNull(UcMediaSnifferService.normalizeTargetUrl("https://127.0.0.1/watch"))
+        assertNull(UcMediaSnifferService.normalizeTargetUrl("https://192.168.1.1/watch"))
     }
 
     @Test
