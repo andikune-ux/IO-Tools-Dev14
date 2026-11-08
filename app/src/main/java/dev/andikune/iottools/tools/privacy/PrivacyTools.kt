@@ -553,9 +553,10 @@ internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbe
     return chars.take(length).joinToString("")
 }
 
-private fun generateTotp(secretBase32: String, timeStep: Long): String {
+internal fun generateTotp(secretBase32: String, timeStep: Long): String {
+    if (timeStep < 0L) throw IllegalArgumentException("Time step TOTP tidak valid.")
     val key = Base32.decode(secretBase32)
-    if (key.isEmpty()) throw IllegalArgumentException("Secret Base32 tidak valid.")
+    if (key.size < 10) throw IllegalArgumentException("Secret TOTP minimal 80 bit.")
     val mac = Mac.getInstance("HmacSHA1")
     mac.init(SecretKeySpec(key, "HmacSHA1"))
     val data = ByteArray(8)
@@ -570,15 +571,20 @@ private fun generateTotp(secretBase32: String, timeStep: Long): String {
         ((hash[offset + 1].toInt() and 0xff) shl 16) or
         ((hash[offset + 2].toInt() and 0xff) shl 8) or
         (hash[offset + 3].toInt() and 0xff)
-    return String.format("%06d", binary % 1_000_000)
+    return String.format(java.util.Locale.US, "%06d", binary % 1_000_000)
 }
 
-private object Base32 {
+internal object Base32 {
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
     fun decode(input: String): ByteArray {
         val cleaned = input.uppercase().replace(Regex("[\\s-]"), "").trimEnd('=')
         if (cleaned.isEmpty()) throw IllegalArgumentException("Secret Base32 kosong.")
+        if (cleaned.length > 128) throw IllegalArgumentException("Secret Base32 terlalu panjang.")
+        if (cleaned.length % 8 !in setOf(0, 2, 4, 5, 7)) {
+            throw IllegalArgumentException("Panjang secret Base32 tidak valid.")
+        }
+
         val output = ByteArray((cleaned.length * 5) / 8)
         var buffer = 0
         var bitsLeft = 0
@@ -593,7 +599,10 @@ private object Base32 {
                 bitsLeft -= 8
             }
         }
-        return if (index == output.size) output else output.copyOf(index)
+        if (bitsLeft > 0 && (buffer and ((1 shl bitsLeft) - 1)) != 0) {
+            throw IllegalArgumentException("Padding bit Base32 tidak valid.")
+        }
+        return output.copyOf(index)
     }
 
     fun encode(input: ByteArray): String {
