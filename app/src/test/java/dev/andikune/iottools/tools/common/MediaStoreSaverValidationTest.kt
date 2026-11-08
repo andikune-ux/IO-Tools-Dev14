@@ -7,7 +7,7 @@ import org.junit.Test
 class MediaStoreSaverValidationTest {
     @Test
     fun sanitizesPathSeparatorsAndControlCharacters() {
-        val name = MediaStoreSaver.sanitizeFileName("../folder\\video?.mp4\\u0000\\r\\n")
+        val name = MediaStoreSaver.sanitizeFileName("../folder\\video?.mp4\u0000\r\n")
         assertFalse(name.contains('/'))
         assertFalse(name.contains('\\'))
         assertFalse(name.contains('?'))
