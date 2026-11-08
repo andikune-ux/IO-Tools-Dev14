@@ -15,7 +15,10 @@ class DownloadManagerValidationTest {
         assertFalse(AppDownloadManager.isSecureDownloadUrl("file:///sdcard/video.mp4"))
         assertFalse(AppDownloadManager.isSecureDownloadUrl("https://user:pass@cdn.example.com/video.mp4"))
         assertFalse(AppDownloadManager.isSecureDownloadUrl("https://localhost/video.mp4"))
+        assertFalse(AppDownloadManager.isSecureDownloadUrl("https://localhost./video.mp4"))
+        assertFalse(AppDownloadManager.isSecureDownloadUrl("https://127.1/video.mp4"))
         assertFalse(AppDownloadManager.isSecureDownloadUrl("https://192.168.1.1/video.mp4"))
+        assertFalse(AppDownloadManager.isSecureDownloadUrl("https://cdn.home.arpa/video.mp4"))
     }
 
     @Test
