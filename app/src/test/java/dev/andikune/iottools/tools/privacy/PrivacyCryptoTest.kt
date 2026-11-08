@@ -29,6 +29,7 @@ class PrivacyCryptoTest {
         assertNotNull(runCatching { Base32.decode("MZXW7") }.exceptionOrNull())
         assertNotNull(runCatching { Base32.decode("MZXW6=") }.exceptionOrNull())
         assertNotNull(runCatching { Base32.decode("A") }.exceptionOrNull())
+        assertNotNull(runCatching { Base32.decode("A".repeat(257)) }.exceptionOrNull())
     }
 
     @Test
@@ -40,6 +41,8 @@ class PrivacyCryptoTest {
         assertTrue(password.any { it.isDigit() })
         assertTrue(password.any { "!@#\$%^&*()-_=+[]{}".contains(it) })
         assertEquals("", generatePassword(16, false, false, false, false))
+        assertNotNull(runCatching { generatePassword(7, true, false, false, false) }.exceptionOrNull())
+        assertNotNull(runCatching { generatePassword(65, true, false, false, false) }.exceptionOrNull())
     }
 
     @Test
@@ -76,6 +79,8 @@ class PrivacyCryptoTest {
         val passphrase = "Correct horse battery staple"
         val payload = VaultCrypto.encrypt(plaintext, passphrase)
         assertTrue(payload.startsWith("v2:"))
+        assertNotNull(runCatching { VaultCrypto.encrypt("x".repeat(100_001), passphrase) }.exceptionOrNull())
+        assertNotNull(runCatching { VaultCrypto.decrypt("x".repeat(100_001), passphrase) }.exceptionOrNull())
         assertEquals(plaintext, VaultCrypto.decrypt(payload, passphrase))
         assertNotEquals(plaintext, runCatching { VaultCrypto.decrypt(payload, "wrong passphrase") }.getOrNull())
         val tampered = payload.dropLast(2) + "AA"
