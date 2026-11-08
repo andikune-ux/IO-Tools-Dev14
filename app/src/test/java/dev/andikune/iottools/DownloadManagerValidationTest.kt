@@ -4,7 +4,10 @@ import dev.andikune.iottools.tools.common.AppDownloadManager
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class DownloadManagerValidationTest {
     @Test
     fun acceptsOnlySecurePublicDownloadUrls() {
@@ -25,6 +28,13 @@ class DownloadManagerValidationTest {
         assertTrue(AppDownloadManager.isCompatibleContentType("video/mp4", "application/octet-stream"))
         assertFalse(AppDownloadManager.isCompatibleContentType("video/mp4", "application/json"))
         assertFalse(AppDownloadManager.isCompatibleContentType("image/jpeg", "text/html"))
+    }
+
+    @Test
+    fun alignsOutputExtensionWithExpectedMimeType() {
+        assertTrue(AppDownloadManager.ensureExtension("clip.webm", "video/mp4").endsWith(".mp4"))
+        assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "video/webm").endsWith(".webm"))
+        assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "application/octet-stream").endsWith(".mp4"))
     }
 
     @Test
