@@ -26,6 +26,7 @@ import org.json.JSONArray
 import org.json.JSONTokener
 import java.io.File
 import java.net.URI
+import java.util.concurrent.atomic.AtomicReference
 
 data class SniffedMediaItem(
     val url: String,
@@ -202,6 +203,7 @@ object UcMediaSnifferService {
         val normalizedUrl = normalizeTargetUrl(targetUrl)
             ?: throw IllegalArgumentException("URL target tidak valid.")
 
+        val activePageUrl = AtomicReference(normalizedUrl)
         return WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -230,7 +232,7 @@ object UcMediaSnifferService {
                     request: WebResourceRequest?
                 ): WebResourceResponse? {
                     request?.takeIf { it.method.equals("GET", true) }?.let {
-                        reportCandidate(it.url.toString(), it.requestHeaders["Referer"] ?: view?.url ?: normalizedUrl)
+                        reportCandidate(it.url.toString(), it.requestHeaders["Referer"] ?: activePageUrl.get())
                     }
                     return super.shouldInterceptRequest(view, request)
                 }
@@ -240,9 +242,14 @@ object UcMediaSnifferService {
                     super.onLoadResource(view, url)
                 }
 
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    if (!url.isNullOrBlank()) activePageUrl.set(url)
+                    super.onPageStarted(view, url, favicon)
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     onPageTitle(view?.title?.takeIf { it.isNotBlank() } ?: "Web Video Source")
-                    val currentPageUrl = view?.url ?: normalizedUrl
+                    val currentPageUrl = activePageUrl.get()
                     view?.evaluateJavascript(
                         "JSON.stringify(Array.from(document.querySelectorAll('video,video source,source')).map(e => e.currentSrc || e.src).filter(Boolean))"
                     ) { value ->
