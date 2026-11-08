@@ -56,7 +56,11 @@ class DownloadManagerValidationTest {
         val input = object : java.io.InputStream() {
             private var returnZero = true
             private var sent = false
-            override fun read(): Int = if (sent) -1 else 0.also { sent = true }
+            override fun read(): Int {
+                if (sent) return -1
+                sent = true
+                return 0
+            }
             override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
                 if (returnZero) {
                     returnZero = false
