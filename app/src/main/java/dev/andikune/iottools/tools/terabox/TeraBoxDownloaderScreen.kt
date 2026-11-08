@@ -144,7 +144,7 @@ fun TeraBoxDownloaderScreen() {
                             color = TextPrimary
                         )
                         Text(
-                            text = "Mendukung terabox.com, teraboxapp.com, 1024tera",
+                            text = "Mendukung terabox.com, teraboxapp.com, 1024tera.com, 1024terabox.com",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -156,7 +156,7 @@ fun TeraBoxDownloaderScreen() {
                 CyberTextField(
                     value = inputUrl,
                     onValueChange = { inputUrl = it },
-                    label = "https://terabox.com/s/1... atau 1024tera.com/s/...",
+                    label = "https://terabox.com/s/1..., 1024tera.com/s/... atau 1024terabox.com/s/...",
                     modifier = Modifier.fillMaxWidth()
                 )
 
