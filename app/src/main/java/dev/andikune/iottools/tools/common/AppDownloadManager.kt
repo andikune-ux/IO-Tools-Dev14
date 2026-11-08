@@ -177,7 +177,7 @@ object AppDownloadManager {
             errorMessage = null
         )
 
-        activeJob = CoroutineScope(Dispatchers.IO).launch {
+        val job = CoroutineScope(Dispatchers.IO).launch {
             var pending: MediaStoreSaver.PendingOutput? = null
             var currentCall: Call? = null
 
@@ -394,6 +394,9 @@ object AppDownloadManager {
             } finally {
                 if (activeCall === currentCall) activeCall = null
             }
+        }
+        synchronized(downloadLock) {
+            if (activeDownloadId == downloadId) activeJob = job else job.cancel()
         }
     }
 
