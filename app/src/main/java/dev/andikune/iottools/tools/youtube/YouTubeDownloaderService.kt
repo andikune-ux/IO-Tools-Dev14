@@ -167,7 +167,8 @@ object YouTubeDownloaderService {
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching {
                 val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
-                val outputTemplate = File(outputDir, "%(title).120B [%(id)s].%(ext)s").absolutePath
+                // Use the sanitized title captured from metadata; never use an untrusted title as a path.
+                val outputTemplate = File(outputDir, "$safeTitle [%(id)s].%(ext)s").absolutePath
                 val request = YoutubeDLRequest(sourceUrl).apply {
                     addOption("-o", outputTemplate)
                     addOption("--no-playlist")
