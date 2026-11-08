@@ -43,7 +43,6 @@ fun UcMediaSnifferScreen() {
     var showBrowser by remember { mutableStateOf(false) }
     var currentPageTitle by remember { mutableStateOf("Web Video Source") }
     var captureWebView by remember { mutableStateOf<WebView?>(null) }
-    var captureRequestedUrl by remember { mutableStateOf<String?>(null) }
     var snifferResult by remember { mutableStateOf<SniffingResult?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     DisposableEffect(captureWebView) {
@@ -101,7 +100,6 @@ fun UcMediaSnifferScreen() {
                 return@launch
             }
 
-            captureRequestedUrl = normalizedUrl
             val result = UcMediaSnifferService.sniffWebpage(normalizedUrl)
             val elapsed = System.currentTimeMillis() - startTime
 
@@ -262,8 +260,7 @@ fun UcMediaSnifferScreen() {
                     Spacer(modifier = Modifier.height(10.dp))
                     AndroidView(
                         factory = { webContext ->
-                            val initialUrl = captureRequestedUrl
-                                ?: UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+                            val initialUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
                                 ?: inputUrl
                             UcMediaSnifferService.createCaptureWebView(
                                 context = webContext,
@@ -273,12 +270,15 @@ fun UcMediaSnifferScreen() {
                                     snifferResult = snifferResult?.copy(pageTitle = title)
                                 },
                                 onMediaDetected = { item -> addCapturedMedia(item) }
-                            ).also { captureWebView = it }
+                            ).also {
+                                it.tag = initialUrl
+                                captureWebView = it
+                            }
                         },
                         update = { webView ->
                             val nextUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
-                            if (nextUrl != null && nextUrl != captureRequestedUrl) {
-                                captureRequestedUrl = nextUrl
+                            if (nextUrl != null && nextUrl != webView.tag as? String) {
+                                webView.tag = nextUrl
                                 webView.loadUrl(nextUrl)
                             }
                         },
