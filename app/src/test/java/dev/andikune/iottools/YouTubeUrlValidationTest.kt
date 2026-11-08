@@ -15,6 +15,14 @@ class YouTubeUrlValidationTest {
     }
 
     @Test
+    fun buildsSafeAudioVideoFormatSelectors() {
+        assertEquals("muxed_22", YouTubeDownloaderService.buildFormatSelector("muxed_22", hasAudio = true))
+        assertEquals("137+bestaudio/137", YouTubeDownloaderService.buildFormatSelector("137", hasAudio = false))
+        assertNull(YouTubeDownloaderService.buildFormatSelector("137+140", hasAudio = false))
+        assertNull(YouTubeDownloaderService.buildFormatSelector("bestvideo;best", hasAudio = false))
+    }
+
+    @Test
     fun rejectsUntrustedHostsAndMalformedIds() {
         assertNull(YouTubeDownloaderService.extractVideoId("https://youtube.com.evil.example/watch?v=abcdefghijk"))
         assertNull(YouTubeDownloaderService.extractVideoId("https://evil.example/watch?v=abcdefghijk"))
