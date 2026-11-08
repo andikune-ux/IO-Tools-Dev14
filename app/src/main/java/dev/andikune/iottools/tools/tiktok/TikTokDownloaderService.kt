@@ -44,9 +44,18 @@ object TikTokDownloaderService {
      */
     suspend fun fetchVideoDetails(rawUrl: String): Result<TikTokVideoData> = withContext(Dispatchers.IO) {
         try {
-            val cleanUrl = rawUrl.trim()
-            if (cleanUrl.isBlank() || (!cleanUrl.contains("tiktok.com") && !cleanUrl.contains("douyin.com"))) {
-                return@withContext Result.failure(IllegalArgumentException("Tautan harus berupa link TikTok yang valid (contoh: vt.tiktok.com atau tiktok.com/@user/video/...)"))
+            val inputUrl = rawUrl.trim()
+            val cleanUrl = if (inputUrl.startsWith("http://", true) || inputUrl.startsWith("https://", true)) {
+                inputUrl
+            } else {
+                "https://$inputUrl"
+            }
+            val parsedUrl = runCatching { Uri.parse(cleanUrl) }.getOrNull()
+            val host = parsedUrl?.host?.lowercase().orEmpty()
+            val validHost = host == "tiktok.com" || host.endsWith(".tiktok.com") ||
+                host == "douyin.com" || host.endsWith(".douyin.com")
+            if (!validHost || parsedUrl?.scheme !in setOf("http", "https")) {
+                return@withContext Result.failure(IllegalArgumentException("Tautan harus berasal dari domain TikTok atau Douyin yang valid."))
             }
 
             // Endpoint TikWM public API
