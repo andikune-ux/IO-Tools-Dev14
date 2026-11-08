@@ -81,6 +81,11 @@ object InstagramDownloaderService {
         return mediaCdnSuffixes.any { host.endsWith(it) }
     }
 
+    internal fun isVideoMediaFormat(vcodec: String?, extension: String): Boolean {
+        return (!vcodec.isNullOrBlank() && vcodec != "none") ||
+            extension.lowercase() in setOf("mp4", "m4v", "webm", "mov")
+    }
+
     private fun selectMedia(entry: JSONObject, index: Int): InstagramMediaItem? {
         val formats = entry.optJSONArray("formats")
         val candidates = mutableListOf<JSONObject>()
@@ -103,8 +108,7 @@ object InstagramDownloaderService {
         val ext = selected?.optString("ext").orEmpty().ifBlank {
             runCatching { URI(directUrl).path.substringAfterLast('.', "") }.getOrDefault("")
         }.lowercase()
-        val video = selected?.optString("vcodec")?.let { it != "none" } == true ||
-            ext in setOf("mp4", "m4v", "webm", "mov")
+        val video = isVideoMediaFormat(selected?.optString("vcodec"), ext)
         val thumbnail = entry.optString("thumbnail")
             .takeIf { it.startsWith("https://") }
             ?: entry.optJSONArray("thumbnails")?.let { thumbnails ->
