@@ -72,7 +72,7 @@ object TeraBoxDownloaderService {
         return clean
     }
 
-    private fun isWorkerResourceUrl(rawUrl: String, baseUrl: String): Boolean {
+    internal fun isWorkerResourceUrl(rawUrl: String, baseUrl: String): Boolean {
         val resource = runCatching { URI(rawUrl) }.getOrNull() ?: return false
         val base = runCatching { URI(baseUrl) }.getOrNull() ?: return false
         return resource.scheme?.lowercase() == "https" &&
