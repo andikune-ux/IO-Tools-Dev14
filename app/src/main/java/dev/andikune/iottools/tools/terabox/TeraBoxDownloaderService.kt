@@ -36,7 +36,7 @@ object TeraBoxDownloaderService {
         val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
-        val allowedHosts = setOf("terabox.com", "teraboxapp.com", "1024tera.com", "teraboxlink.com", "freeterabox.com")
+        val allowedHosts = setOf("terabox.com", "teraboxapp.com", "1024tera.com", "1024terabox.com", "teraboxlink.com", "freeterabox.com")
         if (host !in allowedHosts && allowedHosts.none { host.endsWith(".$it") }) return null
 
         val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
