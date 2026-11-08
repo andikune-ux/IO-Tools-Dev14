@@ -264,3 +264,16 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - TOTP secrets are masked in the UI and are stored with Android Keystore AES-GCM. Legacy plaintext migration is attempted once; plaintext legacy storage is removed after the migration attempt.
 - Added regression tests for password character groups, Base32 encoding/padding, RFC 6238 and Secure Notes encryption/tamper detection.
 - Remaining verification: exercise TOTP save/load across process restarts, Keystore invalidation, backup/restore, legacy migration, and Secure Notes v1 decryption on API 24+ devices.
+
+
+## Shared MediaStore and Stream Probe — focused repair pass (2026-11-09)
+
+- MediaStore name collision checks now use the actual destination collection and relative folder for Downloads, Pictures, Music and Movies instead of always querying Downloads.
+- Android 7–9 output files are created with exclusive `createNewFile()` semantics before opening the stream, preventing accidental overwrite races. Filesystem permission errors stop retries immediately.
+- Output subdirectories are sanitized to remove path traversal and unsafe characters. Fallback filenames are sanitized too.
+- Bitmap output now compresses directly into a pending MediaStore stream instead of allocating an additional full-size byte array. Failed/empty bitmap and stream outputs are aborted.
+- Generic `readBytes` now has a 32 MB default limit and rejects oversized reads instead of allocating unbounded memory.
+- Shared direct-stream probing now requires HTTPS public URLs, revalidates the final redirect URL, reads only a bounded 512-byte prefix, and validates MP4/WebM/FLV signatures or HLS/DASH manifest markers. HTML, JSON and arbitrary text responses are rejected.
+- Removed the fake constant download ID from the native download helper; it no longer claims to return a real transfer identifier.
+- Added regression tests for output filename sanitization and secure stream URL validation.
+- Remaining verification: exercise MediaStore collection paths and duplicate names on Android 10+, legacy file creation on Android 7–9, FileProvider sharing, and real CDN redirects on devices.
