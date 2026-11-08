@@ -492,7 +492,6 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                     pendingWebPermissionRequest = null
                     pendingWebPermissionResources = emptyArray()
                 }
-                request?.deny()
             }
 
             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
