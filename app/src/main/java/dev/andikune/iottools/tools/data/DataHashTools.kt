@@ -102,6 +102,8 @@ fun DataHashTools() {
                         hashScope.launch {
                             isHashingFile = true
                             fileHashes = emptyList()
+                            hashedFileName = ""
+                            hashedFileSize = 0L
                             try {
                                 val metadata = withContext(Dispatchers.IO) {
                                     val document = DocumentFile.fromSingleUri(context, uri)
@@ -152,7 +154,7 @@ fun DataHashTools() {
                     HashResultRow(context, "MD5 (Legacy Fingerprint)", md5Hash, NeonCyan)
                     HashResultRow(context, "SHA-1 (Legacy Signatures)", sha1Hash, NeonYellow)
                     HashResultRow(context, "CRC-32 (File Checksum)", crc32Hash, MatrixGreen)
-                    HashResultRow(context, "SHA-512 (High Security)", sha512Hash.take(32) + "...", NeonPurple)
+                    HashResultRow(context, "SHA-512 (High Security)", sha512Hash, NeonPurple)
 
                     Spacer(modifier = Modifier.height(18.dp))
                     Text(
