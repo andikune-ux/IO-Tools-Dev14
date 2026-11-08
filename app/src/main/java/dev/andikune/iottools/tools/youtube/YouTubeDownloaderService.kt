@@ -122,8 +122,8 @@ object YouTubeDownloaderService {
 
     fun enqueueDownload(context: Context, format: YouTubeVideoFormat, videoTitle: String, videoId: String) {
         val safeTitle = MediaStoreSaver.sanitizeFileName(videoTitle, "YT_$videoId").take(100)
-        val outputDir = File(context.cacheDir, "yt-dlp-downloads").apply { mkdirs() }
         val processId = "youtube-$videoId-${System.currentTimeMillis()}"
+        val outputDir = File(context.cacheDir, "yt-dlp-downloads/$processId").apply { mkdirs() }
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching {
                 val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
@@ -142,9 +142,9 @@ object YouTubeDownloaderService {
                         addOption("--merge-output-format", "mp4")
                     }
                 }
-                YoutubeDL.getInstance().execute(request)
+                YoutubeDL.getInstance().execute(request, null, processId)
                 val downloaded = outputDir.listFiles()
-                    ?.filter { it.isFile && it.length() > 0L }
+                    ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
                     ?.maxByOrNull { it.lastModified() }
                     ?: throw IllegalStateException("yt-dlp selesai tetapi file hasil tidak ditemukan.")
                 val mime = when (downloaded.extension.lowercase()) {
