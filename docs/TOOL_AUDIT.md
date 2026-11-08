@@ -136,6 +136,8 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Carousel state is carried on each extracted media item so the selected carousel entry is downloaded with `--playlist-items` instead of accidentally treating it as a standalone post. Output type is checked against the selected photo/video item before saving.
 - Added regression tests for Instagram shortcode parsing, untrusted host rejection, HTTPS media CDN allowlisting, media-type classification, and carousel item state. Unknown or extensionless media formats are no longer silently classified as photos; the selector requires a recognized image extension or a video codec/extension before exposing a media item.
 - Private/login-gated or deleted posts are reported as unsupported; this implementation does not automate login or bypass account restrictions.
+- TikTok page URLs now use an exact allowlist for supported TikTok/Douyin hosts instead of accepting arbitrary subdomains. Media CDN hosts receive DNS-label, credential, IP-like host, URL-length and port validation before preview or extraction.
+- Video downloads explicitly remux the selected stream to MP4 before accepting the output; audio/video temporary filenames are app-generated rather than derived from remote titles, and cache-directory creation failures are surfaced clearly.
 - Remaining verification: CI compile/unit tests and device-level tests against public, authorized Reels, single-photo posts, and carousel posts. yt-dlp's Instagram extractor can change with platform updates, so no universal availability claim is made.
 
 
