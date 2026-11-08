@@ -20,6 +20,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.net.URI
+import java.net.InetAddress
+import java.net.UnknownHostException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 
@@ -72,6 +74,11 @@ object AppDownloadManager {
             .followRedirects(false)
             .followSslRedirects(false)
             .retryOnConnectionFailure(true)
+            .dns { hostname ->
+                val resolved = InetAddress.getAllByName(hostname).filter(VideoDownloadHelper::isPublicAddress)
+                if (resolved.isEmpty()) throw UnknownHostException("Hostname tidak mengarah ke IP publik.")
+                resolved
+            }
             .build()
     }
 
@@ -80,14 +87,15 @@ object AppDownloadManager {
 
     internal fun isSecureDownloadUrl(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase() ?: return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
         return host != "localhost" &&
             !host.endsWith(".local") &&
             !host.endsWith(".internal") &&
             !host.endsWith(".lan") &&
+            !host.endsWith(".home.arpa") &&
             host.contains('.') &&
-            !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
+            !host.matches(Regex("^[0-9.]+$")) &&
             !host.contains(':')
     }
 
