@@ -39,6 +39,8 @@ fun YouTubeDownloaderScreen() {
 
     var inputUrl by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var activeDownloadProcessId by remember { mutableStateOf<String?>(null) }
+    var activeDownloadLabel by remember { mutableStateOf("") }
     var videoResult by remember { mutableStateOf<YouTubeVideoData?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusLogs by remember {
@@ -346,6 +348,50 @@ fun YouTubeDownloaderScreen() {
                 }
             }
 
+            if (activeDownloadProcessId != null) {
+                item {
+                    CyberCard(borderColor = AccentAmber) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "UNDUHAN YOUTUBE AKTIF",
+                                    color = AccentAmber,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Text(
+                                    text = activeDownloadLabel,
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    activeDownloadProcessId?.let(YouTubeDownloaderService::cancelDownload)
+                                    activeDownloadProcessId = null
+                                    activeDownloadLabel = ""
+                                    statusLogs = statusLogs + "[INFO] Permintaan pembatalan unduhan dikirim."
+                                },
+                                border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.6f))
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = AccentRose)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("BATALKAN", color = AccentRose)
+                            }
+                        }
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = AccentAmber,
+                            trackColor = SlateBorder
+                        )
+                    }
+                }
+            }
+
             // Available Download Formats Header
             item {
                 Text(
@@ -405,12 +451,28 @@ fun YouTubeDownloaderScreen() {
                         }
 
                         Button(
+                            enabled = activeDownloadProcessId == null,
                             onClick = {
                                 YouTubeDownloaderService.enqueueDownload(
                                     context = context,
                                     format = format,
                                     videoTitle = result.title,
-                                    videoId = result.videoId
+                                    videoId = result.videoId,
+                                    onStarted = { processId ->
+                                        activeDownloadProcessId = processId
+                                        activeDownloadLabel = format.label
+                                    },
+                                    onFinished = { processId, outcome ->
+                                        if (activeDownloadProcessId == processId) {
+                                            activeDownloadProcessId = null
+                                            activeDownloadLabel = ""
+                                            statusLogs = statusLogs + if (outcome.isSuccess) {
+                                                "[SUCCESS] Unduhan YouTube selesai."
+                                            } else {
+                                                "[ERROR] Unduhan YouTube gagal atau dibatalkan."
+                                            }
+                                        }
+                                    }
                                 )
                             },
                             shape = RoundedCornerShape(8.dp),
