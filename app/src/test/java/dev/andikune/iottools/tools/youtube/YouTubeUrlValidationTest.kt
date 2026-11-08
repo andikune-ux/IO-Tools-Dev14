@@ -38,6 +38,22 @@ class YouTubeUrlValidationTest {
     }
 
     @Test
+    fun mapsOnlySupportedOutputExtensionsToAccurateMimeTypes() {
+        assertEquals("video/mp4", YouTubeDownloaderService.mimeTypeForOutputExtension(".MP4"))
+        assertEquals("video/webm", YouTubeDownloaderService.mimeTypeForOutputExtension("webm"))
+        assertEquals("video/x-matroska", YouTubeDownloaderService.mimeTypeForOutputExtension("mkv"))
+        assertEquals("video/quicktime", YouTubeDownloaderService.mimeTypeForOutputExtension("mov"))
+        assertEquals("audio/mpeg", YouTubeDownloaderService.mimeTypeForOutputExtension("mp3"))
+        assertEquals("audio/mp4", YouTubeDownloaderService.mimeTypeForOutputExtension("m4a"))
+        assertEquals("audio/aac", YouTubeDownloaderService.mimeTypeForOutputExtension("aac"))
+        assertEquals("audio/opus", YouTubeDownloaderService.mimeTypeForOutputExtension("opus"))
+        assertEquals("audio/ogg", YouTubeDownloaderService.mimeTypeForOutputExtension("oga"))
+        assertEquals("audio/wav", YouTubeDownloaderService.mimeTypeForOutputExtension("wav"))
+        assertNull(YouTubeDownloaderService.mimeTypeForOutputExtension("mhtml"))
+        assertNull(YouTubeDownloaderService.mimeTypeForOutputExtension(""))
+    }
+
+    @Test
     fun rejectsUntrustedHostsAndMalformedIds() {
         assertNull(YouTubeDownloaderService.extractVideoId("https://youtube.com.evil.example/watch?v=abcdefghijk"))
         assertNull(YouTubeDownloaderService.extractVideoId("https://evil.youtube.com/watch?v=abcdefghijk"))
