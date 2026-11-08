@@ -19,6 +19,8 @@ import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.net.URI
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 
 enum class DownloadStatus {
@@ -59,6 +61,8 @@ object AppDownloadManager {
 
     private var activeJob: Job? = null
     @Volatile private var activeCall: Call? = null
+    private val downloadSequence = AtomicLong(0L)
+    @Volatile private var activeDownloadId = 0L
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -72,6 +76,58 @@ object AppDownloadManager {
 
     private const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+
+    internal fun isSecureDownloadUrl(rawUrl: String): Boolean {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        return host != "localhost" &&
+            !host.endsWith(".local") &&
+            !host.endsWith(".internal") &&
+            !host.endsWith(".lan") &&
+            host.contains('.') &&
+            !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
+            !host.contains(':')
+    }
+
+    internal fun isCompatibleContentType(expectedMime: String, actualMime: String): Boolean {
+        val expected = expectedMime.substringBefore(';').trim().lowercase()
+        val actual = actualMime.substringBefore(';').trim().lowercase()
+        if (actual.isBlank() || actual == "application/octet-stream" || actual == "binary/octet-stream") return true
+        if (expected.isBlank() || expected == "application/octet-stream") return true
+        return actual == expected || actual.startsWith(expected.substringBefore('/') + "/")
+    }
+
+    internal fun matchesFileSignature(mimeType: String, header: ByteArray): Boolean {
+        if (header.isEmpty()) return false
+        fun startsWith(vararg bytes: Int): Boolean =
+            header.size >= bytes.size && bytes.indices.all { (header[it].toInt() and 0xff) == bytes[it] }
+        fun asciiAt(offset: Int, value: String): Boolean =
+            header.size >= offset + value.length &&
+                value.indices.all { header[offset + it].toInt().toChar() == value[it] }
+
+        return when (mimeType.substringBefore(';').lowercase()) {
+            "video/mp4", "video/quicktime", "video/x-m4v", "audio/mp4" ->
+                asciiAt(4, "ftyp") || asciiAt(4, "styp")
+            "video/webm", "video/x-matroska" -> startsWith(0x1A, 0x45, 0xDF, 0xA3)
+            "video/x-flv" -> asciiAt(0, "FLV")
+            "audio/mpeg" -> asciiAt(0, "ID3") ||
+                (header.size >= 2 && (header[0].toInt() and 0xff) == 0xff &&
+                    ((header[1].toInt() and 0xe0) == 0xe0))
+            "audio/ogg" -> asciiAt(0, "OggS")
+            "audio/wav", "audio/wave" -> asciiAt(0, "RIFF") && asciiAt(8, "WAVE")
+            "audio/aac" -> startsWith(0xff, 0xf1) || startsWith(0xff, 0xf9)
+            "image/jpeg" -> startsWith(0xff, 0xd8, 0xff)
+            "image/png" -> startsWith(0x89, 0x50, 0x4e, 0x47)
+            "image/webp" -> asciiAt(0, "RIFF") && asciiAt(8, "WEBP")
+            "image/gif" -> asciiAt(0, "GIF87a") || asciiAt(0, "GIF89a")
+            "application/pdf" -> asciiAt(0, "%PDF-")
+            "application/zip", "application/x-zip-compressed" ->
+                startsWith(0x50, 0x4b, 0x03, 0x04) || startsWith(0x50, 0x4b, 0x05, 0x06) ||
+                    startsWith(0x50, 0x4b, 0x07, 0x08)
+            else -> true
+        }
+    }
 
     fun startDownload(
         context: Context,
