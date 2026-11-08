@@ -44,7 +44,7 @@ object VideoDownloadHelper {
         return true
     }
 
-    private fun isPublicAddress(address: InetAddress): Boolean {
+    internal fun isPublicAddress(address: InetAddress): Boolean {
         if (address.isAnyLocalAddress || address.isLoopbackAddress ||
             address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress
         ) return false
