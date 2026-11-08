@@ -648,7 +648,9 @@ internal object VaultCrypto {
     private val supportedKdfs = setOf("PBKDF2WithHmacSHA256", "PBKDF2WithHmacSHA1")
 
     fun encrypt(plain: String, passphrase: String): String {
-        require(plain.length <= 100_000) { "Catatan terlalu panjang (maksimal 100.000 karakter)." }
+        require(plain.toByteArray(Charsets.UTF_8).size <= 100_000) {
+            "Catatan terlalu panjang (maksimal 100.000 byte UTF-8)."
+        }
         require(passphrase.length in 12..128) { "Passphrase harus berisi 12–128 karakter." }
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
@@ -670,7 +672,7 @@ internal object VaultCrypto {
     }
 
     fun decrypt(payload: String, passphrase: String): String {
-        require(payload.length in 1..100_000) { "Ciphertext terlalu panjang atau kosong." }
+        require(payload.length in 1..150_000) { "Ciphertext terlalu panjang atau kosong." }
         require(passphrase.length in 1..4096) { "Passphrase tidak valid." }
         val parts = payload.split(":")
         return when {
