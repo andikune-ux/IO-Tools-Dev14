@@ -402,16 +402,41 @@ private fun getLocalIpAddresses(context: android.content.Context): List<String> 
 }
 
 private fun lookupPublicIp(): String {
-    fun fetch(url: String): JSONObject? = runCatching {
-        val connection = URL(url).openConnection().apply {
-            connectTimeout = 7000
-            readTimeout = 7000
-            setRequestProperty("User-Agent", "IO-Tools/1.4")
-            setRequestProperty("Accept", "application/json")
+    fun fetch(url: String): JSONObject? {
+        val connection = runCatching { URL(url).openConnection() as? HttpsURLConnection }.getOrNull()
+            ?: return null
+        return try {
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 7000
+            connection.readTimeout = 7000
+            connection.setRequestProperty("User-Agent", "IO-Tools/1.4")
+            connection.setRequestProperty("Accept", "application/json")
+            if (connection.responseCode != 200) return null
+            if (!connection.url.protocol.equals("https", true)) return null
+            val contentType = connection.contentType.orEmpty().lowercase()
+            if (!contentType.contains("json")) return null
+            if (connection.contentLengthLong > 64 * 1024) return null
+            val bytes = connection.inputStream.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(4096)
+                var total = 0
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (read == 0) continue
+                    total += read
+                    if (total > 64 * 1024) throw IllegalStateException("Respons lookup terlalu besar.")
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray()
+            }
+            JSONObject(String(bytes, Charsets.UTF_8))
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
         }
-        (connection.getInputStream().bufferedReader().use { it.readText() })
-            .let { JSONObject(it) }
-    }.getOrNull()
+    }
 
     fetch("https://ipwho.is/")?.let { json ->
         if (json.optBoolean("success", false) || json.has("ip")) {
