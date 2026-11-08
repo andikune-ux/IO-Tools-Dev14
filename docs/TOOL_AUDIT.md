@@ -238,7 +238,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 ## PDF Tools — focused repair pass (2026-11-09)
 
 - Replaced whole-document `readBytes()` in split with PDFBox stream loading and `MemoryUsageSetting` scratch-file buffering. Merge/load and output documents also use bounded mixed memory with the app cache directory as scratch storage.
-- PDF output is now streamed through a temporary cache file into MediaStore instead of materializing a second full-document byte array. Temporary files are deleted in `finally`.
+- PDF output is now streamed through a temporary cache file into MediaStore instead of materializing a second full-document byte array. Temporary files are deleted in `finally`. Multi-file split now rolls back any already-published outputs if a later part fails, preventing a partial result set from being left behind.
 - Added operation limits: up to 50 merge inputs, 200 split outputs, 5,000 referenced split pages, 2,048 characters of range input, 300 compressed pages, 36–300 DPI, 16 megapixels per rendered page and 8192 pixels per side. Empty-range splitting rejects oversized page counts before allocating one range per page.
 - Checked JPEG encoder success and guaranteed rendered bitmap recycling even if a page fails.
 - Rotation accepts only 90/180/270 degrees. PDF encryption requires an 8–128 character user password and limits owner password to 128 characters.
