@@ -44,9 +44,10 @@ The app stores only the Worker origin as a local preference. The API key is kept
 
 ## 4. Supported behavior and limits
 
-- The app currently displays and downloads the first file returned by the Worker. Multi-file folder browsing is not yet exposed in the UI.
-- Public shares are supported by the upstream Worker. Password-protected shares currently return a clear unsupported message; the app does not collect or guess share passwords.
-- Download URLs must be HTTPS and must use the same origin as the configured Worker.
+- The app displays each file returned by the Worker, including entries from multi-file shares and folders. The Worker may mark a listing as truncated when its bounded file limit is reached.
+- Public and password-protected shares are supported by the upstream Worker. Enter the share password in the masked password field; the app sends it only to your configured Worker and does not store it.
+- Download and stream URLs must be HTTPS and must use the same origin and the expected `/stream` or `/hls` path on the configured Worker.
+- The Worker API's `share.id` includes the leading `1` from `/s/1...` share URLs. The app preserves that value; `surl` query links are preserved as supplied.
 - The Worker may require a valid TeraBox session cookie and may be affected by TeraBox verification, rate limits, or upstream changes.
 - Test your deployment with the upstream project's smoke-test instructions before relying on it.
 
