@@ -21,6 +21,13 @@ class PdfEngineValidationTest {
     }
 
     @Test
+    fun boundsPdfSplitRangeAllocation() {
+        assertNotNull(runCatching { PdfEngine.parseRanges("", 201) }.exceptionOrNull())
+        assertNotNull(runCatching { PdfEngine.parseRanges("1-5001", 6000) }.exceptionOrNull())
+        assertNotNull(runCatching { PdfEngine.parseRanges("1,".repeat(1100), 2000) }.exceptionOrNull())
+    }
+
+    @Test
     fun validatesRotationAndProtectionPasswords() {
         assertNull(PdfEngine.validateRotationDegrees(90))
         assertNull(PdfEngine.validateRotationDegrees(180))
