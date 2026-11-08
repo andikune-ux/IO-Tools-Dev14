@@ -25,7 +25,8 @@ data class InstagramMediaItem(
     val url: String,
     val isVideo: Boolean,
     val previewUrl: String?,
-    val index: Int
+    val index: Int,
+    val isCarousel: Boolean = false
 )
 
 data class InstagramPostData(
@@ -86,7 +87,7 @@ object InstagramDownloaderService {
             extension.lowercase() in setOf("mp4", "m4v", "webm", "mov")
     }
 
-    private fun selectMedia(entry: JSONObject, index: Int): InstagramMediaItem? {
+    private fun selectMedia(entry: JSONObject, index: Int, isCarousel: Boolean = false): InstagramMediaItem? {
         val formats = entry.optJSONArray("formats")
         val candidates = mutableListOf<JSONObject>()
         if (formats != null) {
@@ -127,7 +128,8 @@ object InstagramDownloaderService {
             url = directUrl,
             isVideo = video,
             previewUrl = thumbnail ?: if (video) null else directUrl,
-            index = index
+            index = index,
+            isCarousel = isCarousel
         )
     }
 
@@ -155,7 +157,7 @@ object InstagramDownloaderService {
             if (entries != null) {
                 for (i in 0 until entries.length()) {
                     val entry = entries.optJSONObject(i) ?: continue
-                    selectMedia(entry, i + 1)?.let(mediaItems::add)
+                    selectMedia(entry, i + 1, isCarousel = entries.length() > 1)?.let(mediaItems::add)
                 }
             }
             if (mediaItems.isEmpty()) {
