@@ -36,6 +36,35 @@ class UcMediaSnifferValidationTest {
     }
 
     @Test
+    fun detectsExtensionlessMediaFromResponseMimeType() {
+        val mp4 = UcMediaSnifferService.classifyMediaUrl(
+            "https://cdn.example.com/session/stream?id=123",
+            "https://player.example.com/watch",
+            "video/mp4"
+        )
+        val hls = UcMediaSnifferService.classifyMediaUrl(
+            "https://cdn.example.com/session/master?token=abc",
+            "https://player.example.com/watch",
+            "application/vnd.apple.mpegurl"
+        )
+        val dash = UcMediaSnifferService.classifyMediaUrl(
+            "https://cdn.example.com/session/manifest?token=abc",
+            "https://player.example.com/watch",
+            "application/dash+xml"
+        )
+
+        assertEquals("mp4", mp4?.fileExtension)
+        assertTrue(hls?.isStreamHls == true)
+        assertTrue(dash?.isDash == true)
+        assertNull(
+            UcMediaSnifferService.classifyMediaUrl(
+                "https://cdn.example.com/session/data",
+                contentType = "application/json"
+            )
+        )
+    }
+
+    @Test
     fun rejectsBlobUnsupportedAndTrackingUrls() {
         assertNull(UcMediaSnifferService.classifyMediaUrl("blob:https://example.com/1234"))
         assertNull(UcMediaSnifferService.classifyMediaUrl("https://cdn.example.com/image.jpg"))
