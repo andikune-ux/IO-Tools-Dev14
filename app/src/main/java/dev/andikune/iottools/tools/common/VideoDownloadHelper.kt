@@ -49,7 +49,7 @@ object VideoDownloadHelper {
         ) return false
         if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
             host.endsWith(".internal") || host.endsWith(".lan") || host.endsWith(".home.arpa") ||
-            host.contains(':') || host.matches(Regex("^[0-9.]+$")) ||
+            host.contains(':') || !host.contains('.') || host.matches(Regex("^[0-9.]+$")) ||
             host.split('.').any { label ->
                 label.isBlank() || label.length > 63 ||
                     !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
