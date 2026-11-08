@@ -59,9 +59,12 @@ object TikTokDownloaderService {
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
             (uri.port != -1 && uri.port !in setOf(80, 443))
         ) return null
-        val allowed = host == "tiktok.com" || host.endsWith(".tiktok.com") ||
-            host == "douyin.com" || host.endsWith(".douyin.com")
-        return uri.toASCIIString().takeIf { allowed }
+        val allowedHosts = setOf(
+            "tiktok.com", "www.tiktok.com", "m.tiktok.com",
+            "vt.tiktok.com", "vm.tiktok.com", "v.tiktok.com",
+            "douyin.com", "www.douyin.com", "v.douyin.com", "iesdouyin.com"
+        )
+        return uri.toASCIIString().takeIf { host in allowedHosts }
     }
 
     internal fun buildVideoFormatSelector(formatId: String, hasAudio: Boolean = false): String? {
@@ -71,10 +74,15 @@ object TikTokDownloaderService {
     }
 
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
+        if (rawUrl.isBlank() || rawUrl.length > 8192) return false
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase() ?: return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
-            (uri.port != -1 && uri.port != 443)
+            (uri.port != -1 && uri.port != 443) || host.length > 253 ||
+            host.split('.').any { label ->
+                label.isBlank() || label.length > 63 ||
+                    !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+            } || host.matches(Regex("^[0-9.]+$"))
         ) return false
         return mediaCdnSuffixes.any { host.endsWith(it) }
     }
@@ -213,15 +221,21 @@ object TikTokDownloaderService {
             CoroutineScope(Dispatchers.IO).launch {
                 val processId = "tiktok-video-${System.currentTimeMillis()}"
                 val outputDir = File(context.cacheDir, "tiktok-video/$processId").apply { mkdirs() }
+                if (!outputDir.isDirectory) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Tidak dapat membuat folder sementara video TikTok.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
                 val result = runCatching {
-                    val outputTemplate = File(outputDir, "%(title).100B [%(id)s].%(ext)s").absolutePath
+                    val outputTemplate = File(outputDir, "video.%(ext)s").absolutePath
                     val request = YoutubeDLRequest(sourceUrl).apply {
                         addOption("-o", outputTemplate)
                         addOption("-f", formatSelector)
                         addOption("--no-warnings")
                         addOption("--no-playlist")
                         addOption("--newline")
-                        addOption("--merge-output-format", "mp4")
+                        addOption("--remux-video", "mp4")
                         addOption("--no-write-thumbnail")
                         addOption("--no-write-info-json")
                         addOption("--no-write-subs")
@@ -259,8 +273,14 @@ object TikTokDownloaderService {
         CoroutineScope(Dispatchers.IO).launch {
             val processId = "tiktok-audio-${System.currentTimeMillis()}"
             val outputDir = File(context.cacheDir, "tiktok-audio/$processId").apply { mkdirs() }
+            if (!outputDir.isDirectory) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Tidak dapat membuat folder sementara audio TikTok.", Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
             val result = runCatching {
-                val outputTemplate = File(outputDir, "%(title).100B [%(id)s].%(ext)s").absolutePath
+                val outputTemplate = File(outputDir, "audio.%(ext)s").absolutePath
                 val request = YoutubeDLRequest(sourceUrl).apply {
                     addOption("-o", outputTemplate)
                     addOption("--no-warnings")
