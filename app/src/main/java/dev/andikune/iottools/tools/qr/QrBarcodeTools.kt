@@ -422,8 +422,8 @@ private fun buildScanOptions(): ScanOptions = ScanOptions().apply {
 internal fun validateBarcodeInput(value: String, format: BarcodeFormat): String? {
     if (value.isBlank()) return "Isi teks atau tautan terlebih dahulu."
     return when (format) {
-        BarcodeFormat.EAN_13 -> if (!value.matches(Regex("^\\d{12}$"))) {
-            "EAN-13 membutuhkan tepat 12 digit angka; digit pemeriksa dihitung otomatis."
+        BarcodeFormat.EAN_13 -> if (!isValidEan13Input(value)) {
+            "EAN-13 membutuhkan 12 digit data, atau 13 digit dengan digit pemeriksa yang valid."
         } else null
         BarcodeFormat.CODE_39 -> if (!value.all { it in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" }) {
             "Code 39 hanya menerima huruf kapital A-Z, angka, spasi, dan karakter - . $ / + %."
@@ -435,15 +435,26 @@ internal fun validateBarcodeInput(value: String, format: BarcodeFormat): String?
     }
 }
 
+internal fun isValidEan13Input(value: String): Boolean {
+    if (!value.matches(Regex("^\\d{12,13}$"))) return false
+    if (value.length == 12) return true
+
+    val weightedSum = value.take(12).mapIndexed { index, char ->
+        char.digitToInt() * if (index % 2 == 0) 1 else 3
+    }.sum()
+    val expectedCheckDigit = (10 - (weightedSum % 10)) % 10
+    return value.last().digitToInt() == expectedCheckDigit
+}
+
 private fun generateBarcode(value: String, format: BarcodeFormat, size: Int): Bitmap {
     val linear = format in setOf(BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13)
-    val width = size
-    val height = if (linear) (size / 3).coerceAtLeast(160) else size
+    val requestedWidth = size
+    val requestedHeight = if (linear) (size / 3).coerceAtLeast(160) else size
     val hints = mapOf(
         EncodeHintType.MARGIN to 2,
         EncodeHintType.CHARACTER_SET to "UTF-8"
     )
-    val matrix = MultiFormatWriter().encode(value, format, width, height, hints)
+    val matrix = MultiFormatWriter().encode(value, format, requestedWidth, requestedHeight, hints)
     val width = matrix.width
     val height = matrix.height
     val pixels = IntArray(width * height)
