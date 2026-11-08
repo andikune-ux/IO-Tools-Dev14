@@ -54,8 +54,16 @@ import dev.andikune.iottools.ui.components.CyberTerminalHeader
 import dev.andikune.iottools.ui.theme.*
 
 class MainActivity : ComponentActivity() {
-    companion object {
-        private const val STORAGE_PERMISSION_REQUEST = 4101
+    private val storagePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(
+                this,
+                "Izin penyimpanan ditolak. Simpan file mungkin tidak berfungsi pada Android 9 ke bawah.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,7 +71,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT <= 28 &&
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_REQUEST)
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
         enableEdgeToEdge()
         setContent {
@@ -73,23 +81,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Deprecated("Use Activity Result APIs where possible")
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == STORAGE_PERMISSION_REQUEST &&
-            grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED
-        ) {
-            Toast.makeText(
-                this,
-                "Izin penyimpanan ditolak. Simpan file mungkin tidak berfungsi pada Android 9 ke bawah.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
 }
 
 enum class MainNavigationTab(val label: String, val icon: ImageVector) {
