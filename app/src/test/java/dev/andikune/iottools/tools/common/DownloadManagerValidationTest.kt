@@ -40,6 +40,7 @@ class DownloadManagerValidationTest {
         assertTrue(AppDownloadManager.ensureExtension("clip.webm", "video/mp4").endsWith(".mp4"))
         assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "video/webm").endsWith(".webm"))
         assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "application/octet-stream").endsWith(".mp4"))
+        assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "binary/octet-stream").endsWith(".mp4"))
     }
 
     @Test
