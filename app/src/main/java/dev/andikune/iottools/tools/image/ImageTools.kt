@@ -322,7 +322,7 @@ fun ImageTools() {
                                         return@CyberButton
                                     }
                                     perform {
-                                        val resized = Bitmap.createScaledBitmap(image, w, h, true)
+                                        val resized = Bitmap.createScaledBitmap(image, requireNotNull(w), requireNotNull(h), true)
                                         val bytes = try {
                                             compressBitmap(resized, Bitmap.CompressFormat.PNG, 100)
                                         } finally {
