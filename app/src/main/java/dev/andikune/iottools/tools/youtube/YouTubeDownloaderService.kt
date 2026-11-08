@@ -204,6 +204,7 @@ object YouTubeDownloaderService {
                 downloaded.delete()
                 uri
             }
+            outputDir.deleteRecursively()
             withContext(Dispatchers.Main) {
                 result.onSuccess {
                     Toast.makeText(context, "Unduhan selesai: Download/IO-Tools", Toast.LENGTH_LONG).show()
