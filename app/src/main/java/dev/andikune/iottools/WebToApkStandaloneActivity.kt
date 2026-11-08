@@ -133,7 +133,9 @@ class WebToApkStandaloneActivity : ComponentActivity() {
 
                     isCameraAllowed = media?.optBoolean("CAMERA", false) == true
                     isAudioAllowed = media?.optBoolean("RECORD_AUDIO", false) == true
-                    isLocationAllowed = location?.optBoolean("ACCESS_FINE_LOCATION", false) == true
+                    val fineLocationAllowed = location?.optBoolean("ACCESS_FINE_LOCATION", false) == true
+                    val coarseLocationAllowed = location?.optBoolean("ACCESS_COARSE_LOCATION", false) == true
+                    isLocationAllowed = fineLocationAllowed || coarseLocationAllowed
 
                     config = WebToApkConfig(
                         appName = json.optString("appName", "My Web App"),
@@ -142,7 +144,8 @@ class WebToApkStandaloneActivity : ComponentActivity() {
                         navBarColorHex = json.optString("navBarColorHex", "#090D16"),
                         permCamera = isCameraAllowed,
                         permRecordAudio = isAudioAllowed,
-                        permFineLocation = isLocationAllowed,
+                        permFineLocation = fineLocationAllowed,
+                        permCoarseLocation = coarseLocationAllowed,
                         enablePullToRefresh = json.optBoolean("enablePullToRefresh", true),
                         enableProgressBar = json.optBoolean("enableProgressBar", true),
                         enableDesktopMode = json.optBoolean("desktopMode", false),
