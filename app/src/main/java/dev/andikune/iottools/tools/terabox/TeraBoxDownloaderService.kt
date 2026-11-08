@@ -44,7 +44,7 @@ object TeraBoxDownloaderService {
         val pathId = if (shareIndex >= 0 && shareIndex + 1 < segments.size) segments[shareIndex + 1] else null
         val queryId = uri.getQueryParameter("surl")
         val candidate = pathId ?: queryId ?: return null
-        return candidate.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{6,}$")) }
+        return candidate.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{6,}$")) }?.removePrefix("1")
     }
 
     /**
