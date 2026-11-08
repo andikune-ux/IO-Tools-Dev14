@@ -140,10 +140,10 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 
 - Removed all four hard-coded third-party resolver endpoints. The app no longer sends user share URLs to anonymous resolver services or silently swallows resolver failures.
 - Added an adapter for the self-hosted [Paidguy/terabox-api Cloudflare Worker](https://github.com/Paidguy/terabox-api), using its documented `GET /api/resolve?link=...` response envelope and first `files[]` item.
-- Added a Worker endpoint field in the app. The endpoint is stored locally as a non-secret setting; the optional API key is masked in the UI and kept in screen memory only.
+- Added a Worker endpoint field in the app. The endpoint is stored locally as a non-secret setting; the optional API key is masked in the UI, kept in app memory only, and forwarded in the Authorization header for both resolve and download requests.
 - Enforced HTTPS for the configured Worker endpoint and required returned `download_url` / `stream_url` resources to use the same HTTPS origin. This prevents a malformed Worker response from redirecting the download manager to an unrelated host.
 - Parsed the Worker error codes into user-readable messages, including unauthorized, rate-limited, password-required, verification-required and expired-session cases.
 - Preserved the original TeraBox share URL for sharing; download output now uses the Worker-provided MIME type rather than assuming every file is MP4.
 - Added regression tests for TeraBox share URL hosts/schemes and secure Worker endpoint validation.
-- Setup requirement: deploy your own Worker, configure `TERABOX_COOKIE` as a server-side secret, optionally configure `API_KEY`, then enter the HTTPS Worker origin in the app. Never put a TeraBox session cookie into the APK, app UI, source code or Git repository.
+- Setup requirement: deploy your own Worker, configure `TERABOX_COOKIE` as a server-side secret (for example `wrangler secret put TERABOX_COOKIE`), optionally configure `API_KEY` (the app sends `Authorization: Bearer ...`), then enter the HTTPS Worker origin in the app. Never put a TeraBox session cookie into the APK, app UI, source code or Git repository.
 - Remaining verification: deploy and test a Worker against an authorized public share, including metadata response, file bytes, Range/resume behavior, and expired-link recovery. The Android integration deliberately does not claim to work until a Worker endpoint is configured.
