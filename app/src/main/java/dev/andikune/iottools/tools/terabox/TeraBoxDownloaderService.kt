@@ -219,16 +219,25 @@ object TeraBoxDownloaderService {
         }
     }
 
-    private fun readLimited(input: java.io.InputStream, maxBytes: Int): ByteArray {
-        val output = ByteArrayOutputStream()
+    internal fun readLimited(input: java.io.InputStream, maxBytes: Int): ByteArray {
+        require(maxBytes > 0) { "Batas baca harus lebih besar dari nol." }
+        val output = ByteArrayOutputStream(minOf(maxBytes, 8192))
         val buffer = ByteArray(8192)
         while (output.size() < maxBytes) {
             val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
             if (read < 0) break
-            if (read == 0) continue
+            if (read == 0) {
+                val single = input.read()
+                if (single < 0) break
+                output.write(single)
+                continue
+            }
             output.write(buffer, 0, read)
         }
-        if (output.size() >= maxBytes) throw IllegalStateException("Respons Worker melebihi batas 2 MB.")
+        if (output.size() == maxBytes) {
+            // Distinguish a response exactly at the cap from one that exceeds it.
+            if (input.read() >= 0) throw IllegalStateException("Respons Worker melebihi batas 2 MB.")
+        }
         return output.toByteArray()
     }
 
