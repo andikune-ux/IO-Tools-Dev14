@@ -91,10 +91,10 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
-        run: gradle assembleRelease --stacktrace
+        run: gradle assembleRelease -PAPP_VERSION_CODE=${{ github.run_number }} -PAPP_VERSION_NAME=1.4.0 --stacktrace
 
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} -PAPP_VERSION_NAME=1.4.0 --stacktrace
 
       - name: Prepare APK artifact
         id: apk
