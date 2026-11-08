@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.ByteArrayOutputStream
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,48 +25,101 @@ object VideoDownloadHelper {
     const val DEFAULT_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
+    internal fun isSecurePublicMediaUrl(rawUrl: String): Boolean {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null) return false
+        if (host == "localhost" || host.endsWith(".local") ||
+            host.endsWith(".internal") || host.endsWith(".lan") ||
+            !host.contains('.') || host.contains(':') ||
+            host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))
+        ) return false
+        return true
+    }
+
     /**
-     * Probes the first bytes and Content-Type so an HTML error page can never
-     * be presented as a downloaded video.
+     * Probes a bounded prefix and validates media signatures. HTML/JSON error
+     * pages and insecure or local targets are never reported as video streams.
      */
     suspend fun verifyDirectVideoStream(url: String): Result<Boolean> = withContext(Dispatchers.IO) {
-        try {
-            val req = Request.Builder()
+        runCatching {
+            require(isSecurePublicMediaUrl(url)) {
+                "URL stream harus HTTPS publik dan tidak boleh berisi kredensial atau alamat lokal."
+            }
+            val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Range", "bytes=0-1024")
+                .header("Accept", "video/*,application/vnd.apple.mpegurl,application/x-mpegURL,application/dash+xml,application/octet-stream;q=0.8")
+                .header("Range", "bytes=0-1023")
                 .build()
 
-            client.newCall(req).execute().use { response ->
-                if (!response.isSuccessful && response.code != 206) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Server mengembalikan HTTP ${response.code}.")
-                    )
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("Server mengembalikan HTTP ${response.code}.")
+                }
+                if (!isSecurePublicMediaUrl(response.request.url.toString())) {
+                    throw IllegalStateException("Redirect mengarah ke URL yang tidak aman.")
                 }
 
-                val contentType = response.header("Content-Type", "").orEmpty().lowercase()
-                if (contentType.contains("text/html") || contentType.contains("application/xhtml")) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Tautan mengembalikan halaman web HTML, bukan stream media.")
-                    )
-                }
-
-                val initialBytes = response.body?.byteStream()?.readNBytes(256) ?: byteArrayOf()
-                val head = String(initialBytes, Charsets.ISO_8859_1)
-                if (head.contains("<!DOCTYPE", ignoreCase = true) ||
-                    head.contains("<html", ignoreCase = true) ||
-                    head.contains("<script", ignoreCase = true)
+                val contentType = response.header("Content-Type").orEmpty()
+                    .substringBefore(';')
+                    .trim()
+                    .lowercase()
+                if (contentType.startsWith("text/") || contentType.contains("json") ||
+                    contentType.contains("xhtml")
                 ) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Respon server berisi HTML, bukan media biner.")
-                    )
+                    throw IllegalStateException("Server mengembalikan teks/JSON/HTML, bukan stream video.")
                 }
 
-                Result.success(true)
+                val header = response.body?.byteStream()?.use { readAtMost(it, 512) }
+                    ?: throw IllegalStateException("Server tidak mengirim body media.")
+                if (header.isEmpty()) throw IllegalStateException("Body media kosong.")
+
+                val headText = String(header, Charsets.ISO_8859_1).trimStart()
+                val isHtml = headText.startsWith("<!doctype html", true) ||
+                    headText.startsWith("<html", true) ||
+                    headText.contains("<script", true)
+                if (isHtml) throw IllegalStateException("Respon berisi HTML, bukan media.")
+
+                val valid = when {
+                    contentType == "video/mp4" || contentType == "video/quicktime" ||
+                        contentType == "video/x-m4v" ->
+                        AppDownloadManager.matchesFileSignature("video/mp4", header)
+                    contentType == "video/webm" || contentType == "video/x-matroska" ->
+                        AppDownloadManager.matchesFileSignature("video/webm", header)
+                    contentType == "video/x-flv" ->
+                        AppDownloadManager.matchesFileSignature("video/x-flv", header)
+                    contentType.startsWith("video/") -> true
+                    contentType.contains("mpegurl") ->
+                        headText.startsWith("#EXTM3U", true)
+                    contentType.contains("dash+xml") ->
+                        headText.contains("<MPD", true)
+                    contentType == "application/octet-stream" || contentType.isBlank() ->
+                        AppDownloadManager.matchesFileSignature("video/mp4", header) ||
+                            AppDownloadManager.matchesFileSignature("video/webm", header) ||
+                            AppDownloadManager.matchesFileSignature("video/x-flv", header) ||
+                            headText.startsWith("#EXTM3U", true) ||
+                            headText.contains("<MPD", true)
+                    else -> false
+                }
+                if (!valid) {
+                    throw IllegalStateException("Signature body tidak cocok dengan format video/manifest yang didukung.")
+                }
+                true
             }
-        } catch (e: Exception) {
-            Result.failure(e)
         }
+    }
+
+    private fun readAtMost(input: java.io.InputStream, maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(256)
+        while (output.size() < maxBytes) {
+            val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+            if (read < 0) break
+            if (read == 0) continue
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     fun enqueueNativeVideoDownload(
@@ -72,9 +127,8 @@ object VideoDownloadHelper {
         directUrl: String,
         suggestedFileName: String,
         title: String,
-        description: String = "Mengunduh file video...",
         mimeType: String = "video/mp4"
-    ): Long {
+    ) {
         AppDownloadManager.startDownload(
             context = context,
             directUrl = directUrl,
@@ -82,6 +136,5 @@ object VideoDownloadHelper {
             title = title,
             mimeType = mimeType
         )
-        return 1L
     }
 }
