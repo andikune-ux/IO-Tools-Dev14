@@ -23,6 +23,23 @@ class VideoDownloadHelperValidationTest {
     }
 
     @Test
+    fun acceptsOnlyKnownMediaSignatures() {
+        val mp4 = byteArrayOf(0, 0, 0, 24, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte())
+        val webm = byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte())
+        val hls = "#EXTM3U\\n#EXT-X-VERSION:3".toByteArray()
+        val dash = "<?xml version=\\"1.0\\"><MPD></MPD>".toByteArray()
+        val unknown = "not actually a video".toByteArray()
+
+        assertTrue(VideoDownloadHelper.isValidMediaSignature("video/mp4", mp4))
+        assertTrue(VideoDownloadHelper.isValidMediaSignature("video/webm", webm))
+        assertTrue(VideoDownloadHelper.isValidMediaSignature("application/vnd.apple.mpegurl", hls))
+        assertTrue(VideoDownloadHelper.isValidMediaSignature("application/dash+xml", dash))
+        assertFalse(VideoDownloadHelper.isValidMediaSignature("video/x-msvideo", unknown))
+        assertFalse(VideoDownloadHelper.isValidMediaSignature("application/octet-stream", unknown))
+        assertFalse(VideoDownloadHelper.isValidMediaSignature("video/mp4", "<html>".toByteArray()))
+    }
+
+    @Test
     fun rejectsPrivateAndReservedDnsAnswers() {
         listOf(
             "10.0.0.1",
