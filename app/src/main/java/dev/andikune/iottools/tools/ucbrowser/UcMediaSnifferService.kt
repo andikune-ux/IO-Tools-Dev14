@@ -231,7 +231,18 @@ object UcMediaSnifferService {
                         )
                     )
                 }
-                response.body?.string().orEmpty()
+                val body = response.body
+                    ?: throw IllegalStateException("Website mengembalikan halaman kosong.")
+                val normalizedContentType = contentType.substringBefore(';').trim()
+                if (normalizedContentType.isNotBlank() &&
+                    normalizedContentType !in setOf("text/html", "application/xhtml+xml")
+                ) {
+                    throw IllegalStateException("Konten halaman bukan HTML yang dapat dipindai.")
+                }
+                val charset = runCatching { body.contentType()?.charset(Charsets.UTF_8) }
+                    .getOrNull() ?: Charsets.UTF_8
+                val htmlBytes = body.byteStream().use { readLimited(it, 4 * 1024 * 1024) }
+                String(htmlBytes, charset)
             }
 
             val titleMatcher = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
