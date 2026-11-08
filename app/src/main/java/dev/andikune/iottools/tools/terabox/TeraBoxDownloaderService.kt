@@ -157,6 +157,11 @@ object TeraBoxDownloaderService {
                         "cookie_invalid" -> "Sesi TeraBox pada Worker kedaluwarsa. Perbarui secret Worker."
                         "unsupported_host" -> "Host tautan tidak didukung oleh Worker."
                         "not_found", "empty_share" -> "Share tidak ditemukan atau tidak berisi file yang dapat diakses."
+                        "budget_exhausted" -> "Folder terlalu besar untuk diproses sekaligus. Coba gunakan tautan file tertentu."
+                        "upstream_unavailable", "upstream_unexpected" ->
+                            "Server TeraBox sedang bermasalah atau berubah. Coba lagi beberapa saat."
+                        "invalid_parameter", "missing_parameter" ->
+                            "Worker menolak parameter tautan. Periksa kembali URL share TeraBox."
                         else -> message.ifBlank { "Worker gagal menyelesaikan tautan TeraBox (${code.ifBlank { "unknown_error" }})." }
                     }
                 )
