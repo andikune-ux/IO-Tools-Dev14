@@ -74,3 +74,23 @@ SnapNet is GPL-3.0 and builds on youtubedl-android (also GPL-3.0). Its README ex
 ### Research limitations
 
 This is a source/repository review, not proof that every upstream resolver currently works. Platform internals and public endpoints change frequently. No external repository code has been copied into IO Tools in this research pass; any future dependency must have its license, maintenance activity, Android compatibility, binary size, and transitive dependencies reviewed before adoption.
+
+
+## YouTube engine integration (2026-11-08)
+
+The legacy chain of public Piped, Invidious, Cobalt, and loader.to resolvers has been replaced on the working branch with local yt-dlp execution through `io.github.junkfood02.youtubedl-android:library:0.18.1` and its FFmpeg module.
+
+Implemented:
+- Initialize yt-dlp and FFmpeg from `MainActivity`.
+- Request metadata and the format list using yt-dlp's JSON output.
+- Store the extractor's format ID rather than an expiring direct CDN URL; resolve the selected format again at download time.
+- Download into app-private cache, then publish the completed file through `MediaStoreSaver`.
+- Add GPL-3.0 `LICENSE` and third-party notices.
+
+Important remaining YouTube work:
+- The integration does not yet bundle the QuickJS-NG native runtime and yt-dlp EJS solver assets described by SnapNet. Current YouTube extraction may therefore return incomplete formats or fail when the platform requires an external JavaScript challenge solver. Do not advertise complete YouTube compatibility until this is bundled and tested.
+- The wrapper dependency's bundled yt-dlp/Python version and Android ABI coverage must be verified from the resolved AAR and on actual devices.
+- The current download integration reports completion via Toast but does not yet publish yt-dlp progress into the shared Download Manager progress state.
+- Test public, non-DRM media with user authorization on real ARM64 and 32-bit ARM devices; validate merged audio/video, audio extraction, cancellation, and low-storage failure.
+
+The current CI run is the first compile gate for this integration. A green Gradle build proves dependency and source compatibility only; it does not prove YouTube extraction or real media download. See [SnapNet's documented QuickJS/EJS architecture](https://github.com/hoodmoshla/SnapNet) and [yt-dlp EJS requirements](https://github.com/yt-dlp/yt-dlp/wiki/ejs).
