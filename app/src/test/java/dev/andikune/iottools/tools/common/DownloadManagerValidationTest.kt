@@ -1,5 +1,6 @@
 package dev.andikune.iottools.tools.common
 import dev.andikune.iottools.tools.common.AppDownloadManager
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,6 +20,8 @@ class DownloadManagerValidationTest {
         assertFalse(AppDownloadManager.isSecureDownloadUrl("https://127.1/video.mp4"))
         assertFalse(AppDownloadManager.isSecureDownloadUrl("https://192.168.1.1/video.mp4"))
         assertFalse(AppDownloadManager.isSecureDownloadUrl("https://cdn.home.arpa/video.mp4"))
+        assertFalse(AppDownloadManager.isSecureDownloadUrl("https://example.com:70000/video.mp4"))
+        assertFalse(AppDownloadManager.isSecureDownloadUrl("https://bad..example.com/video.mp4"))
     }
 
     @Test
@@ -37,6 +40,34 @@ class DownloadManagerValidationTest {
         assertTrue(AppDownloadManager.ensureExtension("clip.webm", "video/mp4").endsWith(".mp4"))
         assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "video/webm").endsWith(".webm"))
         assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "application/octet-stream").endsWith(".mp4"))
+    }
+
+    @Test
+    fun infersExpectedMimeFromFilenameWhenServerMimeIsGeneric() {
+        assertEquals("video/mp4", AppDownloadManager.resolveExpectedMime("clip.mp4", "application/octet-stream"))
+        assertEquals("video/webm", AppDownloadManager.resolveExpectedMime("clip.webm", "binary/octet-stream"))
+        assertEquals("application/octet-stream", AppDownloadManager.resolveExpectedMime("archive.unknown", "application/octet-stream"))
+        assertEquals("image/png", AppDownloadManager.resolveExpectedMime("image.png", "image/png"))
+    }
+
+    @Test
+    fun downloadChunkReaderHandlesTemporaryZeroByteReads() {
+        val input = object : java.io.InputStream() {
+            private var returnZero = true
+            private var sent = false
+            override fun read(): Int = if (sent) -1 else 0.also { sent = true }
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (returnZero) {
+                    returnZero = false
+                    return 0
+                }
+                return -1
+            }
+        }
+        val buffer = ByteArray(8)
+        assertEquals(1, AppDownloadManager.readChunk(input, buffer))
+        assertEquals(0, buffer[0].toInt())
+        assertEquals(-1, AppDownloadManager.readChunk(input, buffer))
     }
 
     @Test
