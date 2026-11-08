@@ -3,6 +3,7 @@ import dev.andikune.iottools.tools.image.validateResizeDimensions
 import dev.andikune.iottools.tools.image.calculateImageSampleSize
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImageToolsValidationTest {
@@ -10,8 +11,10 @@ class ImageToolsValidationTest {
     fun boundsDecodedImageDimensionsAndPixelCount() {
         val squareSample = calculateImageSampleSize(8192, 8192)
         val panoramaSample = calculateImageSampleSize(12000, 2000)
-        assertNotNull(if (8192 / squareSample <= 4096 && 8192L / squareSample * (8192L / squareSample) <= 16_000_000L) null else "square")
-        assertNotNull(if (12000 / panoramaSample <= 4096 && 2000L / panoramaSample * (12000L / panoramaSample) <= 16_000_000L) null else "panorama")
+        assertTrue(8192 / squareSample <= 4096)
+        assertTrue(8192L / squareSample * (8192L / squareSample) <= 16_000_000L)
+        assertTrue(12000 / panoramaSample <= 4096)
+        assertTrue(2000L / panoramaSample * (12000L / panoramaSample) <= 16_000_000L)
     }
 
     @Test
