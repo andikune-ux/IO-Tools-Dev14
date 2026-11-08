@@ -185,7 +185,7 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Rejects empty responses and content-length mismatches before publishing the MediaStore item. Incomplete output is aborted rather than reported as a successful download.
 - Added a generation ID and synchronized active-call registration so an older cancelled transfer cannot overwrite the progress or active-call state of a newer download.
 - Cancellation now updates the visible state immediately. Unknown file types receive a `.bin` fallback instead of being mislabeled as MP4. If the server reports a generic MIME type, the manager now infers the expected MIME from a known filename extension before validating the body and creating the MediaStore item.
-- The stream-copy loop handles temporary zero-byte reads without stalling. URL validation also rejects malformed DNS labels and invalid ports before starting a transfer.
+- The stream-copy loop handles temporary zero-byte reads without stalling. URL validation rejects malformed/single-label DNS names, trailing-dot hosts, numeric/hex IP spellings and invalid ports. DNS answers are filtered to public IPv4 and global-unicast IPv6 addresses; IETF special-purpose and documentation IPv6 ranges are rejected.
 - Added regression tests for secure URL validation, exact MIME compatibility and common file signatures.
 - Remaining verification: device-level tests for redirects, CDN downloads, unknown content length, interrupted transfers, storage exhaustion, and legacy Android storage permissions. The shared manager still uses one active transfer slot at a time by design.
 
