@@ -77,10 +77,15 @@ object InstagramDownloaderService {
     }
 
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
+        if (rawUrl.isBlank() || rawUrl.length > 8192) return false
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase() ?: return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
-            (uri.port != -1 && uri.port != 443)
+            (uri.port != -1 && uri.port != 443) || host.length > 253 ||
+            host.split('.').any { label ->
+                label.isBlank() || label.length > 63 ||
+                    !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+            } || host.matches(Regex("^[0-9.]+$"))
         ) return false
         return mediaCdnSuffixes.any { host.endsWith(it) }
     }
@@ -90,6 +95,9 @@ object InstagramDownloaderService {
         if (!codec.isNullOrBlank()) return codec != "none"
         return extension.lowercase() in setOf("mp4", "m4v", "webm", "mov")
     }
+
+    internal fun isImageMediaFormat(extension: String): Boolean =
+        extension.lowercase() in setOf("jpg", "jpeg", "png", "webp")
 
     private fun selectMedia(entry: JSONObject, index: Int, isCarousel: Boolean = false): InstagramMediaItem? {
         val formats = entry.optJSONArray("formats")
@@ -103,7 +111,7 @@ object InstagramDownloaderService {
                     runCatching { URI(formatUrl).path.substringAfterLast('.', "") }.getOrDefault("")
                 }.lowercase()
                 val codec = format.optString("vcodec").takeIf { it.isNotBlank() }
-                val supportedImage = formatExtension in setOf("jpg", "jpeg", "png", "webp")
+                val supportedImage = isImageMediaFormat(formatExtension)
                 if (isVideoMediaFormat(codec, formatExtension) || supportedImage) candidates += format
             }
         }
@@ -121,6 +129,7 @@ object InstagramDownloaderService {
             runCatching { URI(directUrl).path.substringAfterLast('.', "") }.getOrDefault("")
         }.lowercase()
         val video = isVideoMediaFormat(selected?.optString("vcodec"), ext)
+        if (!video && !isImageMediaFormat(ext)) return null
         val thumbnail = entry.optString("thumbnail")
             .takeIf(::isAllowedMediaUrl)
             ?: entry.optJSONArray("thumbnails")?.let { thumbnails ->
