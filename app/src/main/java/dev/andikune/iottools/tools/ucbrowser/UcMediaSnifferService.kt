@@ -62,7 +62,12 @@ object UcMediaSnifferService {
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
         if (uri.host.isNullOrBlank() || uri.userInfo != null) return null
-        if (uri.host.equals("localhost", true) || uri.host.endsWith(".local", true)) return null
+        val host = uri.host.lowercase()
+        if (host == "localhost" || host.endsWith(".local") ||
+            host.endsWith(".internal") || host.endsWith(".lan") ||
+            !host.contains('.') || host.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) ||
+            host.contains(':')
+        ) return null
         return uri.toASCIIString()
     }
 
