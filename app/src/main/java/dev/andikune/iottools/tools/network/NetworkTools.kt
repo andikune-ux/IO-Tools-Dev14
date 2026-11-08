@@ -57,6 +57,21 @@ internal fun readBoundedResponse(input: java.io.InputStream, maxBytes: Int): Byt
     return output.toByteArray()
 }
 
+internal fun readWhoisResponse(reader: java.io.Reader, maxChars: Int): String {
+    require(maxChars > 0) { "Batas WHOIS harus lebih besar dari nol." }
+    val output = StringBuilder(minOf(maxChars, 8192))
+    val buffer = CharArray(4096)
+    while (true) {
+        val remaining = maxChars - output.length
+        val read = reader.read(buffer, 0, minOf(buffer.size, remaining + 1))
+        if (read < 0) break
+        if (read == 0) continue
+        if (read > remaining) throw IllegalStateException("Respons WHOIS melebihi batas $maxChars karakter.")
+        output.append(buffer, 0, read)
+    }
+    return output.toString()
+}
+
 internal data class SslTarget(val host: String, val port: Int)
 
 internal fun normalizeNetworkHost(input: String): String? {
@@ -607,15 +622,8 @@ private object WhoisClient {
             socket.soTimeout = timeoutMs
             socket.getOutputStream().write("$safeDomain\r\n".toByteArray(Charsets.US_ASCII))
             socket.getOutputStream().flush()
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1))
-            val builder = StringBuilder()
-            var line: String?
-            while (true) {
-                line = reader.readLine() ?: break
-                builder.append(line).append('\n')
-                if (builder.length > 120_000) break
-            }
-            return builder.toString()
+            val reader = InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1)
+            return readWhoisResponse(reader, 120_000)
         }
     }
 }
