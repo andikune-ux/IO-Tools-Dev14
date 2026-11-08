@@ -594,9 +594,8 @@ private fun calculateFileDigests(context: Context, uri: Uri): List<Pair<String, 
     input.use { stream ->
         val buffer = ByteArray(64 * 1024)
         while (true) {
-            val read = stream.read(buffer)
+            val read = readFileHashChunk(stream, buffer)
             if (read < 0) break
-            if (read == 0) continue
             digests.values.forEach { it.update(buffer, 0, read) }
             crc.update(buffer, 0, read)
         }
@@ -605,6 +604,16 @@ private fun calculateFileDigests(context: Context, uri: Uri): List<Pair<String, 
         label to digest.digest().joinToString("") { "%02x".format(it) }
     }
     return rows + ("CRC-32 (File)" to java.lang.Long.toHexString(crc.value).uppercase())
+}
+
+internal fun readFileHashChunk(input: java.io.InputStream, buffer: ByteArray): Int {
+    require(buffer.isNotEmpty()) { "Buffer hash tidak boleh kosong." }
+    val read = input.read(buffer)
+    if (read != 0) return read
+    val single = input.read()
+    if (single < 0) return -1
+    buffer[0] = single.toByte()
+    return 1
 }
 
 private fun formatFileSize(bytes: Long): String {
