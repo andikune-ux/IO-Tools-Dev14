@@ -38,6 +38,8 @@ If release signing secrets are absent, CI builds and uploads a debug APK only. I
 
 The release keystore must remain stable across app updates. Back it up securely outside the repository.
 
+See [docs/TOOL_AUDIT.md](docs/TOOL_AUDIT.md) for the functional audit matrix, known limitations, and release gate.
+
 ## Tool modules
 
 - QR and barcode generation / scanning
@@ -58,5 +60,6 @@ Some online services and media platforms restrict automated downloading. Tools m
 - WebView file URL access is disabled in the container.
 - FileProvider paths are limited to app cache and the IO-Tools download folder.
 - Android backup is disabled to avoid exporting locally stored vault data.
+- Android 7–9 requests the legacy storage permission because those versions require it for public Downloads/Pictures output.
 - TOTP secrets are encrypted at rest with an Android Keystore AES-GCM key; legacy plaintext secrets are migrated.
 - Release signing credentials are supplied only through CI secrets.
