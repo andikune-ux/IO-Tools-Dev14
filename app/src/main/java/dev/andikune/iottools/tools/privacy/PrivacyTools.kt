@@ -153,7 +153,10 @@ private fun PasswordGeneratorCard(context: Context) {
                 IconButton(onClick = { regenerate() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Buat ulang", tint = AccentCyan)
                 }
-                IconButton(onClick = { copyText(context, password, "Password") }) {
+                IconButton(
+                    onClick = { copyText(context, password, "Password") },
+                    enabled = password.isNotBlank()
+                ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Salin", tint = AccentRose)
                 }
             }
