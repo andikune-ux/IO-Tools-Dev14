@@ -751,11 +751,14 @@ private object TotpSecretStorage {
                 return TotpLoadResult("")
             }
             val migration = runCatching { save(context, legacy) }
-            prefs.edit().remove(LEGACY_KEY).apply()
             return if (migration.isSuccess) {
+                // Remove plaintext only after the encrypted replacement has been committed.
+                prefs.edit().remove(LEGACY_KEY).apply()
                 TotpLoadResult(legacy)
             } else {
-                TotpLoadResult("", "Secret lama tidak dapat dimigrasikan ke penyimpanan terenkripsi. Masukkan ulang secret lalu simpan.")
+                // Preserve the only remaining copy so a transient Keystore failure cannot
+                // irreversibly destroy the user's existing authenticator secret.
+                TotpLoadResult("", "Migrasi secret lama gagal. Salinan lama dipertahankan sementara; periksa Android Keystore lalu buka kembali tool untuk mencoba migrasi lagi.")
             }
         }
 
