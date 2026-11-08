@@ -80,7 +80,7 @@ class PrivacyCryptoTest {
         val payload = VaultCrypto.encrypt(plaintext, passphrase)
         assertTrue(payload.startsWith("v2:"))
         assertNotNull(runCatching { VaultCrypto.encrypt("x".repeat(100_001), passphrase) }.exceptionOrNull())
-        assertNotNull(runCatching { VaultCrypto.encrypt("\\u0800".repeat(34_000), passphrase) }.exceptionOrNull())
+        assertNotNull(runCatching { VaultCrypto.encrypt("\u0800".repeat(34_000), passphrase) }.exceptionOrNull())
         assertNotNull(runCatching { VaultCrypto.decrypt("x".repeat(150_001), passphrase) }.exceptionOrNull())
         assertEquals(plaintext, VaultCrypto.decrypt(payload, passphrase))
         assertNotEquals(plaintext, runCatching { VaultCrypto.decrypt(payload, "wrong passphrase") }.getOrNull())
