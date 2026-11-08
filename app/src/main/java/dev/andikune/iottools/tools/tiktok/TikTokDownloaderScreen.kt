@@ -44,8 +44,8 @@ fun TikTokDownloaderScreen() {
     var statusLogs by remember {
         mutableStateOf(
             listOf(
-                "[INIT] TikTok Stream Extractor Core v2.4 initialized.",
-                "[ENGINE] Siap mengunduh video TikTok tanpa watermark."
+                "[INIT] TikTok local extractor siap.",
+                "[ENGINE] yt-dlp + FFmpeg untuk video publik dan ekstraksi audio."
             )
         )
     }
@@ -76,7 +76,7 @@ fun TikTokDownloaderScreen() {
             isLoading = true
             errorMessage = null
             videoResult = null
-            statusLogs = statusLogs + "[REQUEST] Menghubungi server TikWM CDN: ${inputUrl.take(45)}..."
+            statusLogs = statusLogs + "[REQUEST] Memproses URL dengan yt-dlp lokal: ${inputUrl.take(45)}..."
 
             val startTime = System.currentTimeMillis()
             val result = TikTokDownloaderService.fetchVideoDetails(inputUrl)
@@ -87,7 +87,7 @@ fun TikTokDownloaderScreen() {
                 videoResult = data
                 statusLogs = statusLogs + "[SUCCESS] Resolusi stream selesai dalam ${elapsed}ms."
                 statusLogs = statusLogs + "[STREAM] Video: ${data.title.take(30)}... (${data.videoSizeFormatted})"
-                statusLogs = statusLogs + "[STATUS] Link tanpa watermark siap diunduh ke memori HP!"
+                statusLogs = statusLogs + "[STATUS] Format tanpa watermark terverifikasi oleh extractor."
             }.onFailure { error ->
                 errorMessage = error.message ?: "Terjadi kesalahan saat memproses tautan."
                 statusLogs = statusLogs + "[ERROR] Gagal: ${error.message}"
@@ -106,7 +106,7 @@ fun TikTokDownloaderScreen() {
             CyberTerminalHeader(
                 title = "TIKTOK DOWNLOADER PRO",
                 subtitle = "Download Video TikTok Tanpa Watermark (HD) & Audio MP3",
-                statusText = "LIVE API READY",
+                statusText = "LOCAL ENGINE READY",
                 statusColor = AccentRose
             )
         }
@@ -408,14 +408,14 @@ fun TikTokDownloaderScreen() {
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Download Action 2: Download Audio (MP3)
-                        if (data.audioUrl != null && data.audioUrl.isNotBlank()) {
+                        if (data.audioAvailable) {
                             Button(
                                 onClick = {
                                     val sanitizedTitle = data.title.replace(Regex("[^a-zA-Z0-9_]"), "_").take(30)
                                     val fileName = "TikTok_Audio_${sanitizedTitle}_${data.id}.mp3"
                                     TikTokDownloaderService.startDownload(
                                         context = context,
-                                        url = data.audioUrl,
+                                        url = data.sourceUrl,
                                         fileName = fileName,
                                         title = "${data.title} (Audio)",
                                         isAudio = true
@@ -457,7 +457,7 @@ fun TikTokDownloaderScreen() {
 
                             OutlinedButton(
                                 onClick = {
-                                    TikTokDownloaderService.shareMediaLink(context, data.noWatermarkVideoUrl, data.title)
+                                    TikTokDownloaderService.shareMediaLink(context, data.sourceUrl, data.title)
                                 },
                                 modifier = Modifier.weight(1f).height(44.dp),
                                 shape = RoundedCornerShape(10.dp),
