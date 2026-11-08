@@ -70,6 +70,22 @@ object YouTubeDownloaderService {
         return if (hasAudio) safeId else "$safeId+bestaudio/$safeId"
     }
 
+    internal fun mimeTypeForOutputExtension(extension: String): String? =
+        when (extension.trim().lowercase().removePrefix(".")) {
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
+            "opus" -> "audio/opus"
+            "ogg", "oga" -> "audio/ogg"
+            "wav" -> "audio/wav"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            "m4v" -> "video/x-m4v"
+            "mov" -> "video/quicktime"
+            "mp4" -> "video/mp4"
+            else -> null
+        }
+
     fun extractVideoId(rawUrl: String): String? {
         val clean = rawUrl.trim()
         val idPattern = Regex("^[A-Za-z0-9_-]{11}$")
@@ -217,22 +233,10 @@ object YouTubeDownloaderService {
                     ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
                     ?.maxByOrNull { it.lastModified() }
                     ?: throw IllegalStateException("yt-dlp selesai tetapi file hasil tidak ditemukan.")
-                val mime = when (downloaded.extension.lowercase()) {
-                    "mp3" -> "audio/mpeg"
-                    "m4a" -> "audio/mp4"
-                    "aac" -> "audio/aac"
-                    "opus" -> "audio/opus"
-                    "ogg", "oga" -> "audio/ogg"
-                    "wav" -> "audio/wav"
-                    "webm" -> "video/webm"
-                    "mkv" -> "video/x-matroska"
-                    "m4v" -> "video/x-m4v"
-                    "mov" -> "video/quicktime"
-                    "mp4" -> "video/mp4"
-                    else -> throw IllegalStateException(
+                val mime = mimeTypeForOutputExtension(downloaded.extension)
+                    ?: throw IllegalStateException(
                         "Format hasil (${downloaded.extension.ifBlank { "tanpa ekstensi" }}) tidak didukung untuk penyimpanan media."
                     )
-                }
                 val uri = downloaded.inputStream().use { input ->
                     MediaStoreSaver.saveStream(context, downloaded.name, mime, input)
                 } ?: throw IllegalStateException("File gagal disimpan ke folder Download/IO-Tools.")
