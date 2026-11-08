@@ -8,7 +8,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 |---|---|---|---|
 | QR & Barcode | ZXing QR/Data Matrix and 1D barcode generation plus camera scanner | EAN-13/Code 39/Code 128 validation regression tests added; camera not device-verified | Camera permission, autofocus, low-light, scanner compatibility and generated output on devices |
 | Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading/removal | Resize memory-limit regression tests added; processing moved to IO | Large images, orientation variants, transparency, storage output and EXIF stripping on devices |
-| PDF Tools | PDFBox merge/split/rotate/protect/compress; Android PdfRenderer for raster recompression | Existing source review | Encrypted PDFs, malformed files, large documents, page order and output compatibility |
+| PDF Tools | PDFBox merge/split/rotate/AES-256 protect/compress; Android PdfRenderer for raster recompression with scratch-file buffering | Range/password/rotation/compression-bound regression tests added; device PDF compatibility not verified | Encrypted inputs, malformed files, very large PDFs, page order, scratch storage and output compatibility |
 | File & Hash | Streaming SHA-256/MD5/SHA-1/SHA-512 and CRC32; SAF batch rename | Existing source review | Very large files, duplicate target names, read-only providers and rename conflicts |
 | Network Recon | Public IP lookup, DNS, TCP connect latency, TLS certificate inspection and WHOIS | Existing source review | Offline state, captive portals, IPv6, slow DNS and provider rate limits |
 | Privacy Vault | Secure password generation, AES-GCM secure notes, TOTP/HMAC-SHA1 | Source review; TOTP storage now uses Android Keystore | RFC 6238 test vectors, key invalidation, restore/migration behavior and passphrase UX |
@@ -215,3 +215,15 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Frame capture validates the requested timestamp against media duration, uses scaled frame extraction on Android 8.1+ and caps output frames at 2048 pixels per side. Frame saving runs on IO.
 - Added regression tests for trim range, frame timestamp, and overflow validation.
 - Remaining verification: test AAC/AMR demux, codec/container edge cases, keyframe trim accuracy, rotation, variable frame rate, and frame capture on physical devices and representative media files.
+
+
+## PDF Tools — focused repair pass (2026-11-09)
+
+- Replaced whole-document `readBytes()` in split with PDFBox stream loading and `MemoryUsageSetting` scratch-file buffering. Merge/load and output documents also use bounded mixed memory with the app cache directory as scratch storage.
+- PDF output is now streamed through a temporary cache file into MediaStore instead of materializing a second full-document byte array. Temporary files are deleted in `finally`.
+- Added operation limits: up to 50 merge inputs, 200 split outputs, 300 compressed pages, 36–300 DPI, 16 megapixels per rendered page and 8192 pixels per side.
+- Checked JPEG encoder success and guaranteed rendered bitmap recycling even if a page fails.
+- Rotation accepts only 90/180/270 degrees. PDF encryption requires an 8–128 character user password and limits owner password to 128 characters.
+- Password fields are masked and cleared after the protection operation. Compression size details are preserved in the completion status.
+- Added regression tests for page ranges, rotation, password length, DPI/quality and render dimensions.
+- Remaining verification: run merge/split/rotate/AES-256/compression against unencrypted, encrypted, malformed and large sample PDFs on physical Android devices; confirm PDFBox scratch files and MediaStore output under low storage.
