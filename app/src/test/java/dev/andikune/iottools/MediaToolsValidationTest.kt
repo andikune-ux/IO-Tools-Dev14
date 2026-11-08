@@ -19,6 +19,7 @@ class MediaToolsValidationTest {
         assertNotNull(validateMediaTimeRange(10_000L, 10_000L, 60_000L))
         assertNotNull(validateMediaTimeRange(50_000L, 61_000L, 60_000L))
         assertNotNull(validateMediaTimeRange(0L, 1_000L, 0L))
+        assertNotNull(validateMediaTimeRange(0L, Long.MAX_VALUE, Long.MAX_VALUE))
     }
 
     @Test
@@ -28,5 +29,6 @@ class MediaToolsValidationTest {
         assertNotNull(validateFrameTime(60L, 60_000L))
         assertNotNull(validateFrameTime(-1L, 60_000L))
         assertNotNull(validateFrameTime(1L, 0L))
+        assertNotNull(validateFrameTime(Long.MAX_VALUE, Long.MAX_VALUE))
     }
 }
