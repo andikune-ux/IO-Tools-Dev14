@@ -50,11 +50,11 @@ object TikTokDownloaderService {
             } else {
                 "https://$inputUrl"
             }
-            val parsedUrl = runCatching { Uri.parse(cleanUrl) }.getOrNull()
+            val parsedUrl = runCatching { java.net.URI(cleanUrl) }.getOrNull()
             val host = parsedUrl?.host?.lowercase().orEmpty()
             val validHost = host == "tiktok.com" || host.endsWith(".tiktok.com") ||
                 host == "douyin.com" || host.endsWith(".douyin.com")
-            if (!validHost || parsedUrl?.scheme !in setOf("http", "https")) {
+            if (!validHost || parsedUrl?.scheme?.lowercase() !in setOf("http", "https")) {
                 return@withContext Result.failure(IllegalArgumentException("Tautan harus berasal dari domain TikTok atau Douyin yang valid."))
             }
 
