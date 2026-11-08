@@ -26,8 +26,8 @@ class VideoDownloadHelperValidationTest {
     fun acceptsOnlyKnownMediaSignatures() {
         val mp4 = byteArrayOf(0, 0, 0, 24, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte())
         val webm = byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte())
-        val hls = "#EXTM3U\\n#EXT-X-VERSION:3".toByteArray()
-        val dash = "<?xml version=\\"1.0\\"><MPD></MPD>".toByteArray()
+        val hls = "#EXTM3U\n#EXT-X-VERSION:3".toByteArray()
+        val dash = "<?xml version=\"1.0\"><MPD></MPD>".toByteArray()
         val unknown = "not actually a video".toByteArray()
 
         assertTrue(VideoDownloadHelper.isValidMediaSignature("video/mp4", mp4))
