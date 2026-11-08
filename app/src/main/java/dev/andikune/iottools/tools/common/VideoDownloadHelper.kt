@@ -162,32 +162,43 @@ object VideoDownloadHelper {
                     headText.contains("<script", true)
                 if (isHtml) throw IllegalStateException("Respon berisi HTML, bukan media.")
 
-                val valid = when {
-                    contentType == "video/mp4" || contentType == "video/quicktime" ||
-                        contentType == "video/x-m4v" ->
-                        AppDownloadManager.matchesFileSignature("video/mp4", header)
-                    contentType == "video/webm" || contentType == "video/x-matroska" ->
-                        AppDownloadManager.matchesFileSignature("video/webm", header)
-                    contentType == "video/x-flv" ->
-                        AppDownloadManager.matchesFileSignature("video/x-flv", header)
-                    contentType.startsWith("video/") -> true
-                    contentType.contains("mpegurl") ->
-                        headText.startsWith("#EXTM3U", true)
-                    contentType.contains("dash+xml") ->
-                        headText.contains("<MPD", true)
-                    contentType == "application/octet-stream" || contentType.isBlank() ->
-                        AppDownloadManager.matchesFileSignature("video/mp4", header) ||
-                            AppDownloadManager.matchesFileSignature("video/webm", header) ||
-                            AppDownloadManager.matchesFileSignature("video/x-flv", header) ||
-                            headText.startsWith("#EXTM3U", true) ||
-                            headText.contains("<MPD", true)
-                    else -> false
-                }
+                val valid = isValidMediaSignature(contentType, header)
                 if (!valid) {
                     throw IllegalStateException("Signature body tidak cocok dengan format video/manifest yang didukung.")
                 }
                 true
             }
+        }
+    }
+
+    internal fun isValidMediaSignature(contentType: String, header: ByteArray): Boolean {
+        if (header.isEmpty()) return false
+        val normalizedType = contentType.substringBefore(';').trim().lowercase()
+        val headText = String(header, Charsets.ISO_8859_1).trimStart()
+        val isHtml = headText.startsWith("<!doctype html", true) ||
+            headText.startsWith("<html", true) ||
+            headText.contains("<script", true)
+        if (isHtml || normalizedType.startsWith("text/") || normalizedType.contains("json") ||
+            normalizedType.contains("xhtml")
+        ) return false
+
+        return when {
+            normalizedType == "video/mp4" || normalizedType == "video/quicktime" ||
+                normalizedType == "video/x-m4v" ->
+                AppDownloadManager.matchesFileSignature("video/mp4", header)
+            normalizedType == "video/webm" || normalizedType == "video/x-matroska" ->
+                AppDownloadManager.matchesFileSignature("video/webm", header)
+            normalizedType == "video/x-flv" ->
+                AppDownloadManager.matchesFileSignature("video/x-flv", header)
+            normalizedType.contains("mpegurl") -> headText.startsWith("#EXTM3U", true)
+            normalizedType.contains("dash+xml") -> headText.contains("<MPD", true)
+            normalizedType == "application/octet-stream" || normalizedType.isBlank() ->
+                AppDownloadManager.matchesFileSignature("video/mp4", header) ||
+                    AppDownloadManager.matchesFileSignature("video/webm", header) ||
+                    AppDownloadManager.matchesFileSignature("video/x-flv", header) ||
+                    headText.startsWith("#EXTM3U", true) ||
+                    headText.contains("<MPD", true)
+            else -> false
         }
     }
 
