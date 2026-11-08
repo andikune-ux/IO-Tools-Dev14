@@ -55,27 +55,32 @@ object UcMediaSnifferService {
     const val MOBILE_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
+    private fun isPublicHost(rawHost: String): Boolean {
+        val host = rawHost.lowercase()
+        return host != "localhost" &&
+            !host.endsWith(".local") &&
+            !host.endsWith(".internal") &&
+            !host.endsWith(".lan") &&
+            host.contains('.') &&
+            !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
+            !host.contains(':')
+    }
+
     fun normalizeTargetUrl(rawUrl: String): String? {
         val clean = rawUrl.trim()
         if (clean.isBlank()) return null
         val candidate = if ("://" in clean) clean else "https://$clean"
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
-        if (uri.host.isNullOrBlank() || uri.userInfo != null) return null
-        val host = uri.host.lowercase()
-        if (host == "localhost" || host.endsWith(".local") ||
-            host.endsWith(".internal") || host.endsWith(".lan") ||
-            !host.contains('.') || host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) ||
-            host.contains(':')
-        ) return null
+        val host = uri.host ?: return null
+        if (uri.userInfo != null || !isPublicHost(host)) return null
         return uri.toASCIIString()
     }
 
     fun classifyMediaUrl(rawUrl: String, refererUrl: String = ""): SniffedMediaItem? {
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
-
-        val host = uri.host.lowercase()
+        val host = uri.host?.lowercase() ?: return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null || !isPublicHost(host)) return null
         val path = uri.path.orEmpty().lowercase()
         if (host.contains("doubleclick") || host.contains("googleads") ||
             host.contains("adservice") || path.contains("/analytics/") ||
@@ -228,8 +233,8 @@ object UcMediaSnifferService {
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    val scheme = request?.url?.scheme?.lowercase()
-                    return scheme !in setOf("http", "https")
+                    val target = request?.url?.toString()
+                    return target == null || normalizeTargetUrl(target) == null
                 }
 
                 override fun shouldInterceptRequest(
