@@ -27,6 +27,7 @@ data class TikTokVideoData(
     val sourceUrl: String,
     val noWatermarkVideoUrl: String,
     val noWatermarkFormatId: String,
+    val noWatermarkFormatHasAudio: Boolean,
     val watermarkVideoUrl: String?,
     val audioAvailable: Boolean,
     val durationSeconds: Int,
@@ -61,10 +62,10 @@ object TikTokDownloaderService {
         return uri.toASCIIString().takeIf { allowed }
     }
 
-    internal fun buildVideoFormatSelector(formatId: String): String? {
+    internal fun buildVideoFormatSelector(formatId: String, hasAudio: Boolean = false): String? {
         val safeId = formatId.trim()
         if (!safeId.matches(Regex("^[A-Za-z0-9_.-]{1,80}$"))) return null
-        return "$safeId+bestaudio/$safeId"
+        return if (hasAudio) safeId else "$safeId+bestaudio/$safeId"
     }
 
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
@@ -165,6 +166,7 @@ object TikTokDownloaderService {
                 noWatermarkFormatId = noWatermarkFormat.optString("format_id")
                     .takeIf { buildVideoFormatSelector(it) != null }
                     ?: throw IllegalStateException("Extractor mengembalikan ID format video yang tidak valid."),
+                noWatermarkFormatHasAudio = noWatermarkFormat.optString("acodec", "none") != "none",
                 watermarkVideoUrl = watermarkUrl,
                 audioAvailable = audioFormats.isNotEmpty() ||
                     videoFormats.any { it.optString("acodec", "none") != "none" },
@@ -193,11 +195,12 @@ object TikTokDownloaderService {
         fileName: String,
         title: String,
         isAudio: Boolean,
-        formatId: String? = null
+        formatId: String? = null,
+        formatHasAudio: Boolean = false
     ) {
         if (!isAudio) {
             val sourceUrl = normalizeTikTokUrl(url)
-            val formatSelector = buildVideoFormatSelector(formatId.orEmpty())
+            val formatSelector = buildVideoFormatSelector(formatId.orEmpty(), formatHasAudio)
             if (sourceUrl == null || formatSelector == null) {
                 Toast.makeText(context, "URL sumber atau format video TikTok tidak valid.", Toast.LENGTH_LONG).show()
                 return
