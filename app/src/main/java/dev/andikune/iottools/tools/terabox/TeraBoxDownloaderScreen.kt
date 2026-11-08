@@ -117,7 +117,7 @@ fun TeraBoxDownloaderScreen() {
             CyberTerminalHeader(
                 title = "TERABOX DOWNLOADER",
                 subtitle = "Unduh file dari share publik melalui Worker pribadi",
-                statusText = "WORKER READY",
+                statusText = "SETUP REQUIRED",
                 statusColor = AccentAmber
             )
         }
