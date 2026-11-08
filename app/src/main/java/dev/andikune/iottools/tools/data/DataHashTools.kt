@@ -326,17 +326,32 @@ fun DataHashTools() {
                 var files by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
                 var busy by remember { mutableStateOf(false) }
                 var status by remember { mutableStateOf<String?>(null) }
+                var folderLoadToken by remember { mutableIntStateOf(0) }
 
-                fun loadFolder(uri: Uri) {
-                    val doc = DocumentFile.fromTreeUri(context, uri)
-                    if (doc == null || !doc.isDirectory) {
-                        status = "Folder tidak dapat dibuka."
-                        return
+                fun loadFolder(uri: Uri, showStatus: Boolean = true) {
+                    val token = ++folderLoadToken
+                    scope.launch {
+                        val folderData = withContext(Dispatchers.IO) {
+                            val doc = DocumentFile.fromTreeUri(context, uri)
+                            if (doc == null || !doc.isDirectory) null
+                            else {
+                                val listed = doc.listFiles().filter { it.isFile }
+                                    .sortedBy { it.name?.lowercase() ?: "" }
+                                (doc.name ?: "Folder") to listed
+                            }
+                        }
+                        if (token != folderLoadToken) return@launch
+                        if (folderData == null) {
+                            if (showStatus) status = "Folder tidak dapat dibuka."
+                            return@launch
+                        }
+                        folderUri = uri
+                        folderName = folderData.first
+                        files = folderData.second
+                        if (showStatus) {
+                            status = if (files.isEmpty()) "Folder tidak berisi file." else "${files.size} file ditemukan."
+                        }
                     }
-                    folderUri = uri
-                    folderName = doc.name ?: "Folder"
-                    files = doc.listFiles().filter { it.isFile }.sortedBy { it.name?.lowercase() ?: "" }
-                    status = if (files.isEmpty()) "Folder tidak berisi file." else "${files.size} file ditemukan."
                 }
 
                 val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -352,10 +367,8 @@ fun DataHashTools() {
                 }
 
                 fun targetName(original: String, index: Int): String {
-                    val ext = original.substringAfterLast('.', "")
-                    val number = (startNumber.toIntOrNull() ?: 1) + index
-                    val base = "$prefix${String.format("%03d", number)}$suffix"
-                    return if (ext.isNotBlank()) "$base.$ext" else base
+                    val number = startNumber.toLongOrNull() ?: 1L
+                    return buildBatchRenameName(original, prefix, suffix, number, index)
                 }
 
                 CyberCard(borderColor = AccentRose) {
@@ -369,19 +382,19 @@ fun DataHashTools() {
                     Spacer(modifier = Modifier.height(12.dp))
                     CyberSecondaryButton(
                         text = if (folderUri == null) "PILIH FOLDER" else "GANTI FOLDER: $folderName",
-                        onClick = { picker.launch(null) }
+                        onClick = { if (!busy) picker.launch(null) }
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(modifier = Modifier.weight(1f)) {
-                            CyberTextField(value = prefix, onValueChange = { prefix = it }, label = "Awalan")
+                            CyberTextField(value = prefix, onValueChange = { if (!busy) prefix = it }, label = "Awalan")
                         }
                         Box(modifier = Modifier.weight(1f)) {
-                            CyberTextField(value = suffix, onValueChange = { suffix = it }, label = "Akhiran")
+                            CyberTextField(value = suffix, onValueChange = { if (!busy) suffix = it }, label = "Akhiran")
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    CyberTextField(value = startNumber, onValueChange = { startNumber = it.filter { c -> c.isDigit() } }, label = "Nomor awal")
+                    CyberTextField(value = startNumber, onValueChange = { if (!busy) startNumber = it.filter { c -> c.isDigit() }.take(9) }, label = "Nomor awal")
                     Spacer(modifier = Modifier.height(12.dp))
 
                     if (files.isNotEmpty()) {
@@ -424,15 +437,50 @@ fun DataHashTools() {
                         color = AccentRose,
                         onClick = {
                             val currentUri = folderUri ?: return@CyberButton
+                            val start = startNumber.toLongOrNull()
+                            val filesSnapshot = files.toList()
+                            if (start == null || start < 0L || start > 999_999_999L - filesSnapshot.size) {
+                                status = "Nomor awal tidak valid atau terlalu besar."
+                                return@CyberButton
+                            }
+                            val names = filesSnapshot.mapIndexed { index, file ->
+                                val original = file.name ?: ""
+                                buildBatchRenameName(original, prefix, suffix, start, index)
+                            }
+                            if (filesSnapshot.any { it.name.isNullOrBlank() }) {
+                                status = "Ada file yang tidak memiliki nama dan tidak dapat diubah."
+                                return@CyberButton
+                            }
+                            if (names.distinct().size != names.size) {
+                                status = "Pola menghasilkan nama duplikat. Ubah awalan atau akhiran."
+                                return@CyberButton
+                            }
+                            val existingNames = filesSnapshot.mapNotNull { it.name }.toSet()
+                            val conflicts = names.zip(filesSnapshot).any { (newName, file) ->
+                                newName != file.name && newName in existingNames
+                            }
+                            if (conflicts) {
+                                status = "Nama tujuan sudah digunakan file lain di folder. Tidak ada file yang diubah."
+                                return@CyberButton
+                            }
+
+                            val prefixSnapshot = prefix
+                            val suffixSnapshot = suffix
                             busy = true
                             status = null
                             scope.launch {
                                 val result = withContext(Dispatchers.IO) {
                                     var success = 0
                                     var failed = 0
-                                    files.forEachIndexed { index, file ->
-                                        val original = file.name ?: return@forEachIndexed
-                                        val newName = targetName(original, index)
+                                    filesSnapshot.forEachIndexed { index, file ->
+                                        val original = file.name ?: ""
+                                        val newName = buildBatchRenameName(
+                                            original,
+                                            prefixSnapshot,
+                                            suffixSnapshot,
+                                            start,
+                                            index
+                                        )
                                         if (newName == original) {
                                             success++
                                         } else if (runCatching { file.renameTo(newName) }.getOrDefault(false)) {
@@ -444,7 +492,7 @@ fun DataHashTools() {
                                     success to failed
                                 }
                                 busy = false
-                                loadFolder(currentUri)
+                                loadFolder(currentUri, showStatus = false)
                                 status = "Selesai: ${result.first} berhasil, ${result.second} gagal."
                             }
                         }
@@ -458,6 +506,28 @@ fun DataHashTools() {
             }
         }
     }
+}
+
+internal fun buildBatchRenameName(
+    original: String,
+    prefix: String,
+    suffix: String,
+    startNumber: Long,
+    index: Int
+): String {
+    val extension = original.substringAfterLast('.', "")
+        .takeIf { it.isNotBlank() && original.lastIndexOf('.') > 0 }
+        ?.replace(Regex("[^A-Za-z0-9_-]"), "")
+        ?.take(20)
+    val number = startNumber + index.coerceAtLeast(0)
+    val numberText = String.format(java.util.Locale.US, "%03d", number)
+    val cleanPrefix = prefix.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+    val cleanSuffix = suffix.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+    val extensionPart = extension?.let { ".$it" }.orEmpty()
+    val base = (cleanPrefix + numberText + cleanSuffix).trimEnd('.', ' ')
+        .ifBlank { "file_$numberText" }
+        .take((200 - extensionPart.length).coerceAtLeast(1))
+    return base + extensionPart
 }
 
 @Composable
