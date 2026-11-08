@@ -332,6 +332,7 @@ object UcMediaSnifferService {
                 downloaded.delete()
                 uri
             }
+            outputDir.deleteRecursively()
             withContext(Dispatchers.Main) {
                 result.onSuccess {
                     Toast.makeText(context, "Unduhan stream selesai.", Toast.LENGTH_LONG).show()
