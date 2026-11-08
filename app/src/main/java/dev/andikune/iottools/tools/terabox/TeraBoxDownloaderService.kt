@@ -18,6 +18,7 @@ data class TeraBoxFileInfo(
     val fileSizeFormatted: String,
     val fileSizeBytes: Long,
     val downloadUrl: String,
+    val shareUrl: String,
     val thumbnailUrl: String?,
     val isFolder: Boolean,
     val fileExtension: String,
@@ -64,7 +65,8 @@ object TeraBoxDownloaderService {
         val host = uri.host?.lowercase() ?: return null
         if (uri.scheme?.lowercase() != "https") return null
         if (uri.userInfo != null || uri.query != null || uri.fragment != null) return null
-        if (host == "localhost" || !host.contains('.')) return null
+        if (host == "localhost" || !host.contains('.') ||
+            host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))) return null
         if (uri.port != -1 && uri.port !in 1..65535) return null
         return clean
     }
@@ -167,9 +169,11 @@ object TeraBoxDownloaderService {
                     .ifBlank { formatBytes(sizeBytes) },
                 fileSizeBytes = sizeBytes,
                 downloadUrl = downloadUrl,
+                shareUrl = clean,
                 thumbnailUrl = thumbnail,
                 isFolder = false,
-                fileExtension = fileName.substringAfterLast('.', "").lowercase(),
+                fileExtension = fileName.substringAfterLast('.', "").lowercase()
+                    .ifBlank { mimeType.substringAfter('/', "file").lowercase() },
                 mimeType = mimeType
             )
         }
@@ -208,7 +212,7 @@ object TeraBoxDownloaderService {
                 putExtra(Intent.EXTRA_SUBJECT, fileInfo.fileName)
                 putExtra(
                     Intent.EXTRA_TEXT,
-                    "Unduh file TeraBox (${fileInfo.fileSizeFormatted}):\n${fileInfo.fileName}\n\nLink: ${fileInfo.downloadUrl}"
+                    "Link share TeraBox: ${fileInfo.shareUrl}\nFile: ${fileInfo.fileName} (${fileInfo.fileSizeFormatted})"
                 )
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
