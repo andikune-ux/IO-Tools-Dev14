@@ -325,6 +325,8 @@ object ApkPackagingEngine {
                 putExtra("EXTRA_PERM_CAMERA", config.permCamera)
                 putExtra("EXTRA_PERM_AUDIO", config.permRecordAudio)
                 putExtra("EXTRA_PERM_LOCATION", config.permFineLocation || config.permCoarseLocation)
+            putExtra("EXTRA_PERM_FINE_LOCATION", config.permFineLocation)
+            putExtra("EXTRA_PERM_COARSE_LOCATION", config.permCoarseLocation)
                 putExtra("EXTRA_PULL_REFRESH", config.enablePullToRefresh)
                 putExtra("EXTRA_PROGRESS_BAR", config.enableProgressBar)
                 putExtra("EXTRA_DESKTOP_MODE", config.enableDesktopMode)
@@ -351,6 +353,7 @@ object ApkPackagingEngine {
     }
 
     fun launchStandaloneApp(context: Context, config: WebToApkConfig) {
+        validate(config)
         WebToApkStorage.saveActiveConfig(context, config)
         val intent = Intent(context, WebToApkStandaloneActivity::class.java).apply {
             putExtra("EXTRA_WEB_URL", config.webUrl)
