@@ -75,11 +75,13 @@ object AppDownloadManager {
             .followRedirects(false)
             .followSslRedirects(false)
             .retryOnConnectionFailure(true)
-            .dns { hostname ->
-                val resolved = InetAddress.getAllByName(hostname).filter(VideoDownloadHelper::isPublicAddress)
-                if (resolved.isEmpty()) throw UnknownHostException("Hostname tidak mengarah ke IP publik.")
-                resolved
-            }
+            .dns(object : okhttp3.Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    val resolved = InetAddress.getAllByName(hostname).filter(VideoDownloadHelper::isPublicAddress)
+                    if (resolved.isEmpty()) throw UnknownHostException("Hostname tidak mengarah ke IP publik.")
+                    return resolved
+                }
+            })
             .build()
     }
 
