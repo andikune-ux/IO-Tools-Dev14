@@ -27,6 +27,20 @@ class TikTokUrlValidationTest {
     }
 
     @Test
+    fun buildsSafeAudioVideoFormatSelectors() {
+        assertEquals(
+            "play_addr+bestaudio/play_addr",
+            TikTokDownloaderService.buildVideoFormatSelector("play_addr")
+        )
+        assertEquals(
+            "muxed_format",
+            TikTokDownloaderService.buildVideoFormatSelector("muxed_format", hasAudio = true)
+        )
+        assertNull(TikTokDownloaderService.buildVideoFormatSelector("bad/id"))
+        assertNull(TikTokDownloaderService.buildVideoFormatSelector("format;best"))
+    }
+
+    @Test
     fun onlyAcceptsHttpsTikTokMediaCdnHosts() {
         assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokcdn.com/video.mp4"))
         assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://p16-sign-va.tiktokcdn-us.com/video.mp4"))
