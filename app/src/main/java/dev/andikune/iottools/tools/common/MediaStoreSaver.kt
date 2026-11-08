@@ -341,12 +341,12 @@ object MediaStoreSaver {
             )
             if (exists == false) return candidate
             if (exists == null) {
-                return sanitizeFileName("${stem}_${System.currentTimeMillis()}$ext")
+                return sanitizeFileName("${stem}_${System.nanoTime()}$ext")
             }
             candidate = "$stem ($index)$ext"
             index++
         }
-        return sanitizeFileName("${stem}_${System.currentTimeMillis()}$ext")
+        return sanitizeFileName("${stem}_${System.nanoTime()}$ext")
     }
 
     private fun mediaStoreNameExists(
@@ -355,8 +355,8 @@ object MediaStoreSaver {
         relativePath: String,
         collection: Uri
     ): Boolean? = runCatching {
-        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
-        val args = arrayOf(name, relativePath)
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val args = arrayOf(name, "${relativePath.trimEnd('/')}/%")
         context.contentResolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns._ID),
