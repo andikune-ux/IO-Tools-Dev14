@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONTokener
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URI
 import java.util.concurrent.atomic.AtomicReference
@@ -56,25 +57,88 @@ object UcMediaSnifferService {
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
     private fun isPublicHost(rawHost: String): Boolean {
-        val host = rawHost.lowercase()
-        return host != "localhost" &&
-            !host.endsWith(".local") &&
-            !host.endsWith(".internal") &&
-            !host.endsWith(".lan") &&
-            host.contains('.') &&
-            !host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) &&
-            !host.contains(':')
+        val host = rawHost.lowercase().trimEnd('.')
+        if (host.length !in 1..253 || host == "localhost" || host.endsWith(".localhost") ||
+            host.endsWith(".local") || host.endsWith(".internal") ||
+            host.endsWith(".lan") || host.endsWith(".home.arpa") ||
+            host.contains(':')
+        ) return false
+
+        // Browsers accept shortened, decimal, octal and hexadecimal IPv4 forms.
+        // Reject numeric-only host spellings instead of relying on dotted-quad checks.
+        val numericAddress = Regex(
+            """(?i)^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}$"""
+        )
+        if (host.matches(numericAddress)) return false
+
+        val labels = host.split('.')
+        return labels.size >= 2 && labels.all { label ->
+            label.length in 1..63 &&
+                label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+        }
     }
 
     fun normalizeTargetUrl(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        if (clean.isBlank()) return null
+        if (clean.isBlank() || clean.length > 2048 || clean.any(Char::isISOControl)) return null
         val candidate = if ("://" in clean) clean else "https://$clean"
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
-        if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+        if (uri.port != -1 && uri.port !in 1..65535) return null
         val host = uri.host ?: return null
-        if (uri.userInfo != null || !isPublicHost(host)) return null
+        if (!isPublicHost(host)) return null
         return uri.toASCIIString()
+    }
+
+    internal fun sanitizeReferer(mediaUrl: String, refererUrl: String): String {
+        val media = runCatching { URI(mediaUrl) }.getOrNull() ?: return ""
+        val referer = runCatching { URI(refererUrl) }.getOrNull() ?: return ""
+        if (referer.scheme?.lowercase() !in setOf("http", "https") ||
+            referer.userInfo != null || referer.host.isNullOrBlank() ||
+            (media.scheme.equals("https", true) && referer.scheme.equals("http", true))
+        ) return ""
+
+        val sameOrigin = media.scheme.equals(referer.scheme, true) &&
+            media.host.equals(referer.host, true) &&
+            effectivePort(media) == effectivePort(referer)
+        return runCatching {
+            URI(
+                referer.scheme,
+                null,
+                referer.host,
+                referer.port,
+                if (sameOrigin) referer.path.orEmpty().ifBlank { "/" } else "/",
+                null,
+                null
+            ).toASCIIString()
+        }.getOrDefault("")
+    }
+
+    private fun effectivePort(uri: URI): Int = when {
+        uri.port != -1 -> uri.port
+        uri.scheme.equals("https", true) -> 443
+        else -> 80
+    }
+
+    internal fun readLimited(input: java.io.InputStream, maxBytes: Int): ByteArray {
+        require(maxBytes > 0) { "Batas baca HTML harus lebih besar dari nol." }
+        val output = ByteArrayOutputStream(minOf(maxBytes, 8192))
+        val buffer = ByteArray(8192)
+        while (output.size() < maxBytes) {
+            val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+            if (read < 0) break
+            if (read == 0) {
+                val single = input.read()
+                if (single < 0) break
+                output.write(single)
+                continue
+            }
+            output.write(buffer, 0, read)
+        }
+        if (output.size() == maxBytes && input.read() >= 0) {
+            throw IllegalStateException("HTML halaman melebihi batas $maxBytes byte.")
+        }
+        return output.toByteArray()
     }
 
     fun classifyMediaUrl(rawUrl: String, refererUrl: String = "", contentType: String? = null): SniffedMediaItem? {
@@ -126,7 +190,7 @@ object UcMediaSnifferService {
             },
             sourceDomain = host,
             isDash = isDash,
-            refererUrl = refererUrl,
+            refererUrl = sanitizeReferer(rawUrl, refererUrl),
             fileExtension = ext
         )
     }
