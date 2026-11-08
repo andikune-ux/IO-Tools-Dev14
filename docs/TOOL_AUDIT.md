@@ -164,12 +164,12 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 ## Shared Download Manager — focused repair pass (2026-11-09)
 
 - Added HTTPS-only public URL validation. Credentials in URLs, local hostnames, and IP-literal targets are rejected before the request is started.
-- Revalidates the final URL after redirects so an HTTPS download cannot silently downgrade to HTTP or redirect to a local address.
-- Checks response Content-Type against the expected MIME family, rejects HTML and unexpected JSON error bodies, and validates common file signatures (MP4/QuickTime, WebM/Matroska, FLV, MP3/AAC/OGG/WAV, JPEG/PNG/WebP/GIF, PDF and ZIP).
+- Redirects are handled manually with a five-hop cap. Every destination is validated as HTTPS/public before the next request is made, and Authorization/Cookie headers are stripped when the redirect changes origin.
+- Requires an exact expected Content-Type (while allowing generic octet-stream responses), rejects HTML and unexpected JSON error bodies, and validates common file signatures (MP4/QuickTime, WebM/Matroska, FLV, MP3/AAC/OGG/WAV, JPEG/PNG/WebP/GIF, PDF and ZIP). A WebM or QuickTime response can no longer be saved under an MP4 MIME label merely because both are video.
 - Rejects empty responses and content-length mismatches before publishing the MediaStore item. Incomplete output is aborted rather than reported as a successful download.
 - Added a generation ID and synchronized active-call registration so an older cancelled transfer cannot overwrite the progress or active-call state of a newer download.
 - Cancellation now updates the visible state immediately. Unknown file types receive a `.bin` fallback instead of being mislabeled as MP4.
-- Added regression tests for secure URL validation, MIME compatibility and common file signatures.
+- Added regression tests for secure URL validation, exact MIME compatibility and common file signatures.
 - Remaining verification: device-level tests for redirects, CDN downloads, unknown content length, interrupted transfers, storage exhaustion, and legacy Android storage permissions. The shared manager still uses one active transfer slot at a time by design.
 
 
