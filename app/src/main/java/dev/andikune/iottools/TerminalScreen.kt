@@ -41,6 +41,7 @@ import android.app.PendingIntent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -113,6 +114,8 @@ fun TerminalScreen() {
     var workingDirectory by remember { mutableStateOf(home.absolutePath) }
     var command by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
+    var localProcessActive by remember { mutableStateOf(false) }
+    val activeLocalProcess = remember { AtomicReference<Process?>(null) }
     val lines = remember {
         mutableStateListOf(
             "iD-Tools Android Shell",
@@ -136,7 +139,11 @@ fun TerminalScreen() {
         running = true
         scope.launch {
             try {
-                val result = executeTerminalCommand(context, input, workingDirectory, home, downloadDirectory)
+                val result = executeTerminalCommand(
+                    context, input, workingDirectory, home, downloadDirectory, activeLocalProcess
+                ) { active ->
+                    withContext(Dispatchers.Main) { localProcessActive = active }
+                }
                 val cwdUpdate = result.output.firstOrNull { it.startsWith("__IO_TERMINAL_CWD__") }
                 if (cwdUpdate != null) {
                     workingDirectory = cwdUpdate.removePrefix("__IO_TERMINAL_CWD__")
@@ -236,7 +243,25 @@ fun TerminalScreen() {
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                 colors = ButtonDefaults.buttonColors()
             ) {
-                Text(if (running) "…" else "RUN", fontSize = 11.sp)
+                Text("RUN", fontSize = 11.sp)
+            }
+            Button(
+                onClick = {
+                    val process = activeLocalProcess.getAndSet(null)
+                    if (process != null) {
+                        process.destroyForcibly()
+                        localProcessActive = false
+                        append("[stop] Sinyal penghentian dikirim ke proses lokal.")
+                    }
+                },
+                enabled = running && localProcessActive,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF9B2C2C),
+                    disabledContainerColor = Color(0xFF39434D)
+                )
+            ) {
+                Text("STOP", fontSize = 11.sp)
             }
         }
         Text(
@@ -253,7 +278,9 @@ private suspend fun executeTerminalCommand(
     command: String,
     currentDirectory: String,
     home: File,
-    downloads: File
+    downloads: File,
+    activeLocalProcess: AtomicReference<Process?>,
+    onLocalProcessChanged: (Boolean) -> Unit
 ): TerminalCommandResult = withContext(Dispatchers.IO) {
     val cwd = File(currentDirectory).canonicalFile
     val normalized = command.trim()
@@ -269,11 +296,6 @@ private suspend fun executeTerminalCommand(
         )
         normalized == "clear" -> TerminalCommandResult(emptyList(), 0)
         normalized == "pwd" -> TerminalCommandResult(listOf(cwd.absolutePath), 0)
-        normalized == "whoami" -> {
-            val process = ProcessBuilder("/system/bin/id").redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().readLines()
-            TerminalCommandResult(output, process.waitFor())
-        }
         normalized == "pkg" || normalized.startsWith("pkg ") ||
             normalized == "apt" || normalized.startsWith("apt ") -> {
             val requestId = UUID.randomUUID().toString()
@@ -443,25 +465,33 @@ private suspend fun executeTerminalCommand(
                 put("PATH", "/system/bin:/system/xbin:${File(home, "bin").absolutePath}")
             }
             val process = processBuilder.start()
-            // No interactive stdin is exposed in this terminal UI; close it so commands waiting for input receive EOF.
-            process.outputStream.close()
-            val output = java.util.Collections.synchronizedList(mutableListOf<String>())
-            val reader = Thread {
-                process.inputStream.bufferedReader().useLines { sequence ->
-                    sequence.forEach { line -> if (output.size < 2000) output.add(line) }
+            activeLocalProcess.set(process)
+            onLocalProcessChanged(true)
+            try {
+                // No interactive stdin is exposed in this terminal UI; close it so commands waiting for input receive EOF.
+                process.outputStream.close()
+                val output = java.util.Collections.synchronizedList(mutableListOf<String>())
+                val reader = Thread {
+                    process.inputStream.bufferedReader().useLines { sequence ->
+                        sequence.forEach { line -> if (output.size < 2000) output.add(line) }
+                    }
+                }.apply { isDaemon = true; start() }
+                val finished = process.waitFor(30, TimeUnit.SECONDS)
+                if (!finished) {
+                    process.destroyForcibly()
+                    process.waitFor(2, TimeUnit.SECONDS)
                 }
-            }.apply { isDaemon = true; start() }
-            val finished = process.waitFor(30, TimeUnit.SECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                process.waitFor(2, TimeUnit.SECONDS)
+                reader.join(1000)
+                TerminalCommandResult(
+                    (if (rootRequested) listOf("[Root requested: approve the Superuser/Magisk prompt]") else emptyList()) + output.toList(),
+                    if (finished) process.exitValue() else 124,
+                    !finished
+                )
+            } finally {
+                activeLocalProcess.compareAndSet(process, null)
+                onLocalProcessChanged(false)
+                if (process.isAlive) process.destroyForcibly()
             }
-            reader.join(1000)
-            TerminalCommandResult(
-                (if (rootRequested) listOf("[Root requested: approve the Superuser/Magisk prompt]") else emptyList()) + output.toList(),
-                if (finished) process.exitValue() else 124,
-                !finished
-            )
         }
     }
 }
