@@ -100,7 +100,7 @@ enum class MainNavigationTab(val label: String, val icon: ImageVector) {
     DASHBOARD("Home", Icons.Default.Home),
     WEB_TO_APK("Web-to-APK", Icons.Default.Build),
     ALL_TOOLS("Toolkit Pro", Icons.Default.GridView),
-    TERMINAL("Console", Icons.Default.Terminal)
+    TERMINAL("Terminal", Icons.Default.Terminal)
 }
 
 enum class ToolCategory(val label: String, val description: String, val icon: ImageVector, val color: Color) {
