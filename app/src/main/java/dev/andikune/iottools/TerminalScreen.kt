@@ -65,15 +65,15 @@ private object TermuxCommandEvents {
 
 class TermuxResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: android.content.Context, intent: Intent) {
-        val result = intent.getBundleExtra("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE")
+        val result = intent.getBundleExtra("result")
         if (result == null) {
             TermuxCommandEvents.results.tryEmit("[Termux] Tidak ada data hasil dari Termux.")
             return
         }
-        val stdout = result.getString("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_STDOUT").orEmpty()
-        val stderr = result.getString("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_STDERR").orEmpty()
-        val exitCode = result.getInt("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_EXIT_CODE", -1)
-        val error = result.getString("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_ERRMSG").orEmpty()
+        val stdout = result.getString("stdout").orEmpty()
+        val stderr = result.getString("stderr").orEmpty()
+        val exitCode = result.getInt("exitCode", -1)
+        val error = result.getString("errmsg").orEmpty()
         val message = buildString {
             if (stdout.isNotBlank()) append(stdout)
             if (stderr.isNotBlank()) append("\n").append(stderr)
