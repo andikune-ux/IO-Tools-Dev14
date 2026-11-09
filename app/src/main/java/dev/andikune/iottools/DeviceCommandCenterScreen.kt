@@ -279,8 +279,8 @@ fun DeviceCommandCenterScreen() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item { MetricCard("Baterai", "${snapshot.batteryPercent}%", if (snapshot.charging) "Sedang mengisi" else snapshot.batteryTemperature, Icons.Default.BatteryChargingFull, DashboardGreen) }
-                item { MetricCard("RAM tersedia", formatBytes(snapshot.availableRam), "Dari ${formatBytes(snapshot.totalRam)}", Icons.Default.Memory, DashboardPurple) }
-                item { MetricCard("Penyimpanan kosong", formatBytes(snapshot.availableStorage), "Dari ${formatBytes(snapshot.totalStorage)}", Icons.Default.SdStorage, DashboardAmber) }
+                item { MetricCard("RAM tersedia", dashboardFormatBytes(snapshot.availableRam), "Dari ${dashboardFormatBytes(snapshot.totalRam)}", Icons.Default.Memory, DashboardPurple) }
+                item { MetricCard("Penyimpanan kosong", dashboardFormatBytes(snapshot.availableStorage), "Dari ${dashboardFormatBytes(snapshot.totalStorage)}", Icons.Default.SdStorage, DashboardAmber) }
                 item { MetricCard("Jaringan", snapshot.networkType, snapshot.localIp, Icons.Default.NetworkCheck, DashboardCyan) }
             }
         }
@@ -422,7 +422,7 @@ private fun readDeviceSnapshot(context: Context): DeviceSnapshot {
     )
 }
 
-private fun formatBytes(bytes: Long): String {
+internal fun dashboardFormatBytes(bytes: Long): String {
     if (bytes < 0) return "Tidak tersedia"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
     var value = bytes.toDouble()
@@ -452,7 +452,7 @@ private suspend fun fetchWeather(city: String): Result<WeatherSnapshot> = runCat
         feelsLike = current.getDouble("apparent_temperature"),
         humidity = current.getInt("relative_humidity_2m"),
         windSpeed = current.getDouble("wind_speed_10m"),
-        description = weatherDescription(current.getInt("weather_code")),
+        description = dashboardWeatherDescription(current.getInt("weather_code")),
         isDay = current.optInt("is_day", 1) == 1
     )
 }
@@ -467,7 +467,7 @@ private fun executeJson(url: String): JSONObject {
     }
 }
 
-private fun weatherDescription(code: Int): String = when (code) {
+internal fun dashboardWeatherDescription(code: Int): String = when (code) {
     0 -> "Cerah"
     1 -> "Cerah berawan"
     2 -> "Berawan sebagian"
