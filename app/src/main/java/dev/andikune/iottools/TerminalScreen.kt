@@ -96,7 +96,13 @@ fun TerminalScreen() {
         scope.launch {
             try {
                 val result = executeTerminalCommand(input, workingDirectory, home, downloadDirectory)
-                if (result.output.isNotEmpty()) append(result.output.joinToString("\n"))
+                val cwdUpdate = result.output.firstOrNull { it.startsWith("__IO_TERMINAL_CWD__") }
+                if (cwdUpdate != null) {
+                    workingDirectory = cwdUpdate.removePrefix("__IO_TERMINAL_CWD__")
+                    append(workingDirectory)
+                } else if (result.output.isNotEmpty()) {
+                    append(result.output.joinToString("\n"))
+                }
                 if (result.timedOut) append("[timeout] Proses dihentikan setelah 30 detik.")
                 else if (result.exitCode != 0) append("[exit ${result.exitCode}]")
                 if (input == "clear") lines.clear()
