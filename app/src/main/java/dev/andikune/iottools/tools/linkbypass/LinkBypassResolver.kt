@@ -99,7 +99,7 @@ internal fun extractMetaRefresh(html: String, baseUrl: String): String? {
     val meta = Regex("""(?is)<meta\b[^>]*http-equiv\s*=\s*['"]?refresh['"]?[^>]*content\s*=\s*['"]([^'"]{1,4096})['"][^>]*>""")
         .find(html)?.groupValues?.get(1) ?: return null
     val target = Regex("""(?i)(?:^|;)\s*url\s*=\s*['"]?(.+?)['"]?\s*$""")
-        .find(meta)?.groupValues?.get(1)?.trim()?.trim('\\'', '"') ?: return null
+        .find(meta)?.groupValues?.get(1)?.trim() ?: return null
     val resolved = runCatching { URI(baseUrl).resolve(target).toString() }.getOrNull() ?: return null
     return normalizeHttpUrl(resolved)
 }
