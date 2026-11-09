@@ -110,8 +110,27 @@ internal fun extractMetaRefresh(html: String, baseUrl: String): String? {
         ?: return null
     val target = (1..3).firstNotNullOfOrNull { index -> match.groups[index]?.value?.trim()?.takeIf(String::isNotEmpty) }
         ?: return null
-    val resolved = runCatching { URI(baseUrl).resolve(target).normalize().toString() }.getOrNull() ?: return null
-    return normalizeHttpUrl(resolved)
+    val resolved = runCatching { URI(baseUrl).resolve(target) }.getOrNull() ?: return null
+    // java.net.URI.normalize() preserves leading "/.." segments; browsers clamp
+    // relative traversal at the URL root. Normalize path segments explicitly.
+    val segments = mutableListOf<String>()
+    resolved.rawPath.orEmpty().split("/").forEach { segment ->
+        when (segment) {
+            "", "." -> Unit
+            ".." -> if (segments.isNotEmpty()) segments.removeAt(segments.lastIndex)
+            else -> segments.add(segment)
+        }
+    }
+    val normalizedPath = "/" + segments.joinToString("/")
+    val trailingSlash = resolved.rawPath.orEmpty().endsWith("/") ||
+        resolved.rawPath.orEmpty().endsWith("/.") ||
+        resolved.rawPath.orEmpty().endsWith("/..")
+    val path = if (trailingSlash && normalizedPath != "/") "$normalizedPath/" else normalizedPath
+    val resolvedUrl = buildString {
+        append(resolved.scheme).append("://").append(resolved.rawAuthority).append(path)
+        resolved.rawQuery?.let { append("?").append(it) }
+    }
+    return normalizeHttpUrl(resolvedUrl)
 }
 
 class LinkBypassResolver {
