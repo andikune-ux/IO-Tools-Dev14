@@ -76,20 +76,16 @@ jobs:
         shell: bash
         run: |
           if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" && -n "$ANDROID_KEY_ALIAS" ]]; then
-            # Accept raw Base64, wrapped lines, or a copied KEY=value line.
-          KEYSTORE_B64="$(printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]')"
-          case "$KEYSTORE_B64" in
-            ANDROID_KEYSTORE_BASE64=*) KEYSTORE_B64="${KEYSTORE_B64#ANDROID_KEYSTORE_BASE64=}" ;;
-          esac
-          if [[ ! "$KEYSTORE_B64" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 contains invalid characters. Replace the repository secret with the raw Base64 value from the signing package."
-            exit 1
-          fi
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
-          test -s "$GITHUB_WORKSPACE/my-upload-key.jks"
-          keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
-          echo "publish_ready=true" >> "$GITHUB_OUTPUT"
-          echo "Production signing keystore decoded and validated."
+            # Normalize whitespace and tolerate copying the KEY=value label from github-secrets.txt.
+            KEYSTORE_B64="$(printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | sed 's/^ANDROID_KEYSTORE_BASE64=//')"
+            if ! printf '%s' "$KEYSTORE_B64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is invalid. Replace the secret with the Base64 value only."
+              exit 1
+            fi
+            test -s "$GITHUB_WORKSPACE/my-upload-key.jks"
+            keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+            echo "publish_ready=true" >> "$GITHUB_OUTPUT"
+            echo "Production signing keystore decoded and validated."
           else
             echo "publish_ready=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Production signing secrets are incomplete. Release APK will use a temporary CI key and is for validation only."
