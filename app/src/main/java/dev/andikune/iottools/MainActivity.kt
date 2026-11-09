@@ -127,7 +127,7 @@ fun MainAppScreen() {
     var currentTab by remember { mutableStateOf(MainNavigationTab.DASHBOARD) }
     var selectedCategory by remember { mutableStateOf<ToolCategory?>(null) }
 
-    BackHandler(enabled = selectedCategory != null || currentTab != MainNavigationTab.WEB_TO_APK) {
+    BackHandler(enabled = selectedCategory != null || currentTab != MainNavigationTab.DASHBOARD) {
         if (selectedCategory != null) {
             selectedCategory = null
         } else {
