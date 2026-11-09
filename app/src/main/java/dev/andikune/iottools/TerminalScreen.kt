@@ -355,11 +355,19 @@ private suspend fun executeTerminalCommand(
                 activeConnection.disconnect()
                 return@withContext TerminalCommandResult(listOf("Download dibatasi maksimal 100 MB."), 1)
             }
-            if (target.exists()) {
+            // Reserve the destination atomically so concurrent downloads cannot replace an existing file.
+            if (!target.createNewFile()) {
                 activeConnection.disconnect()
                 return@withContext TerminalCommandResult(listOf("File tujuan sudah ada; file lama tidak ditimpa: ${target.absolutePath}"), 1)
             }
-            val temporaryFile = File.createTempFile(".iottools-download-", ".part", downloads)
+            val temporaryFile = try {
+                File.createTempFile(".iottools-download-", ".part", downloads)
+            } catch (error: Exception) {
+                target.delete()
+                activeConnection.disconnect()
+                throw error
+            }
+            var committed = false
             try {
                 activeConnection.inputStream.use { input ->
                     temporaryFile.outputStream().buffered().use { output ->
@@ -376,11 +384,14 @@ private suspend fun executeTerminalCommand(
                         }
                     }
                 }
-                if (target.exists() || !temporaryFile.renameTo(target)) {
-                    return@withContext TerminalCommandResult(listOf("Gagal menyimpan file; file tujuan mungkin sudah ada."), 1)
+                // The placeholder was created by this process, so replacing it cannot overwrite a pre-existing user file.
+                if (!temporaryFile.renameTo(target)) {
+                    return@withContext TerminalCommandResult(listOf("Gagal menyimpan file hasil download."), 1)
                 }
+                committed = true
             } finally {
                 temporaryFile.delete()
+                if (!committed) target.delete()
                 activeConnection.disconnect()
             }
             return@withContext TerminalCommandResult(listOf("Downloaded: ${target.absolutePath} (${target.length()} bytes)"), 0)
@@ -404,6 +415,8 @@ private suspend fun executeTerminalCommand(
                 put("PATH", "/system/bin:/system/xbin:${File(home, "bin").absolutePath}")
             }
             val process = processBuilder.start()
+            // No interactive stdin is exposed in this terminal UI; close it so commands waiting for input receive EOF.
+            process.outputStream.close()
             val output = java.util.Collections.synchronizedList(mutableListOf<String>())
             val reader = Thread {
                 process.inputStream.bufferedReader().useLines { sequence ->
