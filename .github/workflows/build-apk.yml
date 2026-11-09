@@ -163,7 +163,7 @@ jobs:
               echo "- Pull request runs do not publish GitHub Releases."
             fi
             if [[ "$GIT_REF" != "refs/heads/main" && "$GIT_REF" != "refs/heads/master" && "$GIT_REF" != "refs/heads/fix/io-tools-hardening-and-tool-audit" ]]; then
-              echo "- Current ref is $GIT_REF; production releases are published only from main/master."
+              echo "- Current ref is $GIT_REF; this ref is not enabled for production publishing."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::Publish job ran, but production publishing conditions were not met."
