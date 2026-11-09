@@ -303,16 +303,19 @@ private suspend fun executeTerminalCommand(
             val shellCommand = if (rootRequested && rootPayload.startsWith("-c ")) {
                 rootPayload.removePrefix("-c ").trim().removeSurrounding("\"")
             } else rootPayload
-            val process = if (rootRequested) ProcessBuilder("su", "-c", shellCommand)
-                else ProcessBuilder("/system/bin/sh", "-c", shellCommand)
-                .directory(cwd)
-                .redirectErrorStream(true)
-                .apply {
-                    environment()["HOME"] = home.absolutePath
-                    environment()["TMPDIR"] = File(home, "tmp").apply { mkdirs() }.absolutePath
-                    environment()["PATH"] = "/system/bin:/system/xbin:${File(home, "bin").absolutePath}"
-                }
-                .start()
+            val processBuilder = if (rootRequested) {
+                ProcessBuilder("su", "-c", shellCommand)
+            } else {
+                ProcessBuilder("/system/bin/sh", "-c", shellCommand)
+            }
+            processBuilder.directory(cwd)
+            processBuilder.redirectErrorStream(true)
+            processBuilder.environment().apply {
+                put("HOME", home.absolutePath)
+                put("TMPDIR", File(home, "tmp").apply { mkdirs() }.absolutePath)
+                put("PATH", "/system/bin:/system/xbin:${File(home, "bin").absolutePath}")
+            }
+            val process = processBuilder.start()
             val output = java.util.Collections.synchronizedList(mutableListOf<String>())
             val reader = Thread {
                 process.inputStream.bufferedReader().useLines { sequence ->
