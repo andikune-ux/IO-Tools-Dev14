@@ -54,6 +54,7 @@ import dev.andikune.iottools.tools.terabox.TeraBoxDownloaderScreen
 import dev.andikune.iottools.tools.tiktok.TikTokDownloaderScreen
 import dev.andikune.iottools.tools.ucbrowser.UcMediaSnifferScreen
 import dev.andikune.iottools.tools.youtube.YouTubeDownloaderScreen
+import dev.andikune.iottools.tools.linkbypass.LinkBypassScreen
 import dev.andikune.iottools.ui.components.CyberTerminalHeader
 import dev.andikune.iottools.ui.theme.*
 
@@ -114,7 +115,8 @@ enum class ToolCategory(val label: String, val description: String, val icon: Im
     DATA_HASH("File & Hash", "SHA-256, MD5, Base64, Rename", Icons.Default.DataObject, AccentEmerald),
     NETWORK("Network Recon", "IP Lookup, DNS, Live Ping, SSL", Icons.Default.Wifi, PrimaryIndigoLight),
     PRIVACY("Privacy Vault", "Password, Notes, 2FA Authenticator", Icons.Default.Security, AccentPurple),
-    MEDIA("Audio & Video", "Trim, Extract MP3, Video ke GIF", Icons.Default.VideoLibrary, AccentAmber)
+    MEDIA("Audio & Video", "Trim, Extract MP3, Video ke GIF", Icons.Default.VideoLibrary, AccentAmber),
+    LINK_BYPASS("Short Link Bypass", "Temukan URL tujuan tautan pendek", Icons.Default.Link, AccentEmerald)
 }
 
 @Composable
@@ -187,6 +189,7 @@ fun MainAppScreen() {
                             ToolCategory.NETWORK -> NetworkTools()
                             ToolCategory.PRIVACY -> PrivacyTools()
                             ToolCategory.MEDIA -> MediaTools()
+                            ToolCategory.LINK_BYPASS -> LinkBypassScreen()
                         }
                     }
                 }
@@ -299,7 +302,7 @@ fun ModernToolsGridScreen(onSelectCategory: (ToolCategory) -> Unit) {
     ) {
         CyberTerminalHeader(
             title = "All-in-One Toolkit",
-            subtitle = "12 Modul Utilitas & Media Downloader Pro",
+            subtitle = "13 Modul Utilitas & Media Downloader Pro",
             statusText = "READY",
             statusColor = AccentEmerald
         )
