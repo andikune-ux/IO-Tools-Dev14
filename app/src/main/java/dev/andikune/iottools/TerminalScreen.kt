@@ -36,6 +36,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import android.content.ComponentName
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.app.PendingIntent
+import kotlinx.coroutines.flow.MutableSharedFlow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -55,6 +58,31 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URL
 import java.util.concurrent.TimeUnit
+
+private object TermuxCommandEvents {
+    val results = MutableSharedFlow<String>(extraBufferCapacity = 8)
+}
+
+class TermuxResultReceiver : BroadcastReceiver() {
+    override fun onReceive(context: android.content.Context, intent: Intent) {
+        val result = intent.getBundleExtra("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE")
+        if (result == null) {
+            TermuxCommandEvents.results.tryEmit("[Termux] Tidak ada data hasil dari Termux.")
+            return
+        }
+        val stdout = result.getString("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_STDOUT").orEmpty()
+        val stderr = result.getString("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_STDERR").orEmpty()
+        val exitCode = result.getInt("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_EXIT_CODE", -1)
+        val error = result.getString("com.termux.service.EXTRA_PLUGIN_RESULT_BUNDLE_ERRMSG").orEmpty()
+        val message = buildString {
+            if (stdout.isNotBlank()) append(stdout)
+            if (stderr.isNotBlank()) append("\n").append(stderr)
+            if (error.isNotBlank()) append("\n[Termux] ").append(error)
+            append("\n[Termux exit: ").append(exitCode).append("]")
+        }
+        TermuxCommandEvents.results.tryEmit(message)
+    }
+}
 
 private data class TerminalCommandResult(
     val output: List<String>,
@@ -112,6 +140,10 @@ fun TerminalScreen() {
                 running = false
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        TermuxCommandEvents.results.collect { append(it) }
     }
 
     LaunchedEffect(lines.size) {
@@ -237,6 +269,16 @@ private suspend fun executeTerminalCommand(
                     putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
                     putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
                     putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+                    val resultIntent = Intent(context, TermuxResultReceiver::class.java)
+                    val pendingFlags = PendingIntent.FLAG_ONE_SHOT or
+                        if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+                    val resultPendingIntent = PendingIntent.getBroadcast(
+                        context,
+                        (System.nanoTime() and 0x7fffffff).toInt(),
+                        resultIntent,
+                        pendingFlags
+                    )
+                    putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", resultPendingIntent)
                 }
                 context.startService(intent)
                 TerminalCommandResult(
