@@ -110,7 +110,7 @@ internal fun extractMetaRefresh(html: String, baseUrl: String): String? {
         ?: return null
     val target = (1..3).firstNotNullOfOrNull { index -> match.groups[index]?.value?.trim()?.takeIf(String::isNotEmpty) }
         ?: return null
-    val resolved = runCatching { URI(baseUrl).resolve(target).toString() }.getOrNull() ?: return null
+    val resolved = runCatching { URI(baseUrl).resolve(target).normalize().toString() }.getOrNull() ?: return null
     return normalizeHttpUrl(resolved)
 }
 
