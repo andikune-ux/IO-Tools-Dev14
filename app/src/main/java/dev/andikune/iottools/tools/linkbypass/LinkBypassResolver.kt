@@ -108,12 +108,14 @@ class LinkBypassResolver {
     suspend fun resolve(input: String): LinkResolution {
         val original = normalizeHttpUrl(input)
             ?: throw LinkResolutionException("URL tidak valid. Gunakan tautan HTTP atau HTTPS yang lengkap.")
-        val dns = Dns { hostname ->
-            val addresses = Dns.SYSTEM.lookup(hostname)
-            if (addresses.isEmpty() || addresses.any { !isPublicDestinationAddress(it) }) {
-                throw java.net.UnknownHostException("Host mengarah ke IP privat, lokal, atau jaringan khusus.")
+        val dns = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                val addresses = Dns.SYSTEM.lookup(hostname)
+                if (addresses.isEmpty() || addresses.any { !isPublicDestinationAddress(it) }) {
+                    throw java.net.UnknownHostException("Host mengarah ke IP privat, lokal, atau jaringan khusus.")
+                }
+                return addresses
             }
-            addresses
         }
         val client = OkHttpClient.Builder().dns(dns).followRedirects(false).followSslRedirects(false)
             .retryOnConnectionFailure(false).connectTimeout(8, TimeUnit.SECONDS)
