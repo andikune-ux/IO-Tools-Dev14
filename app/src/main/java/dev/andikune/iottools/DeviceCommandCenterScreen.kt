@@ -242,7 +242,7 @@ fun DeviceCommandCenterScreen() {
                         )
                     )
                     Button(
-                        onClick = { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { loadWeather() } },
+                        onClick = { scope.launch { loadWeather() } },
                         enabled = !weatherLoading && city.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF286080)),
                         modifier = Modifier.fillMaxWidth()
@@ -415,7 +415,11 @@ private fun readDeviceSnapshot(context: Context): DeviceSnapshot {
         charging = charging,
         screenResolution = "${metrics.widthPixels} × ${metrics.heightPixels}",
         density = String.format(Locale.getDefault(), "%.1f dpi", metrics.densityDpi.toFloat()),
-        refreshRate = runCatching {\n            @Suppress("DEPRECATION")\n            val display = (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay\n            String.format(Locale.getDefault(), "%.0f Hz", display.refreshRate)\n        }.getOrDefault("Tidak tersedia"),
+        refreshRate = runCatching {
+            @Suppress("DEPRECATION")
+            val display = (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
+            String.format(Locale.getDefault(), "%.0f Hz", display.refreshRate)
+        }.getOrDefault("Tidak tersedia"),
         networkType = networkType,
         localIp = ip,
         uptime = uptime
