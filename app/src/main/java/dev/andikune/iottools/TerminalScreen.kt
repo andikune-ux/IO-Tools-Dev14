@@ -355,9 +355,14 @@ private suspend fun executeTerminalCommand(
                 activeConnection.disconnect()
                 return@withContext TerminalCommandResult(listOf("Download dibatasi maksimal 100 MB."), 1)
             }
+            if (target.exists()) {
+                activeConnection.disconnect()
+                return@withContext TerminalCommandResult(listOf("File tujuan sudah ada; file lama tidak ditimpa: ${target.absolutePath}"), 1)
+            }
+            val temporaryFile = File.createTempFile(".iottools-download-", ".part", downloads)
             try {
                 activeConnection.inputStream.use { input ->
-                    target.outputStream().buffered().use { output ->
+                    temporaryFile.outputStream().buffered().use { output ->
                         val buffer = ByteArray(8192)
                         var total = 0L
                         while (true) {
@@ -365,17 +370,17 @@ private suspend fun executeTerminalCommand(
                             if (count < 0) break
                             total += count
                             if (total > 100L * 1024L * 1024L) {
-                                target.delete()
                                 return@withContext TerminalCommandResult(listOf("Download dibatasi maksimal 100 MB."), 1)
                             }
                             output.write(buffer, 0, count)
                         }
                     }
                 }
-            } catch (error: Exception) {
-                target.delete()
-                throw error
+                if (target.exists() || !temporaryFile.renameTo(target)) {
+                    return@withContext TerminalCommandResult(listOf("Gagal menyimpan file; file tujuan mungkin sudah ada."), 1)
+                }
             } finally {
+                temporaryFile.delete()
                 activeConnection.disconnect()
             }
             return@withContext TerminalCommandResult(listOf("Downloaded: ${target.absolutePath} (${target.length()} bytes)"), 0)
