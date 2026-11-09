@@ -6,6 +6,7 @@ This document distinguishes implemented code from verified runtime behavior. A s
 
 | Tool | Implementation found | Current verification | Remaining checks |
 |---|---|---|---|
+| Device Command Center | Home dashboard with live clock/date, device/build data, battery, RAM, internal storage, display, network type/local IP, uptime, and Open-Meteo current weather by manually entered city | Deterministic formatting/weather-code unit tests added; CI build and tests pending; no physical-device verification yet | Verify Compose layout on small screens, OEM battery/RAM reporting, network transitions, offline weather errors, city search, and Android API 24+ compatibility |
 | QR & Barcode | ZXing QR/Data Matrix and 1D barcode generation plus camera scanner | EAN-13/Code 39/Code 128 validation regression tests added; camera not device-verified | Camera permission, autofocus, low-light, scanner compatibility and generated output on devices |
 | Image Studio | Bitmap compression, resize, conversion, image-to-PDF, EXIF reading/removal | Resize memory-limit regression tests added; processing moved to IO | Large images, orientation variants, transparency, storage output and EXIF stripping on devices |
 | PDF Tools | PDFBox merge/split/rotate/AES-256 protect/compress; Android PdfRenderer for raster recompression with scratch-file buffering | Range/password/rotation/compression-bound regression tests added; device PDF compatibility not verified | Encrypted inputs, malformed files, very large PDFs, page order, scratch storage and output compatibility |
@@ -305,3 +306,14 @@ Both source fixes are committed on the working branch. The next GitHub Actions r
 - Added user-readable handling for Worker `budget_exhausted`, upstream availability/shape errors, and invalid-parameter errors.
 - Added JVM regression coverage for response stream edge cases and share-ID parsing.
 - Remaining verification: deploy a user-controlled Worker, run the upstream smoke test against an authorized public file and password-protected share, then verify multi-file folders, Range/resume, API-key auth, expired-link recovery and MediaStore output on an Android device. The app does not claim live TeraBox extraction until a real Worker deployment is configured and exercised.
+
+
+## Device Command Center implementation (2026-11-10)
+
+- Added a new Home destination and made it the launch tab instead of opening Web-to-APK.
+- Added a Liquid Glass-inspired dark dashboard for the device clock/date, manually selected city weather, battery, RAM, internal storage, network type/local IP, manufacturer/model, Android/API level, security patch, kernel, CPU ABI/core count, CPU0 maximum frequency when readable, display metrics, and uptime.
+- Weather is fetched over HTTPS from Open-Meteo geocoding and forecast endpoints. The city is entered manually (default: Jakarta); the feature does not request device location permission or silently transmit GPS coordinates.
+- Device snapshot values refresh every five seconds while the dashboard is composed. Weather refresh is user-triggered after the initial load.
+- Missing or restricted hardware values are displayed as unavailable rather than fabricated.
+- Added unit tests for byte formatting and Open-Meteo weather-code descriptions.
+- Validation status: GitHub Actions must pass before moving to the next feature. Physical-device testing is still required; no device test is claimed.
