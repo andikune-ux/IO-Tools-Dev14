@@ -106,7 +106,7 @@ internal fun extractMetaRefresh(html: String, baseUrl: String): String? {
         metaAttribute(candidate.value, "http-equiv").equals("refresh", ignoreCase = true)
     }?.value ?: return null
     val content = metaAttribute(tag, "content")?.takeIf { it.length in 1..4096 } ?: return null
-    val match = Regex("""(?is)(?:^|;)\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|(.+?))\\s*$""").find(content)
+    val match = Regex("""(?is)(?:^|;)\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*$""").find(content)
         ?: return null
     val target = (1..3).firstNotNullOfOrNull { index -> match.groups[index]?.value?.trim()?.takeIf(String::isNotEmpty) }
         ?: return null
