@@ -38,7 +38,10 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.app.PendingIntent
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -60,14 +63,28 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 
 private object TermuxCommandEvents {
-    val results = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    private val pending = ConcurrentHashMap<String, CompletableDeferred<String>>()
+
+    fun register(requestId: String): CompletableDeferred<String> {
+        return CompletableDeferred<String>().also { pending[requestId] = it }
+    }
+
+    fun complete(requestId: String?, message: String) {
+        if (requestId.isNullOrBlank()) return
+        pending.remove(requestId)?.complete(message)
+    }
+
+    fun remove(requestId: String) {
+        pending.remove(requestId)
+    }
 }
 
 class TermuxResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: android.content.Context, intent: Intent) {
+        val requestId = intent.getStringExtra("iottools.termux.request_id")
         val result = intent.getBundleExtra("result")
         if (result == null) {
-            TermuxCommandEvents.results.tryEmit("[Termux] Tidak ada data hasil dari Termux.")
+            TermuxCommandEvents.complete(requestId, "[Termux] Tidak ada data hasil dari Termux.")
             return
         }
         val stdout = result.getString("stdout").orEmpty()
@@ -75,12 +92,19 @@ class TermuxResultReceiver : BroadcastReceiver() {
         val exitCode = result.getInt("exitCode", -1)
         val error = result.getString("errmsg").orEmpty()
         val message = buildString {
-            if (stdout.isNotBlank()) append(stdout)
-            if (stderr.isNotBlank()) append("\n").append(stderr)
-            if (error.isNotBlank()) append("\n[Termux] ").append(error)
-            append("\n[Termux exit: ").append(exitCode).append("]")
+            if (stdout.isNotBlank()) append(stdout.trimEnd())
+            if (stderr.isNotBlank()) {
+                if (isNotEmpty()) append("\n")
+                append(stderr.trimEnd())
+            }
+            if (error.isNotBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("[Termux] ").append(error)
+            }
+            if (isNotEmpty()) append("\n")
+            append("[Termux exit: ").append(exitCode).append("]")
         }
-        TermuxCommandEvents.results.tryEmit(message)
+        TermuxCommandEvents.complete(requestId, message)
     }
 }
 
@@ -130,7 +154,13 @@ fun TerminalScreen() {
                 } else if (result.output.isNotEmpty()) {
                     append(result.output.joinToString("\n"))
                 }
-                if (result.timedOut) append("[timeout] Proses dihentikan setelah 30 detik.")
+                if (result.timedOut) {
+                    if (input.startsWith("pkg ") || input.startsWith("apt ")) {
+                        append("[timeout] Termux belum mengirim hasil dalam 30 menit. Periksa sesi Termux; proses mungkin masih berjalan.")
+                    } else {
+                        append("[timeout] Proses lokal dihentikan setelah 30 detik.")
+                    }
+                }
                 else if (result.exitCode != 0) append("[exit ${result.exitCode}]")
                 if (input == "clear") lines.clear()
                 if (input == "clear") append("Terminal dibersihkan.")
@@ -140,10 +170,6 @@ fun TerminalScreen() {
                 running = false
             }
         }
-    }
-
-    LaunchedEffect(Unit) {
-        TermuxCommandEvents.results.collect { append(it) }
     }
 
     LaunchedEffect(lines.size) {
@@ -260,7 +286,20 @@ private suspend fun executeTerminalCommand(
         }
         normalized == "pkg" || normalized.startsWith("pkg ") ||
             normalized == "apt" || normalized.startsWith("apt ") -> {
+            val requestId = UUID.randomUUID().toString()
+            val completion = TermuxCommandEvents.register(requestId)
             try {
+                val resultIntent = Intent(context, TermuxResultReceiver::class.java).apply {
+                    putExtra("iottools.termux.request_id", requestId)
+                }
+                val pendingFlags = PendingIntent.FLAG_ONE_SHOT or
+                    if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+                val resultPendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    requestId.hashCode(),
+                    resultIntent,
+                    pendingFlags
+                )
                 val intent = Intent().apply {
                     component = ComponentName("com.termux", "com.termux.app.RunCommandService")
                     action = "com.termux.RUN_COMMAND"
@@ -269,27 +308,26 @@ private suspend fun executeTerminalCommand(
                     putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
                     putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
                     putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
-                    val resultIntent = Intent(context, TermuxResultReceiver::class.java)
-                    val pendingFlags = PendingIntent.FLAG_ONE_SHOT or
-                        if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-                    val resultPendingIntent = PendingIntent.getBroadcast(
-                        context,
-                        (System.nanoTime() and 0x7fffffff).toInt(),
-                        resultIntent,
-                        pendingFlags
-                    )
                     putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", resultPendingIntent)
                 }
                 context.startService(intent)
-                TerminalCommandResult(
-                    listOf("Perintah dikirim ke Termux: $normalized", "Output instalasi akan tampil di sesi Termux.", "Aktifkan Allow external apps di Termux Settings jika akses ditolak."),
-                    0
-                )
+                val result = withTimeoutOrNull(30L * 60L * 1000L) { completion.await() }
+                if (result == null) {
+                    TerminalCommandResult(
+                        listOf("Tidak ada callback dari Termux setelah 30 menit.", "Periksa apakah Termux masih menjalankan perintah dan apakah Allow external apps aktif."),
+                        124,
+                        timedOut = true
+                    )
+                } else {
+                    TerminalCommandResult(result.lines().takeLast(2000), if (result.endsWith("[Termux exit: 0]")) 0 else 1)
+                }
             } catch (error: Exception) {
                 TerminalCommandResult(
-                    listOf("Gagal membuka Termux: ${error.message ?: error.javaClass.simpleName}", "Pastikan Termux terpasang dan Allow external apps diaktifkan."),
+                    listOf("Gagal menjalankan perintah Termux: ${error.message ?: error.javaClass.simpleName}", "Pastikan Termux terpasang, Allow external apps aktif, dan izin Run commands diberikan."),
                     127
                 )
+            } finally {
+                TermuxCommandEvents.remove(requestId)
             }
         }
         normalized == "cd" || normalized.startsWith("cd ") -> {
