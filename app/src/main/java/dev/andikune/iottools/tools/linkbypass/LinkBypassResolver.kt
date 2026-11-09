@@ -94,12 +94,22 @@ internal fun extractRedirectParameter(url: String): String? {
     return null
 }
 
+private fun metaAttribute(tag: String, name: String): String? {
+    val pattern = Regex("(?is)\\b" + Regex.escape(name) + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))")
+    val match = pattern.find(tag) ?: return null
+    return (1..3).firstNotNullOfOrNull { index -> match.groups[index]?.value }
+}
+
 internal fun extractMetaRefresh(html: String, baseUrl: String): String? {
     if (html.length > MAX_RESPONSE_BYTES) return null
-    val meta = Regex("""(?is)<meta\b[^>]*http-equiv\s*=\s*['"]?refresh['"]?[^>]*content\s*=\s*['"]([^'"]{1,4096})['"][^>]*>""")
-        .find(html)?.groupValues?.get(1) ?: return null
-    val target = Regex("""(?i)(?:^|;)\s*url\s*=\s*['"]?(.+?)['"]?\s*$""")
-        .find(meta)?.groupValues?.get(1)?.trim() ?: return null
+    val tag = Regex("""(?is)<meta\\b[^>]*>""").findAll(html).firstOrNull { candidate ->
+        metaAttribute(candidate.value, "http-equiv").equals("refresh", ignoreCase = true)
+    }?.value ?: return null
+    val content = metaAttribute(tag, "content")?.takeIf { it.length in 1..4096 } ?: return null
+    val match = Regex("""(?is)(?:^|;)\\s*url\\s*=\\s*(?:"([^"]*)"|'([^']*)'|(.+?))\\s*$""").find(content)
+        ?: return null
+    val target = (1..3).firstNotNullOfOrNull { index -> match.groups[index]?.value?.trim()?.takeIf(String::isNotEmpty) }
+        ?: return null
     val resolved = runCatching { URI(baseUrl).resolve(target).toString() }.getOrNull() ?: return null
     return normalizeHttpUrl(resolved)
 }
