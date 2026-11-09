@@ -56,10 +56,6 @@ import java.io.File
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
-private object TermuxBridge {
-    lateinit var context: android.content.Context
-}
-
 private data class TerminalCommandResult(
     val output: List<String>,
     val exitCode: Int,
@@ -69,7 +65,6 @@ private data class TerminalCommandResult(
 @Composable
 fun TerminalScreen() {
     val context = LocalContext.current
-    remember(context) { TermuxBridge.context = context.applicationContext }
     val scope = rememberCoroutineScope()
     val home = remember { File(context.filesDir, "terminal").apply { mkdirs() } }
     val downloadDirectory = remember { File(home, "downloads").apply { mkdirs() } }
@@ -99,7 +94,7 @@ fun TerminalScreen() {
         running = true
         scope.launch {
             try {
-                val result = executeTerminalCommand(input, workingDirectory, home, downloadDirectory)
+                val result = executeTerminalCommand(context, input, workingDirectory, home, downloadDirectory)
                 val cwdUpdate = result.output.firstOrNull { it.startsWith("__IO_TERMINAL_CWD__") }
                 if (cwdUpdate != null) {
                     workingDirectory = cwdUpdate.removePrefix("__IO_TERMINAL_CWD__")
@@ -206,6 +201,7 @@ fun TerminalScreen() {
 }
 
 private suspend fun executeTerminalCommand(
+    context: android.content.Context,
     command: String,
     currentDirectory: String,
     home: File,
@@ -241,7 +237,7 @@ private suspend fun executeTerminalCommand(
                     putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
                     putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
                 }
-                TermuxBridge.context.startService(intent)
+                context.startService(intent)
                 TerminalCommandResult(
                     listOf("Perintah dikirim ke Termux: $normalized", "Output instalasi akan tampil di sesi Termux.", "Aktifkan Allow external apps di Termux Settings jika akses ditolak."),
                     0
@@ -302,7 +298,10 @@ private suspend fun executeTerminalCommand(
         }
         else -> {
             val rootRequested = normalized.startsWith("su ") || normalized.startsWith("sudo ")
-            val shellCommand = if (rootRequested) normalized.substringAfter(' ').trim() else normalized
+            val rootPayload = if (rootRequested) normalized.substringAfter(' ').trim() else normalized
+            val shellCommand = if (rootRequested && rootPayload.startsWith("-c ")) {
+                rootPayload.removePrefix("-c ").trim().removeSurrounding("\"")
+            } else rootPayload
             val process = if (rootRequested) ProcessBuilder("su", "-c", shellCommand)
                 else ProcessBuilder("/system/bin/sh", "-c", shellCommand)
                 .directory(cwd)
