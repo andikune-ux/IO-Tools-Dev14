@@ -44,7 +44,7 @@ class LinkBypassResolverTest {
     fun extractsKnownRedirectQueryParameters() {
         assertEquals(
             "https://destination.example/file",
-            extractRedirectParameter("https://short.example/go?url=https%3A%2F%2 destination.example%2Ffile".replace("%2F%2 destination", "%2F%2Fdestination"))
+            extractRedirectParameter("https://short.example/go?url=https%3A%2F%2Fdestination.example%2Ffile")
         )
         assertNull(extractRedirectParameter("https://short.example/go?campaign=spring"))
         assertNull(extractRedirectParameter("https://short.example/go?url=javascript%3Aalert(1)"))
