@@ -29,6 +29,11 @@ internal fun normalizeHttpUrl(raw: String): String? {
     val host = if (rawHost.contains(':')) rawHost.lowercase(Locale.ROOT) else
         runCatching { IDN.toASCII(rawHost, IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT) }.getOrNull() ?: return null
     if (host.isBlank() || host.length > 253 || (uri.port != -1 && uri.port !in setOf(80, 443))) return null
+    // IP literals bypass OkHttp's DNS callback, so validate them before constructing a request.
+    if (host.contains(':') || host.matches(Regex("[0-9.]+"))) {
+        val literal = runCatching { InetAddress.getByName(host) }.getOrNull() ?: return null
+        if (!isPublicDestinationAddress(literal)) return null
+    }
     val authorityHost = if (host.contains(':')) "[$host]" else host
     val port = if (uri.port == -1 || (scheme == "http" && uri.port == 80) || (scheme == "https" && uri.port == 443)) "" else ":${uri.port}"
     val path = uri.rawPath?.takeIf { it.isNotEmpty() } ?: "/"
