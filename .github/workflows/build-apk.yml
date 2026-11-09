@@ -97,30 +97,24 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD || 'android' }}
-        run: gradle assembleRelease -PAPP_VERSION_CODE=${{ github.run_number }} -PAPP_VERSION_NAME=1.4.0 --stacktrace
-      - name: Build debug APK
-        run: gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} -PAPP_VERSION_NAME=1.4.0 --stacktrace
+        run: gradle assembleRelease -PAPP_VERSION_CODE=${{ github.run_number }} -PAPP_VERSION_NAME=1.4.0-${{ github.run_number }} --stacktrace
       - name: Prepare APK artifact
-        id: apk
         shell: bash
         run: |
           RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
-          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$RELEASE_APK"
-          test -s "$DEBUG_APK"
           if [[ "${{ steps.signing.outputs.publish_ready }}" == "true" ]]; then
             cp "$RELEASE_APK" "iD-Tools-Dev14-Release.apk"
-            echo "artifact_name=iD-Tools-Dev14-Release" >> "$GITHUB_OUTPUT"
           else
             cp "$RELEASE_APK" "iD-Tools-Dev14-Release-CI-Validation-Only.apk"
-            echo "artifact_name=iD-Tools-Dev14-Release-CI-Validation-Only" >> "$GITHUB_OUTPUT"
           fi
-          cp "$DEBUG_APK" "iD-Tools-Dev14-Debug.apk"
+          echo "Prepared exactly one APK for the downloadable artifact."
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.apk.outputs.artifact_name }}
-          path: iD-Tools-Dev14-*.apk
+          name: iD-Tools-Dev14-Release
+          path: iD-Tools-Dev14-Release*.apk
+          if-no-files-found: error
           retention-days: 30
 
   publish:
@@ -133,24 +127,26 @@ jobs:
       actions: read
     steps:
       - name: Download signed APK
-        if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/fix/io-tools-hardening-and-tool-audit')
         uses: actions/download-artifact@v4
         with:
           name: iD-Tools-Dev14-Release
       - name: Create GitHub Release
-        if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        if: needs.build.outputs.publish_ready == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/fix/io-tools-hardening-and-tool-audit')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4.0-${{ github.run_number }}
-          name: "iD-Tools Dev14.Apk v1.4.0 (Build #${{ github.run_number }})"
+          name: "iD-Tools Dev14.Apk v1.4.0-${{ github.run_number }}"
           body: |
             ### iD-Tools Dev14.Apk
             - Package: `dev.andikune.iottools`
+            - Version name: `1.4.0-${{ github.run_number }}`
+            - Version code: `${{ github.run_number }}`
             - Production-signed release build produced by GitHub Actions.
             - Install/update using the same release signing key.
           files: iD-Tools-Dev14-Release.apk
       - name: Explain why production publishing was not performed
-        if: needs.build.outputs.publish_ready != 'true' || github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')
+        if: needs.build.outputs.publish_ready != 'true' || github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/fix/io-tools-hardening-and-tool-audit')
         shell: bash
         env:
           PUBLISH_READY: ${{ needs.build.outputs.publish_ready }}
@@ -166,7 +162,7 @@ jobs:
             if [[ "$EVENT_NAME" == "pull_request" ]]; then
               echo "- Pull request runs do not publish GitHub Releases."
             fi
-            if [[ "$GIT_REF" != "refs/heads/main" && "$GIT_REF" != "refs/heads/master" ]]; then
+            if [[ "$GIT_REF" != "refs/heads/main" && "$GIT_REF" != "refs/heads/master" && "$GIT_REF" != "refs/heads/fix/io-tools-hardening-and-tool-audit" ]]; then
               echo "- Current ref is $GIT_REF; production releases are published only from main/master."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
