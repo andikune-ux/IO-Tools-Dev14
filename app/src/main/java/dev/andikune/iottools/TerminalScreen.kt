@@ -315,27 +315,68 @@ private suspend fun executeTerminalCommand(
             val safeName = suggested.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "download.bin" }
             val target = File(downloads, safeName).canonicalFile
             if (target.parentFile != downloads.canonicalFile) return@withContext TerminalCommandResult(listOf("Nama file tidak valid."), 2)
-            val connection = url.openConnection().apply { connectTimeout = 15000; readTimeout = 30000 }
-            connection.connect()
-            if (connection.url.protocol != "https") {
-                connection.getInputStream().close()
-                return@withContext TerminalCommandResult(listOf("Redirect non-HTTPS ditolak."), 2)
+            var currentUrl = url
+            var connection: java.net.HttpURLConnection? = null
+            var redirectCount = 0
+            while (true) {
+                if (!currentUrl.protocol.equals("https", ignoreCase = true)) {
+                    connection?.disconnect()
+                    return@withContext TerminalCommandResult(listOf("Redirect non-HTTPS ditolak."), 2)
+                }
+                val nextConnection = (currentUrl.openConnection() as? java.net.HttpURLConnection)
+                    ?: return@withContext TerminalCommandResult(listOf("Jenis koneksi URL tidak didukung."), 2)
+                nextConnection.instanceFollowRedirects = false
+                nextConnection.connectTimeout = 15000
+                nextConnection.readTimeout = 30000
+                nextConnection.requestMethod = "GET"
+                val responseCode = nextConnection.responseCode
+                if (responseCode in 300..399) {
+                    val location = nextConnection.getHeaderField("Location")
+                    nextConnection.disconnect()
+                    if (location.isNullOrBlank() || redirectCount >= 5) {
+                        connection?.disconnect()
+                        return@withContext TerminalCommandResult(listOf("Redirect tidak valid atau terlalu banyak."), 2)
+                    }
+                    currentUrl = URL(currentUrl, location)
+                    redirectCount++
+                    continue
+                }
+                if (responseCode !in 200..299) {
+                    nextConnection.disconnect()
+                    return@withContext TerminalCommandResult(listOf("Download gagal: HTTP $responseCode."), 1)
+                }
+                connection = nextConnection
+                break
             }
-            connection.getInputStream().use { input ->
-                target.outputStream().buffered().use { output ->
-                    val buffer = ByteArray(8192)
-                    var total = 0L
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        if (total > 100L * 1024L * 1024L) {
-                            target.delete()
-                            return@withContext TerminalCommandResult(listOf("Download dibatasi maksimal 100 MB."), 1)
+            val activeConnection = connection
+                ?: return@withContext TerminalCommandResult(listOf("Koneksi download gagal."), 1)
+            val declaredLength = activeConnection.contentLengthLong
+            if (declaredLength > 100L * 1024L * 1024L) {
+                activeConnection.disconnect()
+                return@withContext TerminalCommandResult(listOf("Download dibatasi maksimal 100 MB."), 1)
+            }
+            try {
+                activeConnection.inputStream.use { input ->
+                    target.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > 100L * 1024L * 1024L) {
+                                target.delete()
+                                return@withContext TerminalCommandResult(listOf("Download dibatasi maksimal 100 MB."), 1)
+                            }
+                            output.write(buffer, 0, count)
                         }
-                        output.write(buffer, 0, count)
                     }
                 }
+            } catch (error: Exception) {
+                target.delete()
+                throw error
+            } finally {
+                activeConnection.disconnect()
             }
             return@withContext TerminalCommandResult(listOf("Downloaded: ${target.absolutePath} (${target.length()} bytes)"), 0)
         }
