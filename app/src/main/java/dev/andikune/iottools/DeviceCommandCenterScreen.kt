@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -130,6 +133,7 @@ private val weatherClient = OkHttpClient.Builder()
 @Composable
 fun DeviceCommandCenterScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var snapshot by remember { mutableStateOf(readDeviceSnapshot(context)) }
     var city by remember { mutableStateOf("Jakarta") }
     var weather by remember { mutableStateOf<WeatherSnapshot?>(null) }
@@ -215,7 +219,7 @@ fun DeviceCommandCenterScreen() {
                         Spacer(Modifier.weight(1f))
                         if (weatherLoading) CircularProgressIndicator(Modifier.size(18.dp), color = DashboardCyan, strokeWidth = 2.dp)
                         else Button(
-                            onClick = { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { loadWeather() } },
+                            onClick = { scope.launch { loadWeather() } },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF24435C)),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                         ) {
@@ -337,7 +341,7 @@ private fun MetricCard(title: String, value: String, detail: String, icon: andro
 }
 
 @Composable
-private fun InfoCard(content: @Composable Column.() -> Unit) {
+private fun InfoCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = DashboardCard),
         shape = RoundedCornerShape(16.dp),
@@ -411,7 +415,7 @@ private fun readDeviceSnapshot(context: Context): DeviceSnapshot {
         charging = charging,
         screenResolution = "${metrics.widthPixels} × ${metrics.heightPixels}",
         density = String.format(Locale.getDefault(), "%.1f dpi", metrics.densityDpi.toFloat()),
-        refreshRate = runCatching { context.display?.refreshRate?.let { String.format(Locale.getDefault(), "%.0f Hz", it) } ?: "Tidak tersedia" }.getOrDefault("Tidak tersedia"),
+        refreshRate = runCatching {\n            @Suppress("DEPRECATION")\n            val display = (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay\n            String.format(Locale.getDefault(), "%.0f Hz", display.refreshRate)\n        }.getOrDefault("Tidak tersedia"),
         networkType = networkType,
         localIp = ip,
         uptime = uptime
