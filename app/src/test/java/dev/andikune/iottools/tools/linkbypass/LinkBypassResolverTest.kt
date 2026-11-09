@@ -54,6 +54,8 @@ class LinkBypassResolverTest {
     fun followsMetaRefreshTargetsOnlyWhenHttpBased() {
         val html = """<html><head><meta http-equiv="refresh" content="0; url=https://destination.example/final"></head></html>"""
         assertEquals("https://destination.example/final", extractMetaRefresh(html, "https://short.example/start"))
+        val reversedAttributes = """<meta content='0; URL="../final"' http-equiv='refresh'>"""
+        assertEquals("https://short.example/final", extractMetaRefresh(reversedAttributes, "https://short.example/start"))
         val unsafe = """<meta http-equiv="refresh" content="0; url=javascript:alert(1)">"""
         assertNull(extractMetaRefresh(unsafe, "https://short.example/"))
         assertNull(extractMetaRefresh("<html>no redirect</html>", "https://short.example/"))
