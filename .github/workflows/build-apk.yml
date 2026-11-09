@@ -90,10 +90,11 @@ jobs:
           keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
           echo "publish_ready=true" >> "$GITHUB_OUTPUT"
           echo "Production signing keystore decoded and validated."
-        else
-          echo "publish_ready=false" >> "$GITHUB_OUTPUT"
-          echo "::warning::Production signing secrets are incomplete. Release APK will use a temporary CI key and is for validation only."
-        fi
+          else
+            echo "publish_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Production signing secrets are incomplete. Release APK will use a temporary CI key and is for validation only."
+          fi
+
       - name: Build signed release APK
         env:
           KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && format('{0}/my-upload-key.jks', github.workspace) || format('{0}/debug.keystore', github.workspace) }}
