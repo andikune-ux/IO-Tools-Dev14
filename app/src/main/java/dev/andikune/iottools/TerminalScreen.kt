@@ -15,8 +15,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +52,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URL
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 private data class TerminalCommandResult(
@@ -253,6 +250,11 @@ private suspend fun executeTerminalCommand(
             val target = File(downloads, safeName).canonicalFile
             if (target.parentFile != downloads.canonicalFile) return@withContext TerminalCommandResult(listOf("Nama file tidak valid."), 2)
             val connection = url.openConnection().apply { connectTimeout = 15000; readTimeout = 30000 }
+            connection.connect()
+            if (connection.url.protocol != "https") {
+                connection.getInputStream().close()
+                return@withContext TerminalCommandResult(listOf("Redirect non-HTTPS ditolak."), 2)
+            }
             connection.getInputStream().use { input ->
                 target.outputStream().buffered().use { output ->
                     val buffer = ByteArray(8192)
