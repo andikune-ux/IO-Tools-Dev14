@@ -435,7 +435,7 @@ internal fun dashboardFormatBytes(bytes: Long): String {
         value /= 1024
         unit++
     }
-    return String.format(Locale.getDefault(), "%.1f %s", value, units[unit])
+    return String.format(Locale.US, "%.1f %s", value, units[unit])
 }
 
 private suspend fun fetchWeather(city: String): Result<WeatherSnapshot> = runCatching {
