@@ -34,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import android.content.ComponentName
+import android.content.Intent
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -54,6 +56,10 @@ import java.io.File
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
+private object TermuxBridge {
+    lateinit var context: android.content.Context
+}
+
 private data class TerminalCommandResult(
     val output: List<String>,
     val exitCode: Int,
@@ -63,6 +69,7 @@ private data class TerminalCommandResult(
 @Composable
 fun TerminalScreen() {
     val context = LocalContext.current
+    remember(context) { TermuxBridge.context = context.applicationContext }
     val scope = rememberCoroutineScope()
     val home = remember { File(context.filesDir, "terminal").apply { mkdirs() } }
     val downloadDirectory = remember { File(home, "downloads").apply { mkdirs() } }
@@ -74,7 +81,7 @@ fun TerminalScreen() {
             "iD-Tools Android Shell",
             "Shell: /system/bin/sh  |  UID: app sandbox",
             "HOME: ${home.absolutePath}",
-            "Ketik 'help' untuk daftar perintah. Perintah berjalan sebagai aplikasi, bukan root."
+            "Ketik 'help'. Gunakan 'su <perintah>' untuk meminta root atau 'pkg install' untuk Termux."
         )
     }
     val listState = rememberLazyListState()
@@ -210,10 +217,10 @@ private suspend fun executeTerminalCommand(
         normalized == "help" -> return@withContext TerminalCommandResult(
             listOf(
                 "Perintah shell Android: ls, pwd, cat, mkdir, cp, mv, rm, find, grep, id, uname, getprop, df, ps, ping, toybox, sh …",
-                "Built-in: help, clear, cd [path], download <https-url> [filename], pkg",
+                "Built-in: help, clear, cd [path], download <https-url> [filename], su <command>, pkg <command>",
                 "cd mengubah direktori kerja terminal. Perintah shell dijalankan oleh /system/bin/sh.",
                 "download mengambil file HTTPS ke: ${downloads.absolutePath}",
-                "pkg install tidak tersedia di Android shell standar. Untuk paket Linux lengkap diperlukan environment terpisah seperti Termux/proot."
+                "pkg/apt diteruskan ke Termux jika aplikasi Termux terpasang dan izin RUN_COMMAND diaktifkan."
             ), 0
         )
         normalized == "clear" -> TerminalCommandResult(emptyList(), 0)
@@ -223,9 +230,29 @@ private suspend fun executeTerminalCommand(
             val output = process.inputStream.bufferedReader().readLines()
             TerminalCommandResult(output, process.waitFor())
         }
-        normalized == "pkg" || normalized.startsWith("pkg ") -> TerminalCommandResult(
-            listOf("Package manager apt/pkg tidak disertakan Android. Gunakan Termux untuk repositori paket Linux; download hanya menyimpan file ke sandbox aplikasi."), 127
-        )
+        normalized == "pkg" || normalized.startsWith("pkg ") ||
+            normalized == "apt" || normalized.startsWith("apt ") -> {
+            try {
+                val intent = Intent().apply {
+                    component = ComponentName("com.termux", "com.termux.app.RunCommandService")
+                    action = "com.termux.RUN_COMMAND"
+                    putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+                    putStringArrayListExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayListOf("-lc", normalized))
+                    putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
+                    putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
+                }
+                TermuxBridge.context.startService(intent)
+                TerminalCommandResult(
+                    listOf("Perintah dikirim ke Termux: $normalized", "Output instalasi akan tampil di sesi Termux.", "Aktifkan Allow external apps di Termux Settings jika akses ditolak."),
+                    0
+                )
+            } catch (error: Exception) {
+                TerminalCommandResult(
+                    listOf("Gagal membuka Termux: ${error.message ?: error.javaClass.simpleName}", "Pastikan Termux terpasang dan Allow external apps diaktifkan."),
+                    127
+                )
+            }
+        }
         normalized == "cd" || normalized.startsWith("cd ") -> {
             val argument = normalized.removePrefix("cd").trim().trim('"', '\'')
             val destination = when {
@@ -274,7 +301,10 @@ private suspend fun executeTerminalCommand(
             return@withContext TerminalCommandResult(listOf("Downloaded: ${target.absolutePath} (${target.length()} bytes)"), 0)
         }
         else -> {
-            val process = ProcessBuilder("/system/bin/sh", "-c", normalized)
+            val rootRequested = normalized.startsWith("su ") || normalized.startsWith("sudo ")
+            val shellCommand = if (rootRequested) normalized.substringAfter(' ').trim() else normalized
+            val process = if (rootRequested) ProcessBuilder("su", "-c", shellCommand)
+                else ProcessBuilder("/system/bin/sh", "-c", shellCommand)
                 .directory(cwd)
                 .redirectErrorStream(true)
                 .apply {
@@ -295,7 +325,11 @@ private suspend fun executeTerminalCommand(
                 process.waitFor(2, TimeUnit.SECONDS)
             }
             reader.join(1000)
-            TerminalCommandResult(output.toList(), if (finished) process.exitValue() else 124, !finished)
+            TerminalCommandResult(
+                (if (rootRequested) listOf("[Root requested: approve the Superuser/Magisk prompt]") else emptyList()) + output.toList(),
+                if (finished) process.exitValue() else 124,
+                !finished
+            )
         }
     }
 }
