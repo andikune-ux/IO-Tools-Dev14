@@ -40,6 +40,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.andikune.iottools.DeviceCommandCenterScreen
 import dev.andikune.iottools.builder.WebToApkScreen
 import dev.andikune.iottools.keystore.KeystoreGuideScreen
 import dev.andikune.iottools.tools.data.DataHashTools
@@ -97,6 +98,7 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class MainNavigationTab(val label: String, val icon: ImageVector) {
+    DASHBOARD("Home", Icons.Default.Home),
     WEB_TO_APK("Web-to-APK", Icons.Default.Build),
     ALL_TOOLS("Toolkit Pro", Icons.Default.GridView),
     KEYSTORE("Keystore & CI", Icons.Default.VpnKey),
@@ -122,14 +124,14 @@ enum class ToolCategory(val label: String, val description: String, val icon: Im
 @Composable
 fun MainAppScreen() {
     val context = LocalContext.current
-    var currentTab by remember { mutableStateOf(MainNavigationTab.WEB_TO_APK) }
+    var currentTab by remember { mutableStateOf(MainNavigationTab.DASHBOARD) }
     var selectedCategory by remember { mutableStateOf<ToolCategory?>(null) }
 
     BackHandler(enabled = selectedCategory != null || currentTab != MainNavigationTab.WEB_TO_APK) {
         if (selectedCategory != null) {
             selectedCategory = null
         } else {
-            currentTab = MainNavigationTab.WEB_TO_APK
+            currentTab = MainNavigationTab.DASHBOARD
         }
     }
 
@@ -164,6 +166,10 @@ fun MainAppScreen() {
                 .background(SlateCanvas)
         ) {
             when (currentTab) {
+                MainNavigationTab.DASHBOARD -> {
+                    DeviceCommandCenterScreen()
+                }
+
                 MainNavigationTab.WEB_TO_APK -> {
                     WebToApkScreen()
                 }
