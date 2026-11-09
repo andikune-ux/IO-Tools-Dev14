@@ -213,10 +213,10 @@ private suspend fun executeTerminalCommand(
         normalized == "help" -> return@withContext TerminalCommandResult(
             listOf(
                 "Perintah shell Android: ls, pwd, cat, mkdir, cp, mv, rm, find, grep, id, uname, getprop, df, ps, ping, toybox, sh …",
-                "Built-in: help, clear, cd [path], download <https-url> [filename], su <command>, pkg <command>",
+                "Built-in: help, clear, cd [path], download <https-url> [filename], su <command> atau su -c <command>, pkg/apt <command>",
                 "cd mengubah direktori kerja terminal. Perintah shell dijalankan oleh /system/bin/sh.",
                 "download mengambil file HTTPS ke: ${downloads.absolutePath}",
-                "pkg/apt diteruskan ke Termux jika aplikasi Termux terpasang dan izin RUN_COMMAND diaktifkan."
+                "pkg/apt diteruskan ke Termux jika terpasang. Aktifkan Allow external apps di Termux dan izinkan Run commands in Termux environment untuk iD-Tools."
             ), 0
         )
         normalized == "clear" -> TerminalCommandResult(emptyList(), 0)
@@ -233,9 +233,10 @@ private suspend fun executeTerminalCommand(
                     component = ComponentName("com.termux", "com.termux.app.RunCommandService")
                     action = "com.termux.RUN_COMMAND"
                     putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
-                    putStringArrayListExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayListOf("-lc", normalized))
+                    putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-lc", normalized))
                     putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
                     putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
+                    putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
                 }
                 context.startService(intent)
                 TerminalCommandResult(
