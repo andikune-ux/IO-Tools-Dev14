@@ -41,7 +41,6 @@ import android.app.PendingIntent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -63,20 +62,11 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 
 private object TermuxCommandEvents {
-    private val pending = ConcurrentHashMap<String, CompletableDeferred<String>>()
+    private val tracker = TermuxCommandTracker()
 
-    fun register(requestId: String): CompletableDeferred<String> {
-        return CompletableDeferred<String>().also { pending[requestId] = it }
-    }
-
-    fun complete(requestId: String?, message: String) {
-        if (requestId.isNullOrBlank()) return
-        pending.remove(requestId)?.complete(message)
-    }
-
-    fun remove(requestId: String) {
-        pending.remove(requestId)
-    }
+    fun register(requestId: String): CompletableDeferred<String> = tracker.register(requestId)
+    fun complete(requestId: String?, message: String) = tracker.complete(requestId, message)
+    fun remove(requestId: String) = tracker.remove(requestId)
 }
 
 class TermuxResultReceiver : BroadcastReceiver() {
