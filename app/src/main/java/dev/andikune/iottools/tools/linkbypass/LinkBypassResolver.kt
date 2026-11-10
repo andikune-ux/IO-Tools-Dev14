@@ -154,13 +154,13 @@ internal fun detectLinkProvider(url: String): String {
  */
 internal fun extractJavascriptRedirect(html: String, baseUrl: String): String? {
     if (html.length > MAX_RESPONSE_BYTES) return null
-    val scripts = Regex("""(?is)<script\\b[^>]*>(.*?)</script\\s*>""")
+    val scripts = Regex("""(?is)<script\b[^>]*>(.*?)</script\s*>""")
         .findAll(html).map { it.groupValues[1] }.toList()
     val patterns = listOf(
-        Regex("""(?is)(?:window\\s*\\.\\s*)?location\\s*\\.\\s*(?:href)\\s*=\\s*(['"])(.*?)\\1"""),
-        Regex("""(?is)(?:window\\s*\\.\\s*)?location\\s*\\.\\s*(?:replace|assign)\\s*\\(\\s*(['"])(.*?)\\1\\s*\\)"""),
-        Regex("""(?is)(?:window\\s*\\.\\s*)?location\\s*=\\s*(['"])(.*?)\\1"""),
-        Regex("""(?is)window\\s*\\.\\s*open\\s*\\(\\s*(['"])(.*?)\\1""")
+        Regex("""(?is)(?:window\s*\.\s*)?location\s*\.\s*href\s*=\s*(['"])(.*?)\1"""),
+        Regex("""(?is)(?:window\s*\.\s*)?location\s*\.\s*(?:replace|assign)\s*\(\s*(['"])(.*?)\1\s*\)"""),
+        Regex("""(?is)(?:window\s*\.\s*)?location\s*=\s*(['"])(.*?)\1"""),
+        Regex("""(?is)window\s*\.\s*open\s*\(\s*(['"])(.*?)\1""")
     )
     for (script in scripts) {
         if (script.length > 128 * 1024) continue
@@ -176,7 +176,7 @@ internal fun extractJavascriptRedirect(html: String, baseUrl: String): String? {
             val safe = normalizeHttpUrl(absolute)
             if (safe != null && safe != baseUrl) return safe
         }
-        val encoded = Regex("""(?is)atob\\s*\\(\\s*(['"])([A-Za-z0-9_+\\-/=]{8,4096})\\1\\s*\\)""")
+        val encoded = Regex("""(?is)atob\s*\(\s*(['"])([A-Za-z0-9_+/\-=]{8,4096})\1\s*\)""")
             .find(script)?.groupValues?.get(2)
         if (encoded != null) {
             val bytes = runCatching {
