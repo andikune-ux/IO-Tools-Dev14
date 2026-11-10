@@ -142,7 +142,7 @@ internal fun detectLinkProvider(url: String): String {
         "is.gd" to "is.gd", "cutt.ly" to "Cuttly", "rebrand.ly" to "Rebrandly",
         "shorturl.at" to "ShortURL", "v.gd" to "V.GD", "linkvertise.com" to "Linkvertise",
         "ouo.io" to "Ouo", "ouo.press" to "Ouo", "exe.io" to "Exe.io",
-        "shrinkme.io" to "ShrinkMe", " AdFly" to "AdFly"
+        "shrinkme.io" to "ShrinkMe", "adf.ly" to "AdFly"
     )
     return providers.firstOrNull { (domain, _) -> host == domain || host.endsWith(".$domain") }
         ?.second ?: if (host.isBlank()) "Unknown" else host
@@ -166,12 +166,12 @@ internal fun extractJavascriptRedirect(html: String, baseUrl: String): String? {
         if (script.length > 128 * 1024) continue
         val candidates = patterns.mapNotNull { it.find(script)?.groupValues?.get(2) }
         for (raw in candidates) {
-            val decoded = raw.replace("\\\\/", "/")
-                .replace("\\\\u0026", "&", ignoreCase = true)
-                .replace("\\\\u003d", "=", ignoreCase = true)
-                .replace("\\\\x3a", ":", ignoreCase = true)
-                .replace("\\\\x2f", "/", ignoreCase = true)
-                .replace("\\\\'", "'").replace("\\\\\"", "\"")
+            val decoded = raw.replace("\\/", "/")
+                .replace("\\u0026", "&", ignoreCase = true)
+                .replace("\\u003d", "=", ignoreCase = true)
+                .replace("\\x3a", ":", ignoreCase = true)
+                .replace("\\x2f", "/", ignoreCase = true)
+                .replace("\\'", "'").replace("\\\"", "\"")
             val absolute = runCatching { URI(baseUrl).resolve(decoded).toString() }.getOrNull() ?: continue
             val safe = normalizeHttpUrl(absolute)
             if (safe != null && safe != baseUrl) return safe
