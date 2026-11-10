@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 internal const val MAX_REDIRECTS = 10
 internal const val MAX_RESPONSE_BYTES = 512 * 1024
-data class LinkResolution(val originalUrl: String, val destinationUrl: String, val redirectsFollowed: Int, val detail: String)
+data class LinkResolution(val originalUrl: String, val destinationUrl: String, val redirectsFollowed: Int, val detail: String, val providerName: String = "Unknown")
 class LinkResolutionException(message: String) : Exception(message)
 
 internal fun normalizeHttpUrl(raw: String): String? {
@@ -133,6 +133,65 @@ internal fun extractMetaRefresh(html: String, baseUrl: String): String? {
     return normalizeHttpUrl(resolvedUrl)
 }
 
+
+internal fun detectLinkProvider(url: String): String {
+    val host = runCatching { URI(url).host?.lowercase(Locale.ROOT).orEmpty() }.getOrDefault("")
+        .removePrefix("www.")
+    val providers = listOf(
+        "bit.ly" to "Bitly", "tinyurl.com" to "TinyURL", "t.co" to "X/Twitter",
+        "is.gd" to "is.gd", "cutt.ly" to "Cuttly", "rebrand.ly" to "Rebrandly",
+        "shorturl.at" to "ShortURL", "v.gd" to "V.GD", "linkvertise.com" to "Linkvertise",
+        "ouo.io" to "Ouo", "ouo.press" to "Ouo", "exe.io" to "Exe.io",
+        "shrinkme.io" to "ShrinkMe", " AdFly" to "AdFly"
+    )
+    return providers.firstOrNull { (domain, _) -> host == domain || host.endsWith(".$domain") }
+        ?.second ?: if (host.isBlank()) "Unknown" else host
+}
+
+/**
+ * Reads only static, inline JavaScript navigation hints. It never evaluates scripts,
+ * runs page code, submits forms, or attempts to defeat access challenges.
+ */
+internal fun extractJavascriptRedirect(html: String, baseUrl: String): String? {
+    if (html.length > MAX_RESPONSE_BYTES) return null
+    val scripts = Regex("""(?is)<script\\b[^>]*>(.*?)</script\\s*>""")
+        .findAll(html).map { it.groupValues[1] }.toList()
+    val patterns = listOf(
+        Regex("""(?is)(?:window\\s*\\.\\s*)?location\\s*\\.\\s*(?:href)\\s*=\\s*(['"])(.*?)\\1"""),
+        Regex("""(?is)(?:window\\s*\\.\\s*)?location\\s*\\.\\s*(?:replace|assign)\\s*\\(\\s*(['"])(.*?)\\1\\s*\\)"""),
+        Regex("""(?is)(?:window\\s*\\.\\s*)?location\\s*=\\s*(['"])(.*?)\\1"""),
+        Regex("""(?is)window\\s*\\.\\s*open\\s*\\(\\s*(['"])(.*?)\\1""")
+    )
+    for (script in scripts) {
+        if (script.length > 128 * 1024) continue
+        val candidates = patterns.mapNotNull { it.find(script)?.groupValues?.get(2) }
+        for (raw in candidates) {
+            val decoded = raw.replace("\\\\/", "/")
+                .replace("\\\\u0026", "&", ignoreCase = true)
+                .replace("\\\\u003d", "=", ignoreCase = true)
+                .replace("\\\\x3a", ":", ignoreCase = true)
+                .replace("\\\\x2f", "/", ignoreCase = true)
+                .replace("\\\\'", "'").replace("\\\\\"", "\"")
+            val absolute = runCatching { URI(baseUrl).resolve(decoded).toString() }.getOrNull() ?: continue
+            val safe = normalizeHttpUrl(absolute)
+            if (safe != null && safe != baseUrl) return safe
+        }
+        val encoded = Regex("""(?is)atob\\s*\\(\\s*(['"])([A-Za-z0-9_+\\-/=]{8,4096})\\1\\s*\\)""")
+            .find(script)?.groupValues?.get(2)
+        if (encoded != null) {
+            val bytes = runCatching {
+                val normalized = encoded.replace('-', '+').replace('_', '/')
+                java.util.Base64.getDecoder().decode(normalized.padEnd((normalized.length + 3) / 4 * 4, '='))
+            }.getOrNull()
+            val decoded = bytes?.toString(StandardCharsets.UTF_8)
+            val target = decoded?.let { runCatching { URI(baseUrl).resolve(it).toString() }.getOrNull() }
+                ?.let(::normalizeHttpUrl)
+            if (target != null && target != baseUrl) return target
+        }
+    }
+    return null
+}
+
 class LinkBypassResolver {
     suspend fun resolve(input: String): LinkResolution {
         val original = normalizeHttpUrl(input)
@@ -191,16 +250,23 @@ class LinkBypassResolver {
                         val buffer = okio.Buffer()
                         while (buffer.size < MAX_RESPONSE_BYTES && source.read(buffer, minOf(8192L, MAX_RESPONSE_BYTES - buffer.size)) != -1L) { }
                         if (!source.exhausted()) throw LinkResolutionException("Halaman melebihi batas $MAX_RESPONSE_BYTES byte.")
-                        val metaTarget = extractMetaRefresh(buffer.readString(StandardCharsets.UTF_8), current)
-                        if (metaTarget != null) {
-                            current = metaTarget
+                        val html = buffer.readString(StandardCharsets.UTF_8)
+                        val metaTarget = extractMetaRefresh(html, current)
+                        val scriptTarget = if (metaTarget == null) extractJavascriptRedirect(html, current) else null
+                        val extractedTarget = metaTarget ?: scriptTarget
+                        if (extractedTarget != null) {
+                            current = extractedTarget
                             hops++
                             if (hops > MAX_REDIRECTS) throw LinkResolutionException("Melebihi batas $MAX_REDIRECTS redirect.")
                             continue
                         }
                     }
                 }
-                return LinkResolution(original, current, hops, "Tujuan ditemukan. Redirect diperiksa: $hops")
+                return LinkResolution(
+                    original, current, hops,
+                    "Provider: ${detectLinkProvider(original)} • Redirect diperiksa: $hops",
+                    detectLinkProvider(original)
+                )
             }
         }
     }
