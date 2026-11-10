@@ -62,6 +62,24 @@ class LinkBypassResolverTest {
     }
 
     @Test
+    fun detectsKnownProvidersAndFallsBackToHost() {
+        assertEquals("Bitly", detectLinkProvider("https://bit.ly/abc"))
+        assertEquals("Linkvertise", detectLinkProvider("https://publisher.linkvertise.com/abc"))
+        assertEquals("custom.example", detectLinkProvider("https://custom.example/path"))
+    }
+
+    @Test
+    fun extractsStaticJavascriptRedirectsWithoutExecutingCode() {
+        val html = """<html><script>window.location.href = "https://destination.example/final";</script></html>"""
+        assertEquals("https://destination.example/final", extractJavascriptRedirect(html, "https://short.example/"))
+        val relative = """<script>location.replace("../final");</script>"""
+        assertEquals("https://short.example/final", extractJavascriptRedirect(relative, "https://short.example/start/"))
+        val unsafe = """<script>location.assign("javascript:alert(1)");</script>"""
+        assertNull(extractJavascriptRedirect(unsafe, "https://short.example/"))
+        assertNull(extractJavascriptRedirect("<p>no script</p>", "https://short.example/"))
+    }
+
+    @Test
     fun enforcesRedirectAndResponseLimits() {
         assertEquals(10, MAX_REDIRECTS)
         assertEquals(512 * 1024, MAX_RESPONSE_BYTES)
