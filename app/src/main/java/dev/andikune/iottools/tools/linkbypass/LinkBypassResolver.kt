@@ -3,6 +3,7 @@ package dev.andikune.iottools.tools.linkbypass
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import android.util.Base64
 import java.net.IDN
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -181,7 +182,7 @@ internal fun extractJavascriptRedirect(html: String, baseUrl: String): String? {
         if (encoded != null) {
             val bytes = runCatching {
                 val normalized = encoded.replace('-', '+').replace('_', '/')
-                java.util.Base64.getDecoder().decode(normalized.padEnd((normalized.length + 3) / 4 * 4, '='))
+                Base64.decode(normalized.padEnd((normalized.length + 3) / 4 * 4, '='), Base64.DEFAULT)
             }.getOrNull()
             val decoded = bytes?.toString(StandardCharsets.UTF_8)
             val target = decoded?.let { runCatching { URI(baseUrl).resolve(it).toString() }.getOrNull() }
