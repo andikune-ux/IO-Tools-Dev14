@@ -142,7 +142,7 @@ fun TerminalScreen() {
                 val result = executeTerminalCommand(
                     context, input, workingDirectory, home, downloadDirectory, activeLocalProcess
                 ) { active ->
-                    withContext(Dispatchers.Main) { localProcessActive = active }
+                    scope.launch(Dispatchers.Main) { localProcessActive = active }
                 }
                 val cwdUpdate = result.output.firstOrNull { it.startsWith("__IO_TERMINAL_CWD__") }
                 if (cwdUpdate != null) {
