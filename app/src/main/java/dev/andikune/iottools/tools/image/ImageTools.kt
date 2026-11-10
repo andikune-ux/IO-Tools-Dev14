@@ -58,6 +58,7 @@ fun ImageTools() {
     var outputName by remember { mutableStateOf("") }
     var outputSize by remember { mutableStateOf(0L) }
     var exifSummary by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var imageLoadToken by remember { mutableIntStateOf(0) }
 
     var quality by remember { mutableIntStateOf(70) }
     var targetWidth by remember { mutableStateOf("") }
@@ -69,22 +70,40 @@ fun ImageTools() {
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
+            val token = ++imageLoadToken
             sourceUri = uri
+            bitmap?.recycle()
+            bitmap = null
+            sourceName = ""
+            sourceSize = 0L
+            exifSummary = emptyList()
             message = null
             error = null
             outputName = ""
             outputSize = 0L
             scope.launch {
-                val loaded = loadImage(context, uri)
-                if (loaded == null) {
+                val (loaded, metadata) = withContext(Dispatchers.IO) {
+                    val decoded = loadImage(context, uri)
+                    val details = if (decoded == null) null else Triple(
+                        MediaStoreSaver.displayName(context, uri) ?: "gambar",
+                        MediaStoreSaver.fileSize(context, uri),
+                        readExif(context, uri)
+                    )
+                    decoded to details
+                }
+                if (token != imageLoadToken) {
+                    loaded?.recycle()
+                    return@launch
+                }
+                if (loaded == null || metadata == null) {
                     error = "Gambar tidak dapat dibaca."
                 } else {
                     bitmap = loaded
-                    sourceName = MediaStoreSaver.displayName(context, uri) ?: "gambar"
-                    sourceSize = MediaStoreSaver.fileSize(context, uri)
+                    sourceName = metadata.first
+                    sourceSize = metadata.second
                     targetWidth = loaded.width.toString()
                     targetHeight = loaded.height.toString()
-                    exifSummary = withContext(Dispatchers.IO) { readExif(context, uri) }
+                    exifSummary = metadata.third
                 }
             }
         }
@@ -99,13 +118,16 @@ fun ImageTools() {
         outputSize = 0L
         scope.launch {
             try {
-                val (saved, note) = block()
+                val (saved, note) = withContext(Dispatchers.IO) { block() }
                 if (saved == null) {
                     error = note
                 } else {
-                    val name = MediaStoreSaver.displayName(context, saved) ?: "hasil"
+                    val (name, size) = withContext(Dispatchers.IO) {
+                        (MediaStoreSaver.displayName(context, saved) ?: "hasil") to
+                            MediaStoreSaver.fileSize(context, saved)
+                    }
                     outputName = name
-                    outputSize = MediaStoreSaver.fileSize(context, saved)
+                    outputSize = size
                     message = "$note Tersimpan sebagai $name (${formatBytes(outputSize)})."
                     Toast.makeText(context, "Tersimpan di Pictures/IO-Tools", Toast.LENGTH_SHORT).show()
                 }
@@ -165,6 +187,7 @@ fun ImageTools() {
                 Spacer(modifier = Modifier.height(12.dp))
                 CyberButton(
                     text = if (sourceUri == null) "PILIH GAMBAR" else "GANTI GAMBAR",
+                    enabled = !busy,
                     onClick = {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
@@ -289,14 +312,22 @@ fun ImageTools() {
                                 onClick = {
                                     val w = targetWidth.toIntOrNull()
                                     val h = targetHeight.toIntOrNull()
-                                    if (w == null || h == null || w <= 0 || h <= 0) {
-                                        error = "Lebar dan tinggi harus lebih dari 0."
+                                    val dimensionError = if (w == null || h == null) {
+                                        "Lebar dan tinggi harus berupa angka yang valid."
+                                    } else {
+                                        validateResizeDimensions(w, h)
+                                    }
+                                    if (dimensionError != null) {
+                                        error = dimensionError
                                         return@CyberButton
                                     }
                                     perform {
-                                        val resized = Bitmap.createScaledBitmap(image, w, h, true)
-                                        val bytes = compressBitmap(resized, Bitmap.CompressFormat.PNG, 100)
-                                        if (resized !== image) resized.recycle()
+                                        val resized = Bitmap.createScaledBitmap(image, requireNotNull(w), requireNotNull(h), true)
+                                        val bytes = try {
+                                            compressBitmap(resized, Bitmap.CompressFormat.PNG, 100)
+                                        } finally {
+                                            if (resized !== image) resized.recycle()
+                                        }
                                         val saved = MediaStoreSaver.saveBytes(
                                             context,
                                             MediaStoreSaver.timestampName("resized", "png"),
@@ -456,10 +487,7 @@ private suspend fun loadImage(context: Context, uri: Uri): Bitmap? = withContext
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
 
-        var sample = 1
-        while (bounds.outWidth / sample > 4096 || bounds.outHeight / sample > 4096) {
-            sample *= 2
-        }
+        val sample = calculateImageSampleSize(bounds.outWidth, bounds.outHeight)
         val options = BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -507,44 +535,82 @@ private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
     }
 }
 
+internal fun calculateImageSampleSize(width: Int, height: Int): Int {
+    if (width <= 0 || height <= 0) return 1
+    var sample = 1
+    while (
+        width / sample > 4096 ||
+        height / sample > 4096 ||
+        (width.toLong() / sample) * (height.toLong() / sample) > 16_000_000L
+    ) {
+        sample *= 2
+    }
+    return sample
+}
+
+internal fun validateResizeDimensions(width: Int, height: Int): String? {
+    if (width <= 0 || height <= 0) return "Lebar dan tinggi harus lebih dari 0."
+    if (width > 8192 || height > 8192) return "Ukuran maksimal per sisi adalah 8192 piksel."
+    if (width.toLong() * height.toLong() > 16_000_000L) {
+        return "Ukuran hasil terlalu besar. Maksimal 16 megapiksel untuk mencegah kehabisan memori."
+    }
+    return null
+}
+
 private fun compressBitmap(bitmap: Bitmap, format: Bitmap.CompressFormat, quality: Int): ByteArray {
-    return ByteArrayOutputStream().use { out ->
-        if (!bitmap.compress(format, quality.coerceIn(1, 100), out)) {
-            throw IllegalStateException("Encoder gambar gagal.")
+    val source = if (format == Bitmap.CompressFormat.JPEG) {
+        Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565).also { flattened ->
+            Canvas(flattened).apply {
+                drawColor(Color.WHITE)
+                drawBitmap(bitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            }
         }
-        out.toByteArray()
+    } else bitmap
+
+    return try {
+        ByteArrayOutputStream().use { out ->
+            if (!source.compress(format, quality.coerceIn(1, 100), out)) {
+                throw IllegalStateException("Encoder gambar gagal.")
+            }
+            out.toByteArray()
+        }
+    } finally {
+        if (source !== bitmap) source.recycle()
     }
 }
 
 private fun imageToPdf(bitmap: Bitmap): ByteArray {
     val document = PdfDocument()
-    val pageWidth = 595
-    val pageHeight = 842
-    val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
-    val page = document.startPage(pageInfo)
-    val canvas: Canvas = page.canvas
-    canvas.drawColor(Color.WHITE)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        isFilterBitmap = true
-        isDither = true
-    }
+    try {
+        val pageWidth = 595
+        val pageHeight = 842
+        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas: Canvas = page.canvas
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
+            isDither = true
+        }
 
-    val margin = 24f
-    val availableWidth = pageWidth - margin * 2
-    val availableHeight = pageHeight - margin * 2
-    val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
-    val drawWidth = bitmap.width * scale
-    val drawHeight = bitmap.height * scale
-    val left = (pageWidth - drawWidth) / 2f
-    val top = (pageHeight - drawHeight) / 2f
-    canvas.drawBitmap(bitmap, null, RectF(left, top, left + drawWidth, top + drawHeight), paint)
-    document.finishPage(page)
-    val bytes = ByteArrayOutputStream().use { out ->
-        document.writeTo(out)
-        out.toByteArray()
+        val margin = 24f
+        val availableWidth = pageWidth - margin * 2
+        val availableHeight = pageHeight - margin * 2
+        val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
+        val drawWidth = bitmap.width * scale
+        val drawHeight = bitmap.height * scale
+        val left = (pageWidth - drawWidth) / 2f
+        val top = (pageHeight - drawHeight) / 2f
+        canvas.drawBitmap(bitmap, null, RectF(left, top, left + drawWidth, top + drawHeight), paint)
+        document.finishPage(page)
+
+        return ByteArrayOutputStream().use { out ->
+            document.writeTo(out)
+            out.toByteArray()
+        }
+    } finally {
+        document.close()
     }
-    document.close()
-    return bytes
 }
 
 private suspend fun readExif(context: Context, uri: Uri): List<Pair<String, String>> = withContext(Dispatchers.IO) {

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import android.webkit.WebView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,13 +40,26 @@ fun UcMediaSnifferScreen() {
 
     var inputUrl by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var showBrowser by remember { mutableStateOf(false) }
+    var currentPageTitle by remember { mutableStateOf("Web Video Source") }
+    var captureWebView by remember { mutableStateOf<WebView?>(null) }
     var snifferResult by remember { mutableStateOf<SniffingResult?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(captureWebView) {
+        onDispose {
+            captureWebView?.apply {
+                stopLoading()
+                removeAllViews()
+                destroy()
+            }
+        }
+    }
+
     var statusLogs by remember {
         mutableStateOf(
             listOf(
-                "[INIT] UC Browser Sniffer Engine v3.2 aktif.",
-                "[ENGINE] Siap mendeteksi media video tersembunyi (MP4, M3U8 HLS, WEBM) pada web."
+                "[INIT] UC Media Sniffer siap.",
+                "[ENGINE] Static HTML + embedded WebView network capture."
             )
         )
     }
@@ -78,18 +93,32 @@ fun UcMediaSnifferScreen() {
             statusLogs = statusLogs + "[SCAN] Merayapi halaman: ${inputUrl.take(45)}..."
 
             val startTime = System.currentTimeMillis()
-            val result = UcMediaSnifferService.sniffWebpage(inputUrl)
+            val normalizedUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+            if (normalizedUrl == null) {
+                isLoading = false
+                errorMessage = "URL tidak valid. Gunakan alamat HTTP atau HTTPS publik."
+                return@launch
+            }
+
+            val result = UcMediaSnifferService.sniffWebpage(normalizedUrl)
             val elapsed = System.currentTimeMillis() - startTime
 
             isLoading = false
+            showBrowser = true
             result.onSuccess { data ->
                 snifferResult = data
-                statusLogs = statusLogs + "[SUCCESS] Scan tuntas dalam ${elapsed}ms."
+                currentPageTitle = data.pageTitle
+                statusLogs = statusLogs + "[SUCCESS] Scan HTML selesai dalam ${elapsed}ms."
                 statusLogs = statusLogs + "[PAGE] '${data.pageTitle.take(35)}...'"
-                statusLogs = statusLogs + "[SNIFFED] Berhasil menemukan ${data.mediaList.size} stream media!"
+                statusLogs = statusLogs + "[SNIFFED] Ditemukan ${data.mediaList.size} media dari HTML awal."
             }.onFailure { error ->
-                errorMessage = error.message ?: "Gagal mendeteksi media pada link tersebut."
-                statusLogs = statusLogs + "[ERROR] Sniffer: ${error.message}"
+                if (error.message.orEmpty().startsWith("Belum ada URL media langsung")) {
+                    snifferResult = SniffingResult(normalizedUrl, currentPageTitle, emptyList(), elapsed)
+                    statusLogs = statusLogs + "[INFO] Browser terbuka. Tekan Play untuk menangkap request media."
+                } else {
+                    errorMessage = error.message ?: "Gagal membuka halaman target."
+                    statusLogs = statusLogs + "[ERROR] Sniffer: ${error.message}"
+                }
             }
         }
     }
@@ -103,6 +132,20 @@ fun UcMediaSnifferScreen() {
         } catch (_: Exception) {}
     }
 
+    fun addCapturedMedia(item: SniffedMediaItem) {
+        val current = snifferResult ?: SniffingResult(
+            targetUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl) ?: inputUrl,
+            pageTitle = currentPageTitle,
+            mediaList = emptyList(),
+            scanDurationMs = 0L
+        )
+        val merged = (current.mediaList + item).distinctBy { it.url }
+        if (merged.size != current.mediaList.size) {
+            snifferResult = current.copy(pageTitle = currentPageTitle, mediaList = merged)
+            statusLogs = statusLogs + "[CAPTURE] ${item.format} terdeteksi dari ${item.sourceDomain}."
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -113,7 +156,7 @@ fun UcMediaSnifferScreen() {
         item {
             CyberTerminalHeader(
                 title = "UC BROWSER MEDIA SNIFFER",
-                subtitle = "Ekstrak & Unduh Tautan Video Tersembunyi (MP4/M3U8) dari Web",
+                subtitle = "Deteksi MP4, WebM, HLS, dan DASH melalui browser tertanam",
                 statusText = "SNIFFER READY",
                 statusColor = AccentCyan
             )
@@ -195,6 +238,53 @@ fun UcMediaSnifferScreen() {
                         modifier = Modifier.fillMaxWidth(),
                         color = AccentCyan,
                         trackColor = SlateBorder
+                    )
+                }
+            }
+        }
+
+        if (showBrowser) {
+            item {
+                CyberCard(borderColor = AccentCyan) {
+                    Text(
+                        text = "BROWSER CAPTURE",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = AccentCyan,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Putar media pada halaman ini. Request MP4, WebM, HLS, dan DASH yang terlihat akan ditambahkan otomatis. Blob dan DRM tidak didukung.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    AndroidView(
+                        factory = { webContext ->
+                            val initialUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+                                ?: inputUrl
+                            UcMediaSnifferService.createCaptureWebView(
+                                context = webContext,
+                                targetUrl = initialUrl,
+                                onPageTitle = { title ->
+                                    currentPageTitle = title
+                                    snifferResult = snifferResult?.copy(pageTitle = title)
+                                },
+                                onMediaDetected = { item -> addCapturedMedia(item) }
+                            ).also {
+                                it.tag = initialUrl
+                                captureWebView = it
+                            }
+                        },
+                        update = { webView ->
+                            val nextUrl = UcMediaSnifferService.normalizeTargetUrl(inputUrl)
+                            if (nextUrl != null && nextUrl != (webView.tag as? String)) {
+                                webView.tag = nextUrl
+                                webView.loadUrl(nextUrl)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp)
                     )
                 }
             }
@@ -291,7 +381,7 @@ fun UcMediaSnifferScreen() {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = SlateElevated,
-                    border = BorderStroke(1.dp, if (item.isStreamHls) AccentAmber.copy(alpha = 0.4f) else AccentCyan.copy(alpha = 0.4f)),
+                    border = BorderStroke(1.dp, if (item.isStreamHls || item.isDash) AccentAmber.copy(alpha = 0.4f) else AccentCyan.copy(alpha = 0.4f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -309,13 +399,13 @@ fun UcMediaSnifferScreen() {
                                     modifier = Modifier
                                         .size(38.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(if (item.isStreamHls) AccentAmber.copy(alpha = 0.15f) else AccentCyan.copy(alpha = 0.15f)),
+                                        .background(if (item.isStreamHls || item.isDash) AccentAmber.copy(alpha = 0.15f) else AccentCyan.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = if (item.isStreamHls) Icons.Default.Stream else Icons.Default.VideoLibrary,
+                                        imageVector = if (item.isStreamHls || item.isDash) Icons.Default.Stream else Icons.Default.VideoLibrary,
                                         contentDescription = null,
-                                        tint = if (item.isStreamHls) AccentAmber else AccentCyan,
+                                        tint = if (item.isStreamHls || item.isDash) AccentAmber else AccentCyan,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -339,11 +429,11 @@ fun UcMediaSnifferScreen() {
 
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (item.isStreamHls) AccentAmber.copy(alpha = 0.15f) else AccentCyan.copy(alpha = 0.15f)
+                                color = if (item.isStreamHls || item.isDash) AccentAmber.copy(alpha = 0.15f) else AccentCyan.copy(alpha = 0.15f)
                             ) {
                                 Text(
                                     text = item.format,
-                                    color = if (item.isStreamHls) AccentAmber else AccentCyan,
+                                    color = if (item.isStreamHls || item.isDash) AccentAmber else AccentCyan,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -391,7 +481,7 @@ fun UcMediaSnifferScreen() {
                                 modifier = Modifier.weight(1.2f),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (item.isStreamHls) AccentAmber else AccentCyan,
+                                    containerColor = if (item.isStreamHls || item.isDash) AccentAmber else AccentCyan,
                                     contentColor = SlateCanvas
                                 )
                             ) {

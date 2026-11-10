@@ -15,4 +15,10 @@
 .cxx
 local.properties
 .env
-debug.keystore
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+app/build/

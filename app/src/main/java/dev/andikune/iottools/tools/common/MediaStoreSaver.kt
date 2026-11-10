@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.IOException
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -34,16 +35,14 @@ object MediaStoreSaver {
         private val context: Context
     ) {
         fun commit() {
-            try {
-                output.flush()
-                output.close()
-            } catch (_: Exception) {
-            }
+            output.flush()
+            output.close()
             if (mediaStore && Build.VERSION.SDK_INT >= 29) {
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.IS_PENDING, 0)
                 }
-                runCatching { context.contentResolver.update(uri, values, null, null) }
+                val updated = context.contentResolver.update(uri, values, null, null)
+                if (updated <= 0) throw IOException("File gagal dipublikasikan ke MediaStore.")
             }
         }
 
@@ -60,11 +59,13 @@ object MediaStoreSaver {
     }
 
     fun sanitizeFileName(raw: String, fallback: String = "file"): String {
-        val cleaned = raw
-            .replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_")
-            .trim()
-            .trim('.')
-        return if (cleaned.isBlank()) fallback else cleaned.take(180)
+        fun clean(value: String): String = value.take(512).map { char ->
+            if (char.isISOControl() || char in "\\\\/:*?\"<>|") '_' else char
+        }.joinToString("").trim().trim('.')
+
+        val cleaned = clean(raw)
+        val safeFallback = clean(fallback).take(180).ifBlank { "file" }
+        return if (cleaned.isBlank()) safeFallback else cleaned.take(180)
     }
 
     fun timestampName(prefix: String, extension: String): String {
@@ -88,8 +89,36 @@ object MediaStoreSaver {
         }.getOrNull() ?: 0L
     }
 
-    fun readBytes(context: Context, uri: Uri): ByteArray? = runCatching {
-        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    fun readBytes(
+        context: Context,
+        uri: Uri,
+        maxBytes: Int = 32 * 1024 * 1024
+    ): ByteArray? = runCatching {
+        require(maxBytes > 0)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            ByteArrayOutputStream().use { output ->
+                val buffer = ByteArray(32 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (read == 0) {
+                        val single = input.read()
+                        if (single < 0) break
+                        total++
+                        if (total > maxBytes.toLong()) {
+                            throw IOException("File melebihi batas baca $maxBytes byte.")
+                        }
+                        output.write(single)
+                        continue
+                    }
+                    total += read.toLong()
+                    if (total > maxBytes.toLong()) throw IOException("File melebihi batas baca $maxBytes byte.")
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray()
+            }
+        }
     }.getOrNull()
 
     fun openInputStream(context: Context, uri: Uri): InputStream? =
@@ -105,9 +134,16 @@ object MediaStoreSaver {
         mimeType: String,
         subDirectory: String = "IO-Tools"
     ): PendingOutput? {
-        val safeName = uniqueName(context, fileName, subDirectory)
+        val safeSubDirectory = sanitizeSubDirectory(subDirectory)
         if (Build.VERSION.SDK_INT >= 29) {
-            val relative = "${Environment.DIRECTORY_DOWNLOADS}/$subDirectory"
+            val safeName = uniqueName(
+                context,
+                fileName,
+                Environment.DIRECTORY_DOWNLOADS,
+                safeSubDirectory,
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            )
+            val relative = "${Environment.DIRECTORY_DOWNLOADS}/$safeSubDirectory"
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -124,12 +160,14 @@ object MediaStoreSaver {
             return PendingOutput(uri, out, null, true, context)
         }
 
-        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), subDirectory)
-        if (!dir.exists() && !dir.mkdirs()) return null
-        val file = File(dir, safeName)
+        val file = createLegacyFile(
+            Environment.DIRECTORY_DOWNLOADS,
+            safeSubDirectory,
+            fileName
+        ) ?: return null
         return runCatching {
             PendingOutput(Uri.fromFile(file), FileOutputStream(file), file, false, context)
-        }.getOrNull()
+        }.onFailure { file.delete() }.getOrNull()
     }
 
     fun beginImageOutput(
@@ -182,12 +220,13 @@ object MediaStoreSaver {
         mimeType: String,
         subDirectory: String
     ): PendingOutput? {
-        val safeName = uniqueName(context, fileName, subDirectory)
+        val safeSubDirectory = sanitizeSubDirectory(subDirectory)
         if (Build.VERSION.SDK_INT >= 29) {
+            val safeName = uniqueName(context, fileName, baseDirectory, safeSubDirectory, collection)
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "$baseDirectory/$subDirectory")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "$baseDirectory/$safeSubDirectory")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = runCatching { context.contentResolver.insert(collection, values) }.getOrNull() ?: return null
@@ -199,12 +238,10 @@ object MediaStoreSaver {
             return PendingOutput(uri, out, null, true, context)
         }
 
-        val dir = File(Environment.getExternalStoragePublicDirectory(baseDirectory), subDirectory)
-        if (!dir.exists() && !dir.mkdirs()) return null
-        val file = File(dir, safeName)
+        val file = createLegacyFile(baseDirectory, safeSubDirectory, fileName) ?: return null
         return runCatching {
             PendingOutput(Uri.fromFile(file), FileOutputStream(file), file, false, context)
-        }.getOrNull()
+        }.onFailure { file.delete() }.getOrNull()
     }
 
     fun saveBytes(
@@ -214,6 +251,7 @@ object MediaStoreSaver {
         bytes: ByteArray,
         subDirectory: String = "IO-Tools"
     ): Uri? {
+        if (bytes.isEmpty()) return null
         val pending = (if (mimeType.startsWith("image/")) {
             beginImageOutput(context, fileName, mimeType, subDirectory)
         } else if (mimeType.startsWith("audio/")) {
@@ -225,7 +263,7 @@ object MediaStoreSaver {
         }) ?: return null
 
         return try {
-            pending.output.use { it.write(bytes) }
+            pending.output.write(bytes)
             pending.commit()
             pending.uri
         } catch (e: Exception) {
@@ -243,7 +281,8 @@ object MediaStoreSaver {
     ): Uri? {
         val pending = beginDownload(context, fileName, mimeType, subDirectory) ?: return null
         return try {
-            pending.output.use { output -> input.copyTo(output, 64 * 1024) }
+            val copied = input.use { stream -> stream.copyTo(pending.output, 64 * 1024) }
+            if (copied <= 0L) throw IOException("Stream sumber kosong.")
             pending.commit()
             pending.uri
         } catch (e: Exception) {
@@ -266,11 +305,17 @@ object MediaStoreSaver {
             Bitmap.CompressFormat.WEBP -> "image/webp"
             else -> "image/png"
         }
-        val bytes = ByteArrayOutputStream().use { out ->
-            if (!bitmap.compress(format, quality, out)) return null
-            out.toByteArray()
+        val pending = beginImageOutput(context, fileName, mime, subDirectory) ?: return null
+        return try {
+            if (!bitmap.compress(format, quality.coerceIn(1, 100), pending.output)) {
+                throw IOException("Encoder bitmap gagal.")
+            }
+            pending.commit()
+            pending.uri
+        } catch (_: Exception) {
+            pending.abort()
+            null
         }
-        return saveBytes(context, fileName, mime, bytes, subDirectory)
     }
 
     /** FileProvider URI is required for sharing legacy file:// outputs. */
@@ -283,41 +328,79 @@ object MediaStoreSaver {
         }
     }
 
-    private fun uniqueName(context: Context, original: String, subDirectory: String): String {
+    private fun uniqueName(
+        context: Context,
+        original: String,
+        baseDirectory: String,
+        subDirectory: String,
+        collection: Uri
+    ): String {
         val safe = sanitizeFileName(original)
         val dot = safe.lastIndexOf('.')
         val stem = if (dot > 0) safe.substring(0, dot) else safe
         val ext = if (dot > 0) safe.substring(dot) else ""
         var candidate = safe
         var index = 1
-
-        if (Build.VERSION.SDK_INT >= 29) {
-            while (downloadNameExists(context, candidate, subDirectory) && index < 500) {
-                candidate = "$stem ($index)$ext"
-                index++
+        while (index < 10_000) {
+            val exists = mediaStoreNameExists(
+                context,
+                candidate,
+                "$baseDirectory/$subDirectory",
+                collection
+            )
+            if (exists == false) return candidate
+            if (exists == null) {
+                return sanitizeFileName("${stem}_${System.nanoTime()}$ext")
             }
-        } else {
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), subDirectory)
-            while (File(dir, candidate).exists() && index < 500) {
-                candidate = "$stem ($index)$ext"
-                index++
-            }
+            candidate = "$stem ($index)$ext"
+            index++
         }
-        return candidate
+        return sanitizeFileName("${stem}_${System.nanoTime()}$ext")
     }
 
-    private fun downloadNameExists(context: Context, name: String, subDirectory: String): Boolean {
-        if (Build.VERSION.SDK_INT < 29) return false
-        return runCatching {
-            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
-            val args = arrayOf(name, "${Environment.DIRECTORY_DOWNLOADS}/$subDirectory")
-            context.contentResolver.query(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.MediaColumns._ID),
-                selection,
-                args,
-                null
-            )?.use { it.count > 0 } ?: false
-        }.getOrDefault(false)
+    private fun mediaStoreNameExists(
+        context: Context,
+        name: String,
+        relativePath: String,
+        collection: Uri
+    ): Boolean? = runCatching {
+        val normalizedPath = relativePath.trimEnd('/')
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND (${MediaStore.MediaColumns.RELATIVE_PATH}=? OR ${MediaStore.MediaColumns.RELATIVE_PATH}=?)"
+        val args = arrayOf(name, normalizedPath, "$normalizedPath/")
+        context.contentResolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID),
+            selection,
+            args,
+            null
+        )?.use { it.count > 0 } ?: false
+    }.getOrNull()
+
+    private fun sanitizeSubDirectory(raw: String): String {
+        val parts = raw.replace('\\', '/').split('/')
+            .map { it.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().trim('.') }
+            .filter { it.isNotBlank() && it != "." && it != ".." }
+        return parts.joinToString("/").ifBlank { "IO-Tools" }
+    }
+
+    private fun createLegacyFile(baseDirectory: String, subDirectory: String, original: String): File? {
+        val dir = File(Environment.getExternalStoragePublicDirectory(baseDirectory), subDirectory)
+        if (!dir.exists() && !dir.mkdirs()) return null
+        if (!dir.isDirectory) return null
+
+        val safe = sanitizeFileName(original)
+        val dot = safe.lastIndexOf('.')
+        val stem = if (dot > 0) safe.substring(0, dot) else safe
+        val ext = if (dot > 0) safe.substring(dot) else ""
+        var candidate = safe
+        var index = 1
+        while (index < 10_000) {
+            val file = File(dir, candidate)
+            if (runCatching { file.createNewFile() }.getOrDefault(false)) return file
+            if (!file.exists()) return null
+            candidate = "$stem ($index)$ext"
+            index++
+        }
+        return null
     }
 }

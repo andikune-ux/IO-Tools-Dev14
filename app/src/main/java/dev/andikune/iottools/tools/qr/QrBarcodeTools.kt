@@ -54,7 +54,7 @@ private val barcodeKinds = listOf(
     BarcodeKind("QR Code", BarcodeFormat.QR_CODE, "https://contoh.com atau teks apa saja"),
     BarcodeKind("Code 128", BarcodeFormat.CODE_128, "ABC-12345"),
     BarcodeKind("Code 39", BarcodeFormat.CODE_39, "CODE39"),
-    BarcodeKind("EAN-13", BarcodeFormat.EAN_13, "8991234567890"),
+    BarcodeKind("EAN-13", BarcodeFormat.EAN_13, "899123456789"),
     BarcodeKind("Data Matrix", BarcodeFormat.DATA_MATRIX, "DATA-MATRIX-123")
 )
 
@@ -143,7 +143,12 @@ fun QrBarcodeTools() {
                         barcodeKinds.forEachIndexed { index, kind ->
                             FilterChip(
                                 selected = kindIndex == index,
-                                onClick = { kindIndex = index },
+                                onClick = {
+                                    kindIndex = index
+                                    bitmap = null
+                                    generatedFor = ""
+                                    error = null
+                                },
                                 label = { Text(kind.label) }
                             )
                         }
@@ -154,6 +159,8 @@ fun QrBarcodeTools() {
                         value = content,
                         onValueChange = {
                             content = it
+                            bitmap = null
+                            generatedFor = ""
                             error = null
                         },
                         label = "Isi kode",
@@ -171,8 +178,15 @@ fun QrBarcodeTools() {
                                     error = "Isi teks atau tautan terlebih dahulu."
                                     return@CyberButton
                                 }
+                                val format = barcodeKinds[kindIndex].format
+                                val validationError = validateBarcodeInput(value, format)
+                                if (validationError != null) {
+                                    bitmap = null
+                                    error = validationError
+                                    return@CyberButton
+                                }
                                 val result = runCatching {
-                                    generateBarcode(value, barcodeKinds[kindIndex].format, 1024)
+                                    generateBarcode(value, format, 1024)
                                 }
                                 result.onSuccess {
                                     bitmap = it
@@ -242,7 +256,14 @@ fun QrBarcodeTools() {
                                 contentDescription = "Kode yang dihasilkan",
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .aspectRatio(1f)
+                                    .aspectRatio(
+                                        if (barcodeKinds[kindIndex].format in setOf(
+                                                BarcodeFormat.CODE_128,
+                                                BarcodeFormat.CODE_39,
+                                                BarcodeFormat.EAN_13
+                                            )
+                                        ) 3f else 1f
+                                    )
                                     .clip(RoundedCornerShape(8.dp))
                             )
                         }
@@ -323,11 +344,12 @@ fun QrBarcodeTools() {
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Salin")
                             }
-                            if (text.startsWith("http://", true) || text.startsWith("https://", true)) {
+                            val safeScannedUrl = normalizeScannedHttpUrl(text)
+                            if (safeScannedUrl != null) {
                                 OutlinedButton(
                                     onClick = {
                                         runCatching {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(text)))
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeScannedUrl)))
                                         }.onFailure {
                                             Toast.makeText(context, "Tautan tidak dapat dibuka.", Toast.LENGTH_SHORT).show()
                                         }
@@ -398,12 +420,67 @@ private fun buildScanOptions(): ScanOptions = ScanOptions().apply {
     setBarcodeImageEnabled(false)
 }
 
+internal fun normalizeScannedHttpUrl(raw: String): String? {
+    val clean = raw.trim()
+    if (clean.isBlank() || clean.length > 4096 || clean.any { it.isISOControl() }) return null
+    val uri = runCatching { java.net.URI(clean) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") ||
+        uri.host.isNullOrBlank() || uri.userInfo != null ||
+        (uri.port != -1 && uri.port !in 1..65535)
+    ) return null
+    return uri.toASCIIString()
+}
+
+internal fun validateBarcodeInput(value: String, format: BarcodeFormat): String? {
+    if (value.isBlank()) return "Isi teks atau tautan terlebih dahulu."
+    val utf8Length = value.toByteArray(Charsets.UTF_8).size
+    if (value.length > 4096) return "Isi kode terlalu panjang (maksimal 4096 karakter)."
+    if (format == BarcodeFormat.QR_CODE && utf8Length > 2953) {
+        return "QR Code mendukung maksimal 2953 byte pada tingkat koreksi standar."
+    }
+    if (format == BarcodeFormat.DATA_MATRIX && utf8Length > 1555) {
+        return "Data Matrix mendukung maksimal 1555 byte."
+    }
+    if (format == BarcodeFormat.CODE_39 && value.length > 80) {
+        return "Code 39 dibatasi maksimal 80 karakter."
+    }
+    if (format == BarcodeFormat.CODE_128 && value.length > 256) {
+        return "Code 128 dibatasi maksimal 256 karakter."
+    }
+    return when (format) {
+        BarcodeFormat.EAN_13 -> if (!isValidEan13Input(value)) {
+            "EAN-13 membutuhkan 12 digit data, atau 13 digit dengan digit pemeriksa yang valid."
+        } else null
+        BarcodeFormat.CODE_39 -> if (!value.all { it in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" }) {
+            "Code 39 hanya menerima huruf kapital A-Z, angka, spasi, dan karakter - . $ / + %."
+        } else null
+        BarcodeFormat.CODE_128 -> if (value.any { it.code !in 32..126 }) {
+            "Code 128 standar hanya mendukung karakter ASCII yang dapat dicetak."
+        } else null
+        else -> null
+    }
+}
+
+internal fun isValidEan13Input(value: String): Boolean {
+    if (!value.matches(Regex("^\\d{12,13}$"))) return false
+    if (value.length == 12) return true
+
+    val weightedSum = value.take(12).mapIndexed { index, char ->
+        char.digitToInt() * if (index % 2 == 0) 1 else 3
+    }.sum()
+    val expectedCheckDigit = (10 - (weightedSum % 10)) % 10
+    return value.last().digitToInt() == expectedCheckDigit
+}
+
 private fun generateBarcode(value: String, format: BarcodeFormat, size: Int): Bitmap {
+    val linear = format in setOf(BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13)
+    val requestedWidth = size
+    val requestedHeight = if (linear) (size / 3).coerceAtLeast(160) else size
     val hints = mapOf(
         EncodeHintType.MARGIN to 2,
         EncodeHintType.CHARACTER_SET to "UTF-8"
     )
-    val matrix = MultiFormatWriter().encode(value, format, size, size, hints)
+    val matrix = MultiFormatWriter().encode(value, format, requestedWidth, requestedHeight, hints)
     val width = matrix.width
     val height = matrix.height
     val pixels = IntArray(width * height)
