@@ -51,7 +51,7 @@ fun LinkBypassScreen() {
         item {
             CyberTerminalHeader(
                 title = "Universal Short Link Bypass",
-                subtitle = "HTTP redirect • URL parameter • Meta refresh",
+                subtitle = "Provider detection • HTTP redirect • HTML/JS",
                 statusText = if (loading) "SCANNING" else "READY",
                 statusColor = if (loading) AccentCyan else AccentEmerald
             )
@@ -96,6 +96,7 @@ fun LinkBypassScreen() {
             item {
                 CyberCard(borderColor = AccentEmerald) {
                     Text("URL tujuan ditemukan", color = AccentEmerald, fontWeight = FontWeight.Bold)
+                    Text("Provider: ${resolved.providerName}", color = TextSecondary, fontSize = 12.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(resolved.destinationUrl, color = TextPrimary, fontSize = 13.sp)
                     Spacer(Modifier.height(8.dp))
@@ -130,7 +131,7 @@ fun LinkBypassScreen() {
                 Text("Batas keamanan", color = AccentCyan, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Resolver mengikuti redirect HTTP, parameter URL umum, dan meta refresh. Maksimal 10 lompatan dan 512 KB HTML. IP privat/lokal, skema non-HTTP(S), port nonstandar, loop, serta halaman yang meminta login/CAPTCHA tidak dilewati. DRM dan proteksi akses tidak dibypass.",
+                    "Resolver mengikuti redirect HTTP, parameter URL umum, dan meta refresh. Maksimal 10 lompatan dan 512 KB HTML. Resolver membaca redirect HTTP, parameter URL, meta refresh, serta petunjuk navigasi JavaScript statis tanpa menjalankan skrip. IP privat/lokal, skema non-HTTP(S), port nonstandar, dan loop diblokir. Login, CAPTCHA, DRM, dan proteksi akses tetap harus diselesaikan pengguna melalui situs resmi.",
                     color = TextSecondary,
                     fontSize = 12.sp
                 )
