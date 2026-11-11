@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#11131b"><meta name="description" content="IO Invitation Studio — visual builder untuk undangan digital.">
+  <title>IO Invitation Studio</title><link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <a class="brand" href="#"><span class="brand-mark">IO</span><span>Invitation <b>Studio</b><small>DESIGN • MANAGE • PUBLISH</small></span></a>
+    <div class="project-switch"><span class="dot"></span><span id="projectName">Pernikahan Andri & Sinta</span><span class="muted">/</span><span class="muted">Draft</span></div>
+    <div class="top-actions"><button class="btn ghost" id="previewBtn">Preview</button><button class="btn ghost" id="saveBtn">Simpan</button><button class="btn primary" id="publishBtn">Terbitkan ↗</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="left-panel">
+      <div class="panel-tabs"><button class="tab active" data-panel="elements">Elemen</button><button class="tab" data-panel="pages">Halaman</button><button class="tab" data-panel="media">Media</button></div>
+      <section class="panel-content" id="elementsPanel">
+        <div class="panel-heading"><div><h3>Tambah elemen</h3><p>Tarik ke kanvas atau klik</p></div><span class="tiny-tag">STUDIO</span></div>
+        <div class="element-grid">
+          <button class="element" data-add="cover"><span>▧</span>Cover</button><button class="element" data-add="text"><span>T</span>Teks</button>
+          <button class="element" data-add="countdown"><span>◷</span>Countdown</button><button class="element" data-add="event"><span>⌖</span>Detail acara</button>
+          <button class="element" data-add="gallery"><span>▦</span>Galeri</button><button class="element" data-add="rsvp"><span>♡</span>RSVP</button>
+          <button class="element" data-add="story"><span>⌁</span>Love story</button><button class="element" data-add="gift"><span>◇</span>Wedding gift</button>
+          <button class="element" data-add="guestbook"><span>✎</span>Buku tamu</button><button class="element" data-add="button"><span>↗</span>Tombol</button>
+        </div>
+        <div class="divider"></div><div class="panel-heading"><div><h3>Struktur halaman</h3><p>Urutkan section undangan</p></div></div><div id="layers" class="layers"></div>
+      </section>
+      <section class="panel-content hidden" id="pagesPanel"><div class="panel-heading"><div><h3>Halaman</h3><p>Kelola halaman proyek</p></div></div><button class="wide-option" id="addPage">＋ Tambah halaman</button><div class="page-item selected">⌂ Beranda <span>●</span></div><div class="page-item">♡ Cerita Kami</div><div class="page-item">✉ RSVP</div></section>
+      <section class="panel-content hidden" id="mediaPanel"><div class="panel-heading"><div><h3>Media library</h3><p>File tersimpan di browser sesi ini</p></div></div><label class="upload-zone">＋<b>Upload foto / video</b><small>JPG, PNG, WEBP, MP4</small><input type="file" id="mediaUpload" accept="image/*,video/*" multiple hidden></label><div id="mediaList" class="media-list"></div></section>
+    </aside>
+    <section class="canvas-area">
+      <div class="canvas-toolbar"><div class="device-switch"><button class="device active" data-device="desktop">▰ Desktop</button><button class="device" data-device="mobile">▯ Mobile</button></div><span class="canvas-hint">Pilih elemen di kanvas untuk mengedit</span><div class="zoom">100%　⌄</div></div>
+      <div class="canvas-scroll"><div class="site-canvas" id="siteCanvas">
+        <section class="invite-section hero selected" data-section="cover" draggable="true"><div class="hero-shade"></div><div class="hero-content"><span class="eyebrow">THE WEDDING OF</span><h1 contenteditable="true" data-editable="title">Andri <i>&</i> Sinta</h1><p contenteditable="true" data-editable="subtitle">Minggu, 20 Desember 2026</p><button class="invite-cta" data-action="open-invitation">Buka Undangan</button><span class="scroll-note">SCROLL TO EXPLORE ↓</span></div></section>
+        <section class="invite-section intro" data-section="text" draggable="true"><span class="eyebrow">ASSALAMUALAIKUM</span><h2>Dengan penuh rasa syukur</h2><p>Dengan memohon rahmat dan ridho Tuhan Yang Maha Esa, kami mengundang Anda untuk hadir dan memberikan doa restu pada hari bahagia kami.</p></section>
+        <section class="invite-section countdown" data-section="countdown" draggable="true"><span class="eyebrow">SAVE THE DATE</span><h2>Menuju Hari Bahagia</h2><div class="timer"><div><b>039</b><small>HARI</small></div><div><b>12</b><small>JAM</small></div><div><b>45</b><small>MENIT</small></div><div><b>08</b><small>DETIK</small></div></div></section>
+        <section class="invite-section event" data-section="event" draggable="true"><span class="eyebrow">JOIN OUR CELEBRATION</span><h2>Detail Acara</h2><div class="event-cards"><article><span>AKAD NIKAH</span><h3>09.00 WIB</h3><p>Minggu, 20 Desember 2026<br>Gedung Serbaguna Jakarta</p><button class="outline-btn">Lihat Lokasi ↗</button></article><article><span>RESEPSI</span><h3>11.00 – 14.00</h3><p>Minggu, 20 Desember 2026<br>Gedung Serbaguna Jakarta</p><button class="outline-btn">Lihat Lokasi ↗</button></article></div></section>
+        <section class="invite-section gallery" data-section="gallery" draggable="true"><span class="eyebrow">OUR MOMENTS</span><h2>Galeri Bahagia</h2><div class="gallery-grid"><div>01</div><div>02</div><div>03</div></div></section>
+        <section class="invite-section rsvp" data-section="rsvp" draggable="true"><span class="eyebrow">KINDLY RESPOND</span><h2>Konfirmasi Kehadiran</h2><input placeholder="Nama lengkap"><select><option>Konfirmasi kehadiran</option><option>Hadir</option><option>Berhalangan</option></select><button class="invite-cta">Kirim RSVP</button></section>
+        <footer class="invite-section footer" data-section="footer"><h2>Andri <i>&</i> Sinta</h2><p>Terima kasih atas doa dan restunya.</p><small>MADE WITH IO INVITATION STUDIO</small></footer>
+      </div></div>
+    </section>
+    <aside class="right-panel"><div class="right-tabs"><button class="tab active" data-right="design">Desain</button><button class="tab" data-right="settings">Pengaturan</button></div>
+      <section id="designPanel" class="inspector"><div class="panel-heading"><div><h3>Properti elemen</h3><p id="selectedLabel">Cover utama dipilih</p></div></div>
+        <label class="field-label">Judul utama<input id="titleInput" value="Andri & Sinta"></label><label class="field-label">Subjudul<input id="subtitleInput" value="Minggu, 20 Desember 2026"></label>
+        <div class="divider"></div><h4>Gaya visual</h4><label class="field-label">Warna aksen<div class="color-row"><input type="color" id="accentColor" value="#b68b65"><span id="colorValue">#b68b65</span></div></label><label class="field-label">Tipografi<select id="fontSelect"><option value="serif">Elegant Serif</option><option value="sans">Modern Sans</option><option value="classic">Classic</option></select></label>
+        <label class="field-label">Tinggi cover<select id="coverHeight"><option value="large">Layar penuh</option><option value="medium">Sedang</option></select></label><div class="divider"></div><button class="wide-option" id="changeBg">▧ Ganti foto cover</button><input type="file" id="bgUpload" accept="image/*" hidden><p class="help">Pilih elemen pada kanvas untuk menyesuaikan kontennya.</p>
+      </section>
+      <section id="settingsPanel" class="inspector hidden"><div class="panel-heading"><div><h3>Pengaturan proyek</h3><p>Identitas dan publikasi</p></div></div><label class="field-label">Nama proyek<input id="projectInput" value="Pernikahan Andri & Sinta"></label><label class="field-label">Slug undangan utama<input id="mainSlug" value="andri-sinta"></label><div class="divider"></div><h4>Domain & subdomain</h4><p class="help">Nama tamu menjadi alamat undangan unik di bawah domain platform.</p><label class="field-label">Domain utama<input id="baseDomain" value="io-unedeveloper.edgeone.dev"></label><label class="field-label">Nama tamu / slug<input id="guestSlug" placeholder="contoh: keluarga-budi"></label><div class="domain-preview" id="domainPreview">keluarga-budi.andri-sinta.io-unedeveloper.edgeone.dev</div><button class="btn primary full" id="addGuest">＋ Tambahkan alamat tamu</button><div id="guestList" class="guest-list"></div><div class="divider"></div><h4>SEO & sosial</h4><label class="field-label">Judul SEO<input placeholder="Undangan Andri & Sinta"></label><label class="field-label">Deskripsi<textarea placeholder="Deskripsi undangan..." rows="3"></textarea></label><button class="wide-option" id="exportJson">⇩ Export project JSON</button><button class="wide-option" id="importJson">⇧ Import project JSON</button><input id="importFile" type="file" accept="application/json" hidden></section>
+    </aside>
+  </main>
+  <div class="toast" id="toast" role="status"></div>
+  <div class="modal-backdrop hidden" id="publishModal"><div class="modal"><button class="modal-close" id="closeModal">×</button><span class="eyebrow">PUBLISH CENTER</span><h2>Siap menerbitkan?</h2><p>Preview alamat undangan dan simpan konfigurasi publikasi proyekmu.</p><div class="publish-url" id="publishUrl">andri-sinta.io-unedeveloper.edgeone.dev</div><div class="notice">Mode demo: perubahan tersimpan lokal dan belum dipublikasikan ke hosting. Hubungkan backend + DNS wildcard untuk publikasi multi-subdomain sungguhan.</div><button class="btn primary full" id="confirmPublish">Simpan status publikasi</button></div></div>
+</div>
+<script src="./app.js"></script>
+</body></html>
