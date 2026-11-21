@@ -38,6 +38,13 @@ class DownloadManagerValidationTest {
     }
 
     @Test
+    fun acceptsTikwmAudioMimeOnlyWhenExplicitlyAllowedForVideo() {
+        assertFalse(AppDownloadManager.isCompatibleContentType("video/mp4", "audio/mpeg"))
+        assertTrue(AppDownloadManager.isCompatibleContentType("video/mp4", "audio/mpeg", acceptedContentTypes = setOf("audio/mpeg")))
+        assertFalse(AppDownloadManager.isCompatibleContentType("video/mp4", "audio/mpeg", acceptedContentTypes = setOf("audio/aac")))
+    }
+
+    @Test
     fun alignsOutputExtensionWithExpectedMimeType() {
         assertTrue(AppDownloadManager.ensureExtension("clip.webm", "video/mp4").endsWith(".mp4"))
         assertTrue(AppDownloadManager.ensureExtension("clip.mp4", "video/webm").endsWith(".webm"))
