@@ -207,8 +207,8 @@ object AppDownloadManager {
         title: String,
         mimeType: String = "video/mp4",
         customHeaders: Map<String, String> = emptyMap(),
-        onSuccess: (Uri) -> Unit = {},
-        acceptedContentTypes: Set<String> = emptySet()
+        acceptedContentTypes: Set<String> = emptySet(),
+        onSuccess: (Uri) -> Unit = {}
     ) {
         cancelDownload()
         val downloadId = synchronized(downloadLock) {
