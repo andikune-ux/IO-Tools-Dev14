@@ -116,7 +116,7 @@ fun TikTokDownloaderScreen() {
             CyberTerminalHeader(
                 title = "TIKTOK DOWNLOADER PRO",
                 subtitle = "Download Video TikTok Tanpa Watermark (HD) & Audio MP3",
-                statusText = "LOCAL ENGINE READY",
+                statusText = "TIKWM API READY",
                 statusColor = AccentRose
             )
         }
@@ -445,12 +445,10 @@ fun TikTokDownloaderScreen() {
                                 val fileName = "TikTok_${sanitizedTitle}_${data.id}.mp4"
                                 TikTokDownloaderService.startDownload(
                                     context = context,
-                                    url = data.sourceUrl,
+                                    url = data.noWatermarkVideoUrl,
                                     fileName = fileName,
                                     title = data.title,
-                                    isAudio = false,
-                                    formatId = data.noWatermarkFormatId,
-                                    formatHasAudio = data.noWatermarkFormatHasAudio
+                                    isAudio = false
                                 )
                             },
                             shape = RoundedCornerShape(12.dp),
@@ -482,14 +480,14 @@ fun TikTokDownloaderScreen() {
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Download Action 2: Download Audio (MP3)
-                        if (data.audioAvailable) {
+                        if (!data.audioUrl.isNullOrBlank()) {
                             Button(
                                 onClick = {
                                     val sanitizedTitle = data.title.replace(Regex("[^a-zA-Z0-9_]"), "_").take(30)
                                     val fileName = "TikTok_Audio_${sanitizedTitle}_${data.id}.mp3"
                                     TikTokDownloaderService.startDownload(
                                         context = context,
-                                        url = data.sourceUrl,
+                                        url = data.audioUrl.orEmpty(),
                                         fileName = fileName,
                                         title = "${data.title} (Audio)",
                                         isAudio = true
