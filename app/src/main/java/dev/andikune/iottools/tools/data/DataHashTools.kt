@@ -102,17 +102,22 @@ fun DataHashTools() {
                         hashScope.launch {
                             isHashingFile = true
                             fileHashes = emptyList()
-                            hashedFileName = DocumentFile.fromSingleUri(context, uri)?.name
-                                ?: uri.lastPathSegment.orEmpty()
-                            hashedFileSize = DocumentFile.fromSingleUri(context, uri)?.length() ?: 0L
-                            fileHashes = withContext(Dispatchers.IO) {
-                                runCatching { calculateFileDigests(context, uri) }
-                                    .getOrElse { error ->
-                                        Toast.makeText(context, "Gagal membaca file: ${error.message}", Toast.LENGTH_LONG).show()
-                                        emptyList()
-                                    }
+                            hashedFileName = ""
+                            hashedFileSize = 0L
+                            try {
+                                val metadata = withContext(Dispatchers.IO) {
+                                    val document = DocumentFile.fromSingleUri(context, uri)
+                                    (document?.name ?: uri.lastPathSegment.orEmpty()) to (document?.length() ?: 0L)
+                                }
+                                hashedFileName = metadata.first
+                                hashedFileSize = metadata.second
+                                fileHashes = withContext(Dispatchers.IO) { calculateFileDigests(context, uri) }
+                            } catch (error: Exception) {
+                                fileHashes = emptyList()
+                                Toast.makeText(context, "Gagal membaca file: ${error.message}", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isHashingFile = false
                             }
-                            isHashingFile = false
                         }
                     }
                 }
@@ -138,7 +143,7 @@ fun DataHashTools() {
 
                     CyberTextField(
                         value = hashInput,
-                        onValueChange = { hashInput = it },
+                        onValueChange = { hashInput = it.take(100_000) },
                         label = "Teks Input untuk Hash",
                         placeholder = "Masukkan string untuk dihitung hash checksum..."
                     )
@@ -149,7 +154,7 @@ fun DataHashTools() {
                     HashResultRow(context, "MD5 (Legacy Fingerprint)", md5Hash, NeonCyan)
                     HashResultRow(context, "SHA-1 (Legacy Signatures)", sha1Hash, NeonYellow)
                     HashResultRow(context, "CRC-32 (File Checksum)", crc32Hash, MatrixGreen)
-                    HashResultRow(context, "SHA-512 (High Security)", sha512Hash.take(32) + "...", NeonPurple)
+                    HashResultRow(context, "SHA-512 (High Security)", sha512Hash, NeonPurple)
 
                     Spacer(modifier = Modifier.height(18.dp))
                     Text(
@@ -212,7 +217,7 @@ fun DataHashTools() {
 
                     CyberTextField(
                         value = base64Input,
-                        onValueChange = { base64Input = it },
+                        onValueChange = { base64Input = it.take(1_000_000) },
                         label = if (isDecoding) "Ciphertext Base64" else "Plaintext Teks",
                         singleLine = false,
                         modifier = Modifier.height(100.dp)
@@ -273,7 +278,7 @@ fun DataHashTools() {
 
                     CyberTextField(
                         value = urlInput,
-                        onValueChange = { urlInput = it },
+                        onValueChange = { urlInput = it.take(1_000_000) },
                         label = "URL atau URI Parameter Target"
                     )
 
@@ -323,17 +328,39 @@ fun DataHashTools() {
                 var files by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
                 var busy by remember { mutableStateOf(false) }
                 var status by remember { mutableStateOf<String?>(null) }
+                var folderLoadToken by remember { mutableIntStateOf(0) }
 
-                fun loadFolder(uri: Uri) {
-                    val doc = DocumentFile.fromTreeUri(context, uri)
-                    if (doc == null || !doc.isDirectory) {
-                        status = "Folder tidak dapat dibuka."
-                        return
-                    }
+                fun loadFolder(uri: Uri, showStatus: Boolean = true) {
+                    val token = ++folderLoadToken
                     folderUri = uri
-                    folderName = doc.name ?: "Folder"
-                    files = doc.listFiles().filter { it.isFile }.sortedBy { it.name?.lowercase() ?: "" }
-                    status = if (files.isEmpty()) "Folder tidak berisi file." else "${files.size} file ditemukan."
+                    folderName = "Memuat..."
+                    files = emptyList()
+                    if (showStatus) status = "Memuat daftar file..."
+                    scope.launch {
+                        val folderData = withContext(Dispatchers.IO) {
+                            val doc = DocumentFile.fromTreeUri(context, uri)
+                            if (doc == null || !doc.isDirectory) null
+                            else {
+                                val listed = doc.listFiles().filter { it.isFile }
+                                    .sortedBy { it.name?.lowercase() ?: "" }
+                                (doc.name ?: "Folder") to listed
+                            }
+                        }
+                        if (token != folderLoadToken) return@launch
+                        if (folderData == null) {
+                            folderUri = null
+                            folderName = ""
+                            files = emptyList()
+                            if (showStatus) status = "Folder tidak dapat dibuka."
+                            return@launch
+                        }
+                        folderUri = uri
+                        folderName = folderData.first
+                        files = folderData.second
+                        if (showStatus) {
+                            status = if (files.isEmpty()) "Folder tidak berisi file." else "${files.size} file ditemukan."
+                        }
+                    }
                 }
 
                 val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -349,10 +376,8 @@ fun DataHashTools() {
                 }
 
                 fun targetName(original: String, index: Int): String {
-                    val ext = original.substringAfterLast('.', "")
-                    val number = (startNumber.toIntOrNull() ?: 1) + index
-                    val base = "$prefix${String.format("%03d", number)}$suffix"
-                    return if (ext.isNotBlank()) "$base.$ext" else base
+                    val number = startNumber.toLongOrNull() ?: 1L
+                    return buildBatchRenameName(original, prefix, suffix, number, index)
                 }
 
                 CyberCard(borderColor = AccentRose) {
@@ -366,19 +391,19 @@ fun DataHashTools() {
                     Spacer(modifier = Modifier.height(12.dp))
                     CyberSecondaryButton(
                         text = if (folderUri == null) "PILIH FOLDER" else "GANTI FOLDER: $folderName",
-                        onClick = { picker.launch(null) }
+                        onClick = { if (!busy) picker.launch(null) }
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(modifier = Modifier.weight(1f)) {
-                            CyberTextField(value = prefix, onValueChange = { prefix = it }, label = "Awalan")
+                            CyberTextField(value = prefix, onValueChange = { if (!busy) prefix = it }, label = "Awalan")
                         }
                         Box(modifier = Modifier.weight(1f)) {
-                            CyberTextField(value = suffix, onValueChange = { suffix = it }, label = "Akhiran")
+                            CyberTextField(value = suffix, onValueChange = { if (!busy) suffix = it }, label = "Akhiran")
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    CyberTextField(value = startNumber, onValueChange = { startNumber = it.filter { c -> c.isDigit() } }, label = "Nomor awal")
+                    CyberTextField(value = startNumber, onValueChange = { if (!busy) startNumber = it.filter { c -> c.isDigit() }.take(9) }, label = "Nomor awal")
                     Spacer(modifier = Modifier.height(12.dp))
 
                     if (files.isNotEmpty()) {
@@ -421,15 +446,50 @@ fun DataHashTools() {
                         color = AccentRose,
                         onClick = {
                             val currentUri = folderUri ?: return@CyberButton
+                            val start = startNumber.toLongOrNull()
+                            val filesSnapshot = files.toList()
+                            if (start == null || start < 0L || start > 999_999_999L - filesSnapshot.size) {
+                                status = "Nomor awal tidak valid atau terlalu besar."
+                                return@CyberButton
+                            }
+                            val names = filesSnapshot.mapIndexed { index, file ->
+                                val original = file.name ?: ""
+                                buildBatchRenameName(original, prefix, suffix, start, index)
+                            }
+                            if (filesSnapshot.any { it.name.isNullOrBlank() }) {
+                                status = "Ada file yang tidak memiliki nama dan tidak dapat diubah."
+                                return@CyberButton
+                            }
+                            if (names.distinct().size != names.size) {
+                                status = "Pola menghasilkan nama duplikat. Ubah awalan atau akhiran."
+                                return@CyberButton
+                            }
+                            val existingNames = filesSnapshot.mapNotNull { it.name }.toSet()
+                            val conflicts = names.zip(filesSnapshot).any { (newName, file) ->
+                                newName != file.name && newName in existingNames
+                            }
+                            if (conflicts) {
+                                status = "Nama tujuan sudah digunakan file lain di folder. Tidak ada file yang diubah."
+                                return@CyberButton
+                            }
+
+                            val prefixSnapshot = prefix
+                            val suffixSnapshot = suffix
                             busy = true
                             status = null
                             scope.launch {
                                 val result = withContext(Dispatchers.IO) {
                                     var success = 0
                                     var failed = 0
-                                    files.forEachIndexed { index, file ->
-                                        val original = file.name ?: return@forEachIndexed
-                                        val newName = targetName(original, index)
+                                    filesSnapshot.forEachIndexed { index, file ->
+                                        val original = file.name ?: ""
+                                        val newName = buildBatchRenameName(
+                                            original,
+                                            prefixSnapshot,
+                                            suffixSnapshot,
+                                            start,
+                                            index
+                                        )
                                         if (newName == original) {
                                             success++
                                         } else if (runCatching { file.renameTo(newName) }.getOrDefault(false)) {
@@ -441,7 +501,7 @@ fun DataHashTools() {
                                     success to failed
                                 }
                                 busy = false
-                                loadFolder(currentUri)
+                                loadFolder(currentUri, showStatus = false)
                                 status = "Selesai: ${result.first} berhasil, ${result.second} gagal."
                             }
                         }
@@ -455,6 +515,30 @@ fun DataHashTools() {
             }
         }
     }
+}
+
+internal fun buildBatchRenameName(
+    original: String,
+    prefix: String,
+    suffix: String,
+    startNumber: Long,
+    index: Int
+): String {
+    val extension = original.substringAfterLast('.', "")
+        .takeIf { it.isNotBlank() && original.lastIndexOf('.') > 0 }
+        ?.replace(Regex("[^A-Za-z0-9_-]"), "")
+        ?.take(20)
+    val number = startNumber + index.coerceAtLeast(0)
+    val numberText = String.format(java.util.Locale.US, "%03d", number)
+    val cleanPrefix = prefix.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        .replace(Regex("[\\u0000-\\u001F\\u007F]"), "_").trim()
+    val cleanSuffix = suffix.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        .replace(Regex("[\\u0000-\\u001F\\u007F]"), "_").trim()
+    val extensionPart = extension?.let { ".$it" }.orEmpty()
+    val base = (cleanPrefix + numberText + cleanSuffix).trimEnd('.', ' ')
+        .ifBlank { "file_$numberText" }
+        .take((200 - extensionPart.length).coerceAtLeast(1))
+    return base + extensionPart
 }
 
 @Composable
@@ -510,8 +594,8 @@ private fun calculateFileDigests(context: Context, uri: Uri): List<Pair<String, 
     input.use { stream ->
         val buffer = ByteArray(64 * 1024)
         while (true) {
-            val read = stream.read(buffer)
-            if (read <= 0) break
+            val read = readFileHashChunk(stream, buffer)
+            if (read < 0) break
             digests.values.forEach { it.update(buffer, 0, read) }
             crc.update(buffer, 0, read)
         }
@@ -520,6 +604,16 @@ private fun calculateFileDigests(context: Context, uri: Uri): List<Pair<String, 
         label to digest.digest().joinToString("") { "%02x".format(it) }
     }
     return rows + ("CRC-32 (File)" to java.lang.Long.toHexString(crc.value).uppercase())
+}
+
+internal fun readFileHashChunk(input: java.io.InputStream, buffer: ByteArray): Int {
+    require(buffer.isNotEmpty()) { "Buffer hash tidak boleh kosong." }
+    val read = input.read(buffer)
+    if (read != 0) return read
+    val single = input.read()
+    if (single < 0) return -1
+    buffer[0] = single.toByte()
+    return 1
 }
 
 private fun formatFileSize(bytes: Long): String {

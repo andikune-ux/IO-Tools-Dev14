@@ -27,12 +27,169 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.InetAddress
+import java.net.IDN
+import java.net.URI
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Socket
 import java.net.URL
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
+
+internal fun readBoundedResponse(input: java.io.InputStream, maxBytes: Int): ByteArray {
+    require(maxBytes > 0) { "Batas respons harus lebih besar dari nol." }
+    val output = java.io.ByteArrayOutputStream(minOf(maxBytes, 8192))
+    val buffer = ByteArray(4096)
+    while (output.size() < maxBytes) {
+        val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+        if (read < 0) break
+        if (read == 0) {
+            val single = input.read()
+            if (single < 0) break
+            output.write(single)
+        } else {
+            output.write(buffer, 0, read)
+        }
+    }
+    if (output.size() == maxBytes && input.read() >= 0) {
+        throw IllegalStateException("Respons lookup melebihi batas $maxBytes byte.")
+    }
+    return output.toByteArray()
+}
+
+internal fun readWhoisResponse(reader: java.io.Reader, maxChars: Int): String {
+    require(maxChars > 0) { "Batas WHOIS harus lebih besar dari nol." }
+    val output = StringBuilder(minOf(maxChars, 8192))
+    val buffer = CharArray(4096)
+    while (true) {
+        val remaining = maxChars - output.length
+        val read = reader.read(buffer, 0, minOf(buffer.size, remaining + 1))
+        if (read < 0) break
+        if (read == 0) {
+            val single = reader.read()
+            if (single < 0) break
+            if (output.length >= maxChars) {
+                throw IllegalStateException("Respons WHOIS melebihi batas $maxChars karakter.")
+            }
+            output.append(single.toChar())
+            continue
+        }
+        if (read > remaining) throw IllegalStateException("Respons WHOIS melebihi batas $maxChars karakter.")
+        output.append(buffer, 0, read)
+    }
+    return output.toString()
+}
+
+internal data class SslTarget(val host: String, val port: Int)
+
+internal fun normalizeNetworkHost(input: String): String? {
+    val clean = input.trim()
+    if (clean.isBlank() || clean.any { it.isWhitespace() || it.isISOControl() }) return null
+    val candidate = if ("://" in clean) clean else "https://$clean"
+    val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
+        (uri.port != -1 && uri.port !in 1..65535)
+    ) return null
+    if (uri.rawAuthority?.contains('@') == true) return null
+    val authority = uri.rawAuthority ?: return null
+    val explicitPort = when {
+        authority.startsWith("[") && "]:" in authority ->
+            authority.substringAfter("]:").toIntOrNull() ?: return null
+        !authority.startsWith("[") && authority.count { it == ':' } == 1 &&
+            authority.substringAfterLast(':').all(Char::isDigit) ->
+            authority.substringAfterLast(':').toIntOrNull() ?: return null
+        else -> null
+    }
+    if (explicitPort != null && explicitPort !in 1..65535) return null
+    val rawHost = when {
+        authority.startsWith("[") -> authority.substringBefore("]")
+        else -> authority.substringBeforeLast(':').takeIf {
+            authority.count { ch -> ch == ':' } == 1 && authority.substringAfterLast(':').all(Char::isDigit)
+        } ?: authority
+    }.removePrefix("[").removeSuffix("]")
+    if (rawHost.isBlank()) return null
+    if (rawHost.contains(':')) {
+        return rawHost.takeIf { it.matches(Regex("^[0-9a-fA-F:.]+$")) }
+    }
+    val host = runCatching { IDN.toASCII(rawHost, IDN.USE_STD3_ASCII_RULES).lowercase() }.getOrNull()
+        ?: return null
+    if (host.length > 253 || host.isBlank()) return null
+    val normalizedHost = host.trimEnd('.')
+    if (normalizedHost.isBlank()) return null
+    val labels = normalizedHost.split('.')
+    if (labels.any { label ->
+            label.isBlank() || label.length > 63 ||
+                !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+        }
+    ) return null
+    return normalizedHost
+}
+
+internal fun normalizeWhoisDomain(input: String): String? {
+    val host = normalizeNetworkHost(input) ?: return null
+    if (!host.contains('.') || host.contains(':') ||
+        host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
+    ) return null
+    return host
+}
+
+internal fun isPublicWhoisAddress(address: InetAddress): Boolean {
+    if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+        address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress
+    ) return false
+
+    val bytes = address.address
+    if (bytes.size == 4) {
+        val a = bytes[0].toInt() and 0xff
+        val b = bytes[1].toInt() and 0xff
+        return when {
+            a == 0 || a == 10 || a == 127 || a >= 224 -> false
+            a == 100 && b in 64..127 -> false
+            a == 169 && b == 254 -> false
+            a == 172 && b in 16..31 -> false
+            a == 192 && b == 168 -> false
+            a == 192 && b == 0 -> false
+            a == 198 && b in 18..19 -> false
+            a == 198 && b == 51 -> false
+            a == 203 && b == 0 -> false
+            else -> true
+        }
+    }
+    if (bytes.size == 16) {
+        val isIpv4Mapped = bytes.take(10).all { it.toInt() == 0 } &&
+            (bytes[10].toInt() and 0xff) == 0xff &&
+            (bytes[11].toInt() and 0xff) == 0xff
+        if (isIpv4Mapped) {
+            return isPublicWhoisAddress(InetAddress.getByAddress(bytes.copyOfRange(12, 16)))
+        }
+        val first = bytes[0].toInt() and 0xff
+        val second = bytes[1].toInt() and 0xff
+        // WHOIS referrals must resolve to global-unicast IPv6 addresses only.
+        if (first !in 0x20..0x3f) return false
+        if ((first and 0xfe) == 0xfc) return false // Unique-local IPv6.
+        if (first == 0xfe && (second and 0xc0) == 0x80) return false // Link-local IPv6.
+        if (first == 0x20 && second == 0x01) {
+            val third = bytes[2].toInt() and 0xff
+            val fourth = bytes[3].toInt() and 0xff
+            if ((third == 0x00 && fourth <= 0x01) ||
+                (third == 0x0d && fourth == 0xb8)
+            ) return false // IETF special-purpose and documentation ranges.
+        }
+    }
+    return true
+}
+
+internal fun parseSslTarget(input: String): SslTarget? {
+    val clean = input.trim()
+    if (clean.isBlank() || clean.any { it.isWhitespace() || it.isISOControl() }) return null
+    val candidate = if ("://" in clean) clean else "https://$clean"
+    val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+    val host = normalizeNetworkHost(uri.host ?: return null) ?: return null
+    val port = if (uri.port == -1) 443 else uri.port
+    if (port !in 1..65535) return null
+    return SslTarget(host, port)
+}
 
 @Composable
 fun NetworkTools() {
@@ -75,9 +232,13 @@ fun NetworkTools() {
 
         if (activeSubTool == 0) {
             item {
-                var localIps by remember { mutableStateOf(getLocalIpAddresses(context)) }
+                var localIps by remember { mutableStateOf(listOf("Memuat interface jaringan...")) }
                 var publicInfo by remember { mutableStateOf("Tekan tombol untuk melakukan lookup nyata.") }
                 var isLoading by remember { mutableStateOf(false) }
+
+                LaunchedEffect(Unit) {
+                    localIps = withContext(Dispatchers.IO) { getLocalIpAddresses(context) }
+                }
 
                 CyberCard(borderColor = AccentCyan) {
                     Text("Adapter & IP Publik", color = AccentCyan, fontWeight = FontWeight.Bold)
@@ -98,9 +259,12 @@ fun NetworkTools() {
                         onClick = {
                             coroutineScope.launch {
                                 isLoading = true
-                                localIps = getLocalIpAddresses(context)
-                                publicInfo = withContext(Dispatchers.IO) { lookupPublicIp() }
-                                isLoading = false
+                                try {
+                                    localIps = withContext(Dispatchers.IO) { getLocalIpAddresses(context) }
+                                    publicInfo = withContext(Dispatchers.IO) { lookupPublicIp() }
+                                } finally {
+                                    isLoading = false
+                                }
                             }
                         }
                     )
@@ -131,18 +295,24 @@ fun NetworkTools() {
                         onClick = {
                             coroutineScope.launch {
                                 isResolving = true
-                                val host = targetHost.trim().removePrefix("https://").removePrefix("http://").substringBefore('/')
-                                dnsResults = withContext(Dispatchers.IO) {
-                                    try {
+                                val host = normalizeNetworkHost(targetHost)
+                                if (host == null) {
+                                    dnsResults = listOf("Hostname tidak valid.")
+                                    isResolving = false
+                                    return@launch
+                                }
+                                try {
+                                    dnsResults = withContext(Dispatchers.IO) {
                                         InetAddress.getAllByName(host).map { address ->
                                             val type = if (address.address.size == 4) "A" else "AAAA"
                                             "$type  ${address.hostAddress}"
                                         }
-                                    } catch (e: Exception) {
-                                        listOf("Gagal: ${e.message ?: "host tidak ditemukan"}")
                                     }
+                                } catch (e: Exception) {
+                                    dnsResults = listOf("Gagal: ${e.message ?: "host tidak ditemukan"}")
+                                } finally {
+                                    isResolving = false
                                 }
-                                isResolving = false
                             }
                         }
                     )
@@ -184,30 +354,40 @@ fun NetworkTools() {
                             coroutineScope.launch {
                                 isPinging = true
                                 pingOutput = emptyList()
-                                val host = pingHost.trim().removePrefix("https://").removePrefix("http://").substringBefore('/')
+                                val host = normalizeNetworkHost(pingHost)
+                                if (host == null) {
+                                    pingOutput = listOf("Host tidak valid.")
+                                    isPinging = false
+                                    return@launch
+                                }
                                 val rtts = mutableListOf<Long>()
-                                var sent = 0
-                                for (i in 1..4) {
-                                    sent++
-                                    val line = withContext(Dispatchers.IO) {
-                                        val start = System.nanoTime()
-                                        fun attempt(port: Int): Long? = runCatching {
-                                            Socket().use { socket ->
-                                                socket.connect(InetSocketAddress(host, port), 2500)
+                                val sent = 4
+                                try {
+                                    for (i in 1..sent) {
+                                        val line = withContext(Dispatchers.IO) {
+                                            fun attempt(port: Int): Long? {
+                                                val start = System.nanoTime()
+                                                return runCatching {
+                                                    Socket().use { socket ->
+                                                        socket.connect(InetSocketAddress(host, port), 2500)
+                                                    }
+                                                    (System.nanoTime() - start) / 1_000_000
+                                                }.getOrNull()
                                             }
-                                            (System.nanoTime() - start) / 1_000_000
-                                        }.getOrNull()
 
-                                        val rtt = attempt(443) ?: attempt(80)
-                                        if (rtt != null) {
-                                            rtts.add(rtt)
-                                            "seq=$i  ${rtt}ms  TCP connected"
-                                        } else {
-                                            "seq=$i  timeout / refused"
+                                            val rtt = attempt(443) ?: attempt(80)
+                                            if (rtt != null) {
+                                                rtts.add(rtt)
+                                                "seq=$i  ${rtt}ms  TCP connected"
+                                            } else {
+                                                "seq=$i  timeout / refused"
+                                            }
                                         }
+                                        pingOutput = pingOutput + line
+                                        delay(250)
                                     }
-                                    pingOutput = pingOutput + line
-                                    delay(250)
+                                } finally {
+                                    isPinging = false
                                 }
                                 val received = rtts.size
                                 val loss = if (sent == 0) 100 else ((sent - received) * 100) / sent
@@ -217,7 +397,6 @@ fun NetworkTools() {
                                     "\n--- $sent dikirim, $received berhasil, loss $loss% | min ${rtts.min()}ms, avg ${rtts.average().toLong()}ms, max ${rtts.max()}ms ---"
                                 }
                                 pingOutput = pingOutput + stats
-                                isPinging = false
                             }
                         }
                     )
@@ -334,16 +513,30 @@ private fun getLocalIpAddresses(context: android.content.Context): List<String> 
 }
 
 private fun lookupPublicIp(): String {
-    fun fetch(url: String): JSONObject? = runCatching {
-        val connection = URL(url).openConnection().apply {
-            connectTimeout = 7000
-            readTimeout = 7000
-            setRequestProperty("User-Agent", "IO-Tools/1.4")
-            setRequestProperty("Accept", "application/json")
+    fun fetch(url: String): JSONObject? {
+        val connection = runCatching { URL(url).openConnection() as? HttpsURLConnection }.getOrNull()
+            ?: return null
+        return try {
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 7000
+            connection.readTimeout = 7000
+            connection.setRequestProperty("User-Agent", "IO-Tools/1.4")
+            connection.setRequestProperty("Accept", "application/json")
+            if (connection.responseCode != 200) return null
+            if (!connection.url.protocol.equals("https", true)) return null
+            val contentType = connection.contentType.orEmpty().lowercase()
+            if (!contentType.contains("json")) return null
+            if (connection.contentLengthLong > 64 * 1024) return null
+            val bytes = connection.inputStream.use { input ->
+                readBoundedResponse(input, 64 * 1024)
+            }
+            JSONObject(String(bytes, Charsets.UTF_8))
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
         }
-        (connection.getInputStream().bufferedReader().use { it.readText() })
-            .let { JSONObject(it) }
-    }.getOrNull()
+    }
 
     fetch("https://ipwho.is/")?.let { json ->
         if (json.optBoolean("success", false) || json.has("ip")) {
@@ -380,31 +573,26 @@ private fun lookupPublicIp(): String {
 }
 
 private fun inspectSsl(input: String): String {
-    val cleaned = input.trim()
-        .removePrefix("https://")
-        .removePrefix("http://")
-        .substringBefore('/')
-    if (cleaned.isBlank()) return "Masukkan domain yang valid."
-    val host = cleaned.substringBefore(':')
-    val port = cleaned.substringAfter(':', "443").toIntOrNull() ?: 443
-    val url = URL("https://$host:$port")
+    val target = parseSslTarget(input)
+        ?: return "Masukkan host dan port TLS yang valid (port 1–65535)."
+    val urlHost = if (target.host.contains(':')) "[${target.host}]" else target.host
+    val url = URL("https://$urlHost:${target.port}")
 
     return try {
         val connection = url.openConnection() as HttpsURLConnection
         connection.connectTimeout = 8000
         connection.readTimeout = 8000
         connection.requestMethod = "HEAD"
-        connection.connect()
         try {
+            connection.connect()
             val cert = connection.serverCertificates.firstOrNull() as? X509Certificate
                 ?: return "TLS terhubung tetapi sertifikat tidak tersedia."
-            val now = System.currentTimeMillis()
-            val remaining = (cert.notAfter.time - now) / (1000L * 60 * 60 * 24)
+            val remaining = (cert.notAfter.time - System.currentTimeMillis()) / (1000L * 60 * 60 * 24)
             buildString {
-                appendLine("Host: $host:$port")
+                appendLine("Host: ${target.host}:${target.port}")
                 appendLine("Cipher: ${connection.cipherSuite}")
-                appendLine("Subject: ${cert.subjectDN.name}")
-                appendLine("Issuer: ${cert.issuerDN.name}")
+                appendLine("Subject: ${cert.subjectX500Principal.name}")
+                appendLine("Issuer: ${cert.issuerX500Principal.name}")
                 appendLine("Valid from: ${cert.notBefore}")
                 appendLine("Valid until: ${cert.notAfter} (${remaining.coerceAtLeast(0)} hari lagi)")
                 appendLine("Signature: ${cert.sigAlgName}")
@@ -415,18 +603,18 @@ private fun inspectSsl(input: String): String {
             connection.disconnect()
         }
     } catch (e: Exception) {
-        "Pemeriksaan TLS gagal: ${e.message ?: e.javaClass.simpleName}\nTidak ada sertifikat palsu yang ditampilkan."
+        "Pemeriksaan TLS gagal: ${e.message ?: e.javaClass.simpleName}\nSertifikat yang tidak tervalidasi tidak ditampilkan sebagai tepercaya."
     }
 }
 
 private object WhoisClient {
     fun query(input: String): String {
-        val domain = normalizeDomain(input)
-        if (!domain.contains('.')) throw IllegalArgumentException("Domain tidak valid.")
+        val domain = normalizeWhoisDomain(input)
+            ?: throw IllegalArgumentException("Domain WHOIS tidak valid.")
 
         val iana = runCatching { rawQuery("whois.iana.org", domain, 8000) }.getOrElse { "" }
         val referral = Regex("(?im)^refer:\\s*(\\S+)").find(iana)?.groupValues?.get(1)
-        val server = referral?.trim()?.ifBlank { null }
+        val server = referral?.let { normalizeWhoisDomain(it) }
             ?: fallbackServer(domain)
 
         val result = if (server != null && server != "whois.iana.org") {
@@ -442,16 +630,7 @@ private object WhoisClient {
         return result.trim()
     }
 
-    private fun normalizeDomain(input: String): String {
-        return input.trim()
-            .removePrefix("https://")
-            .removePrefix("http://")
-            .substringBefore('/')
-            .substringBefore('?')
-            .substringBefore(':')
-            .trim('.')
-            .lowercase()
-    }
+
 
     private fun fallbackServer(domain: String): String? = when {
         domain.endsWith(".com") || domain.endsWith(".net") -> "whois.verisign-grs.com"
@@ -464,20 +643,20 @@ private object WhoisClient {
     }
 
     private fun rawQuery(server: String, domain: String, timeoutMs: Int): String {
+        val safeServer = normalizeWhoisDomain(server)
+            ?: throw IllegalArgumentException("WHOIS referral server tidak valid.")
+        val safeDomain = normalizeWhoisDomain(domain)
+            ?: throw IllegalArgumentException("Domain WHOIS tidak valid.")
+        val serverAddress = InetAddress.getAllByName(safeServer)
+            .firstOrNull(::isPublicWhoisAddress)
+            ?: throw IllegalArgumentException("WHOIS referral tidak mengarah ke alamat IP publik.")
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(server, 43), timeoutMs)
+            socket.connect(InetSocketAddress(serverAddress, 43), timeoutMs)
             socket.soTimeout = timeoutMs
-            socket.getOutputStream().write("$domain\r\n".toByteArray(Charsets.US_ASCII))
+            socket.getOutputStream().write("$safeDomain\r\n".toByteArray(Charsets.US_ASCII))
             socket.getOutputStream().flush()
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1))
-            val builder = StringBuilder()
-            var line: String?
-            while (true) {
-                line = reader.readLine() ?: break
-                builder.append(line).append('\n')
-                if (builder.length > 120_000) break
-            }
-            return builder.toString()
+            val reader = InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1)
+            return readWhoisResponse(reader, 120_000)
         }
     }
 }

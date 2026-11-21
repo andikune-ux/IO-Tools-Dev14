@@ -3,6 +3,10 @@ package dev.andikune.iottools.tools.privacy
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -25,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.andikune.iottools.ui.components.*
@@ -34,12 +39,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
+import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.log2
 
@@ -118,8 +126,10 @@ private fun PasswordGeneratorCard(context: Context) {
         regenerate()
     }
 
-    val poolSize = (if (upper) 24 else 0) + (if (lower) 24 else 0) +
-        (if (numbers) 8 else 0) + (if (symbols) 22 else 0)
+    val poolSize = (if (upper) UPPER_CHARS.length else 0) +
+        (if (lower) LOWER_CHARS.length else 0) +
+        (if (numbers) NUMBER_CHARS.length else 0) +
+        (if (symbols) SYMBOL_CHARS.length else 0)
     val entropy = if (poolSize > 1) (length * log2(poolSize.toDouble())).toInt() else 0
 
     CyberCard(borderColor = AccentRose) {
@@ -143,13 +153,19 @@ private fun PasswordGeneratorCard(context: Context) {
                 IconButton(onClick = { regenerate() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Buat ulang", tint = AccentCyan)
                 }
-                IconButton(onClick = { copyText(context, password, "Password") }) {
+                IconButton(
+                    onClick = { copyText(context, password, "Password") },
+                    enabled = password.isNotBlank()
+                ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Salin", tint = AccentRose)
                 }
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
         Text("Panjang ${length.toInt()} • Entropi $entropy bit", color = TextSecondary, fontSize = 12.sp)
+        if (poolSize == 0) {
+            Text("Pilih minimal satu kelompok karakter.", color = AccentRose, fontSize = 11.sp)
+        }
         Slider(
             value = length,
             onValueChange = { length = it },
@@ -180,8 +196,8 @@ private fun SecureNotesCard(context: Context) {
             status = "Judul dan isi catatan wajib diisi."
             return
         }
-        if (passphrase.length < 4) {
-            status = "Passphrase minimal 4 karakter."
+        if (passphrase.length !in 12..128) {
+            status = "Passphrase harus berisi 12–128 karakter."
             return
         }
         busy = true
@@ -200,6 +216,9 @@ private fun SecureNotesCard(context: Context) {
                 prefs.edit().putString("note_cipher", cipher).apply()
                 hasSaved = true
                 cipherLength = cipher.length
+                title = ""
+                body = ""
+                passphrase = ""
                 status = "Catatan dienkripsi AES-256-GCM dan disimpan lokal."
                 Toast.makeText(context, "Catatan terkunci.", Toast.LENGTH_SHORT).show()
             }.onFailure {
@@ -231,6 +250,7 @@ private fun SecureNotesCard(context: Context) {
             result.onSuccess { (savedTitle, savedBody) ->
                 title = savedTitle
                 body = savedBody
+                passphrase = ""
                 status = "Catatan berhasil didekripsi."
             }.onFailure {
                 status = "Dekripsi gagal: passphrase salah atau data rusak."
@@ -248,15 +268,16 @@ private fun SecureNotesCard(context: Context) {
             fontSize = 11.sp
         )
         Spacer(modifier = Modifier.height(12.dp))
-        CyberTextField(value = title, onValueChange = { title = it }, label = "Judul catatan")
+        CyberTextField(value = title, onValueChange = { title = it.take(120) }, label = "Judul catatan")
         Spacer(modifier = Modifier.height(8.dp))
-        CyberTextField(value = body, onValueChange = { body = it }, label = "Isi catatan", singleLine = false)
+        CyberTextField(value = body, onValueChange = { body = it.take(20_000) }, label = "Isi catatan", singleLine = false)
         Spacer(modifier = Modifier.height(8.dp))
         CyberTextField(
             value = passphrase,
-            onValueChange = { passphrase = it },
+            onValueChange = { passphrase = it.take(4096) },
             label = "Passphrase",
-            placeholder = "Minimal 4 karakter"
+            placeholder = "12–128 karakter untuk enkripsi baru",
+            visualTransformation = PasswordVisualTransformation()
         )
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -289,9 +310,13 @@ private fun SecureNotesCard(context: Context) {
                 Text("Tersimpan: $cipherLength karakter ciphertext", color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 IconButton(
                     onClick = {
+                        if (busy) return@IconButton
                         prefs.edit().remove("note_cipher").apply()
                         hasSaved = false
                         cipherLength = 0
+                        title = ""
+                        body = ""
+                        passphrase = ""
                         status = "Catatan terenkripsi dihapus."
                     }
                 ) {
@@ -309,39 +334,156 @@ private fun SecureNotesCard(context: Context) {
 @Composable
 private fun TotpCard(context: Context) {
     val prefs = remember { context.getSharedPreferences("io_tools_vault", Context.MODE_PRIVATE) }
-    var secret by remember { mutableStateOf(prefs.getString("totp_secret", "JBSWY3DPEHPK3PXP").orEmpty()) }
+    val scope = rememberCoroutineScope()
+    var secret by remember { mutableStateOf("") }
     var account by remember { mutableStateOf(prefs.getString("totp_account", "Akun saya").orEmpty()) }
     var code by remember { mutableStateOf("------") }
     var remaining by remember { mutableIntStateOf(30) }
     var error by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isSaving by remember { mutableStateOf(false) }
+    var isSaved by remember { mutableStateOf(false) }
 
-    LaunchedEffect(secret) {
-        prefs.edit().putString("totp_secret", secret).apply()
+    LaunchedEffect(Unit) {
+        val loaded = withContext(Dispatchers.IO) { TotpSecretStorage.load(context) }
+        secret = loaded.secret
+        isSaved = loaded.secret.isNotBlank()
+        error = loaded.error
+        isLoading = false
+    }
+
+    LaunchedEffect(secret, isLoading) {
+        if (isLoading || secret.isBlank()) {
+            code = "------"
+            return@LaunchedEffect
+        }
         while (true) {
             val epoch = System.currentTimeMillis() / 1000
             val step = epoch / 30
             remaining = (30 - (epoch % 30)).toInt()
-            code = runCatching { generateTotp(secret, step) }
-                .getOrElse {
-                    error = it.message ?: "Secret Base32 tidak valid."
-                    "------"
-                }
-            if (error != null && code != "------") error = null
+            val result = runCatching { generateTotp(secret, step) }
+            result.onSuccess {
+                code = it
+                error = null
+            }.onFailure {
+                code = "------"
+                error = it.message ?: "Secret Base32 tidak valid."
+            }
             delay(1000)
+        }
+    }
+
+    fun saveSecret() {
+        if (isLoading || isSaving) return
+        val decoded = runCatching { Base32.decode(secret) }.getOrNull()
+        if (decoded == null || decoded.size < 10) {
+            error = "Secret Base32 tidak valid atau terlalu pendek (minimal 80 bit)."
+            return
+        }
+        val value = secret
+        isSaving = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { TotpSecretStorage.save(context, value) }
+            }
+            result.onSuccess {
+                isSaved = true
+                status = "Secret disimpan terenkripsi di Android Keystore."
+                error = null
+            }.onFailure {
+                error = "Gagal menyimpan secret: ${it.message}"
+            }
+            isSaving = false
+        }
+    }
+
+    fun deleteSecret() {
+        if (isLoading || isSaving) return
+        isSaving = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { TotpSecretStorage.delete(context) }
+            }
+            result.onSuccess {
+                secret = ""
+                isSaved = false
+                code = "------"
+                status = "Secret TOTP dihapus dari penyimpanan lokal."
+                error = null
+            }.onFailure {
+                error = "Gagal menghapus secret: ${it.message}"
+            }
+            isSaving = false
         }
     }
 
     CyberCard(borderColor = AccentEmerald) {
         Text("TOTP Authenticator (RFC 6238)", color = AccentEmerald, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(4.dp))
-        Text("HMAC-SHA1, 6 digit, periode 30 detik. Kode dihitung di perangkat.", color = TextSecondary, fontSize = 11.sp)
+        Text("HMAC-SHA1, 6 digit, periode 30 detik. Secret disimpan terenkripsi menggunakan Android Keystore.", color = TextSecondary, fontSize = 11.sp)
         Spacer(modifier = Modifier.height(12.dp))
-        CyberTextField(value = account, onValueChange = {
-            account = it
-            prefs.edit().putString("totp_account", it).apply()
-        }, label = "Label akun")
+        CyberTextField(
+            value = account,
+            onValueChange = {
+                account = it.take(100)
+                prefs.edit().putString("totp_account", account).apply()
+            },
+            label = "Label akun"
+        )
         Spacer(modifier = Modifier.height(8.dp))
-        CyberTextField(value = secret, onValueChange = { secret = it }, label = "Secret Base32", placeholder = "JBSWY3DPEHPK3PXP")
+        CyberTextField(
+            value = secret,
+            onValueChange = {
+                secret = it.take(128).trim()
+                isSaved = false
+                status = null
+                error = null
+            },
+            label = "Secret Base32",
+            placeholder = "Tempel secret dari layanan akun",
+            visualTransformation = PasswordVisualTransformation()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { secret = Base32.encode(ByteArray(20).also { SecureRandom().nextBytes(it) }); isSaved = false; status = null; error = null },
+                enabled = !isLoading && !isSaving,
+                modifier = Modifier.weight(1f)
+            ) { Text("BUAT SECRET BARU") }
+            OutlinedButton(
+                onClick = ::saveSecret,
+                enabled = !isLoading && !isSaving && secret.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) { Text(if (isSaving) "MENYIMPAN..." else "SIMPAN SECRET") }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    val label = Uri.encode(account.ifBlank { "Akun" })
+                    val issuer = Uri.encode("IO Tools")
+                    val uri = "otpauth://totp/$issuer:$label?secret=$secret&issuer=$issuer&algorithm=SHA1&digits=6&period=30"
+                    copyText(context, uri, "TOTP setup URI")
+                },
+                enabled = !isLoading && secret.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) { Text("SALIN SETUP URI") }
+            OutlinedButton(
+                onClick = ::deleteSecret,
+                enabled = !isLoading && !isSaving && (isSaved || secret.isNotBlank()),
+                modifier = Modifier.weight(1f)
+            ) { Text("HAPUS SECRET") }
+        }
+        if (isLoading) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        if (isSaved) {
+            Text("Secret tersimpan terenkripsi.", color = AccentEmerald, fontSize = 11.sp)
+        } else if (secret.isNotBlank()) {
+            Text("Perubahan belum disimpan.", color = AccentAmber, fontSize = 11.sp)
+        }
         Spacer(modifier = Modifier.height(14.dp))
         Box(
             modifier = Modifier
@@ -370,26 +512,37 @@ private fun TotpCard(context: Context) {
                 Text("Berganti dalam ${remaining}s", color = TextSecondary, fontSize = 11.sp)
             }
         }
-        if (error != null) {
+        if (error != null || status != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            Text(error!!, color = AccentRose, fontSize = 12.sp)
+            Text(
+                error ?: status.orEmpty(),
+                color = if (error == null) AccentEmerald else AccentRose,
+                fontSize = 12.sp
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
         CyberButton(
             text = "SALIN KODE",
             color = AccentEmerald,
+            enabled = code != "------",
             onClick = { copyText(context, code.filter { it.isDigit() }, "Kode TOTP") }
         )
     }
 }
 
-private fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbers: Boolean, symbols: Boolean): String {
+private const val UPPER_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+private const val LOWER_CHARS = "abcdefghijkmnopqrstuvwxyz"
+private const val NUMBER_CHARS = "23456789"
+private const val SYMBOL_CHARS = "!@#\$%^&*()-_=+[]{}"
+
+internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, numbers: Boolean, symbols: Boolean): String {
+    require(length in 8..64) { "Panjang password harus 8–64 karakter." }
     val groups = mutableListOf<String>()
-    if (upper) groups.add("ABCDEFGHJKLMNPQRSTUVWXYZ")
-    if (lower) groups.add("abcdefghijkmnopqrstuvwxyz")
-    if (numbers) groups.add("23456789")
-    if (symbols) groups.add("!@#\$%^&*()-_=+[]{}")
-    if (groups.isEmpty()) groups.add("abcdefghijkmnopqrstuvwxyz23456789")
+    if (upper) groups.add(UPPER_CHARS)
+    if (lower) groups.add(LOWER_CHARS)
+    if (numbers) groups.add(NUMBER_CHARS)
+    if (symbols) groups.add(SYMBOL_CHARS)
+    if (groups.isEmpty()) return ""
 
     val random = SecureRandom()
     val chars = mutableListOf<Char>()
@@ -407,9 +560,10 @@ private fun generatePassword(length: Int, upper: Boolean, lower: Boolean, number
     return chars.take(length).joinToString("")
 }
 
-private fun generateTotp(secretBase32: String, timeStep: Long): String {
+internal fun generateTotp(secretBase32: String, timeStep: Long): String {
+    if (timeStep < 0L) throw IllegalArgumentException("Time step TOTP tidak valid.")
     val key = Base32.decode(secretBase32)
-    if (key.isEmpty()) throw IllegalArgumentException("Secret Base32 tidak valid.")
+    if (key.size < 10) throw IllegalArgumentException("Secret TOTP minimal 80 bit.")
     val mac = Mac.getInstance("HmacSHA1")
     mac.init(SecretKeySpec(key, "HmacSHA1"))
     val data = ByteArray(8)
@@ -424,15 +578,32 @@ private fun generateTotp(secretBase32: String, timeStep: Long): String {
         ((hash[offset + 1].toInt() and 0xff) shl 16) or
         ((hash[offset + 2].toInt() and 0xff) shl 8) or
         (hash[offset + 3].toInt() and 0xff)
-    return String.format("%06d", binary % 1_000_000)
+    return String.format(java.util.Locale.US, "%06d", binary % 1_000_000)
 }
 
-private object Base32 {
+internal object Base32 {
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
     fun decode(input: String): ByteArray {
-        val cleaned = input.uppercase().replace(Regex("[\\s-]"), "").trimEnd('=')
+        if (input.length > 256) throw IllegalArgumentException("Input Base32 terlalu panjang.")
+        val raw = input.uppercase().replace(Regex("[\\s-]"), "")
+        val padding = raw.takeLastWhile { it == '=' }.length
+        val cleaned = raw.dropLast(padding)
         if (cleaned.isEmpty()) throw IllegalArgumentException("Secret Base32 kosong.")
+        if (cleaned.length > 128) throw IllegalArgumentException("Secret Base32 terlalu panjang.")
+        if ('=' in cleaned) throw IllegalArgumentException("Padding Base32 hanya boleh berada di akhir.")
+        val expectedPadding = when (cleaned.length % 8) {
+            0 -> 0
+            2 -> 6
+            4 -> 4
+            5 -> 3
+            7 -> 1
+            else -> throw IllegalArgumentException("Panjang secret Base32 tidak valid.")
+        }
+        if (padding > 0 && (raw.length % 8 != 0 || padding != expectedPadding)) {
+            throw IllegalArgumentException("Padding Base32 tidak valid.")
+        }
+
         val output = ByteArray((cleaned.length * 5) / 8)
         var buffer = 0
         var bitsLeft = 0
@@ -447,22 +618,53 @@ private object Base32 {
                 bitsLeft -= 8
             }
         }
-        return if (index == output.size) output else output.copyOf(index)
+        if (bitsLeft > 0 && (buffer and ((1 shl bitsLeft) - 1)) != 0) {
+            throw IllegalArgumentException("Padding bit Base32 tidak valid.")
+        }
+        return output.copyOf(index)
+    }
+
+    fun encode(input: ByteArray): String {
+        if (input.isEmpty()) return ""
+        val result = StringBuilder()
+        var buffer = 0
+        var bitsLeft = 0
+        input.forEach { byte ->
+            buffer = (buffer shl 8) or (byte.toInt() and 0xff)
+            bitsLeft += 8
+            while (bitsLeft >= 5) {
+                result.append(ALPHABET[(buffer shr (bitsLeft - 5)) and 31])
+                bitsLeft -= 5
+            }
+        }
+        if (bitsLeft > 0) result.append(ALPHABET[(buffer shl (5 - bitsLeft)) and 31])
+        return result.toString()
     }
 }
 
-private object VaultCrypto {
+internal object VaultCrypto {
     private const val ITERATIONS = 120_000
     private const val KEY_BITS = 256
+    private val supportedKdfs = setOf("PBKDF2WithHmacSHA256", "PBKDF2WithHmacSHA1")
 
     fun encrypt(plain: String, passphrase: String): String {
+        require(plain.length <= 100_000 && plain.toByteArray(Charsets.UTF_8).size <= 100_000) {
+            "Catatan terlalu panjang (maksimal 100.000 byte UTF-8)."
+        }
+        require(passphrase.length in 12..128) { "Passphrase harus berisi 12–128 karakter." }
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val kdf = if (runCatching { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256") }.isSuccess) {
+            "PBKDF2WithHmacSHA256"
+        } else {
+            "PBKDF2WithHmacSHA1"
+        }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.ENCRYPT_MODE, deriveKey(passphrase, salt, kdf), GCMParameterSpec(128, iv))
         val encrypted = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
         return listOf(
-            "v1",
+            "v2",
+            kdf,
             Base64.encodeToString(salt, Base64.NO_WRAP),
             Base64.encodeToString(iv, Base64.NO_WRAP),
             Base64.encodeToString(encrypted, Base64.NO_WRAP)
@@ -470,22 +672,166 @@ private object VaultCrypto {
     }
 
     fun decrypt(payload: String, passphrase: String): String {
+        require(payload.length in 1..150_000) { "Ciphertext terlalu panjang atau kosong." }
+        require(passphrase.length in 1..4096) { "Passphrase tidak valid." }
         val parts = payload.split(":")
-        if (parts.size != 4 || parts[0] != "v1") throw IllegalArgumentException("Format ciphertext tidak dikenal.")
-        val salt = Base64.decode(parts[1], Base64.NO_WRAP)
-        val iv = Base64.decode(parts[2], Base64.NO_WRAP)
-        val encrypted = Base64.decode(parts[3], Base64.NO_WRAP)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(128, iv))
-        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+        return when {
+            parts.size == 5 && parts[0] == "v2" -> {
+                val kdf = parts[1]
+                require(kdf in supportedKdfs) { "Algoritma derivasi key tidak dikenal." }
+                decryptParts(parts[2], parts[3], parts[4], passphrase, kdf)
+            }
+            parts.size == 4 && parts[0] == "v1" -> {
+                // Backward compatibility for earlier notes that did not store
+                // which PBKDF2 provider was selected on the originating device.
+                runCatching {
+                    decryptParts(parts[1], parts[2], parts[3], passphrase, "PBKDF2WithHmacSHA256")
+                }.recoverCatching {
+                    decryptParts(parts[1], parts[2], parts[3], passphrase, "PBKDF2WithHmacSHA1")
+                }.getOrThrow()
+            }
+            else -> throw IllegalArgumentException("Format ciphertext tidak dikenal.")
+        }
     }
 
-    private fun deriveKey(passphrase: String, salt: ByteArray): SecretKeySpec {
-        val algorithm = runCatching { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256") }
-            .getOrElse { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1") }
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt, ITERATIONS, KEY_BITS)
-        val key = algorithm.generateSecret(spec).encoded
-        return SecretKeySpec(key, "AES")
+    private fun decryptParts(
+        saltText: String,
+        ivText: String,
+        encryptedText: String,
+        passphrase: String,
+        kdf: String
+    ): String {
+        val salt = Base64.decode(saltText, Base64.NO_WRAP)
+        val iv = Base64.decode(ivText, Base64.NO_WRAP)
+        val encrypted = Base64.decode(encryptedText, Base64.NO_WRAP)
+        require(salt.size == 16 && iv.size == 12 && encrypted.size >= 16) {
+            "Ciphertext tidak lengkap atau rusak."
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt, kdf), GCMParameterSpec(128, iv))
+        val plainBytes = cipher.doFinal(encrypted)
+        return try {
+            require(plainBytes.size <= 100_000) { "Catatan terdekripsi melebihi batas ukuran." }
+            String(plainBytes, Charsets.UTF_8)
+        } finally {
+            plainBytes.fill(0)
+        }
+    }
+
+    private fun deriveKey(passphrase: String, salt: ByteArray, kdf: String): SecretKeySpec {
+        require(kdf in supportedKdfs)
+        val password = passphrase.toCharArray()
+        val spec = PBEKeySpec(password, salt, ITERATIONS, KEY_BITS)
+        return try {
+            val key = SecretKeyFactory.getInstance(kdf).generateSecret(spec).encoded
+            SecretKeySpec(key, "AES")
+        } finally {
+            spec.clearPassword()
+            password.fill('\u0000')
+        }
+    }
+}
+
+internal data class TotpLoadResult(val secret: String, val error: String? = null)
+
+private object TotpSecretStorage {
+    private const val ALIAS = "io_tools_totp_secret_v1"
+    private const val PREFS_NAME = "io_tools_vault"
+    private const val CIPHER_KEY = "totp_secret_cipher"
+    private const val LEGACY_KEY = "totp_secret"
+
+    fun load(context: Context): TotpLoadResult {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val payload = prefs.getString(CIPHER_KEY, null)
+        if (payload.isNullOrBlank()) {
+            val legacy = prefs.getString(LEGACY_KEY, null).orEmpty()
+            if (legacy.isBlank()) return TotpLoadResult("")
+            if (legacy == "JBSWY3DPEHPK3PXP") {
+                prefs.edit().remove(LEGACY_KEY).apply()
+                return TotpLoadResult("")
+            }
+            val migration = runCatching { save(context, legacy) }
+            return if (migration.isSuccess) {
+                // Remove plaintext only after the encrypted replacement has been committed.
+                prefs.edit().remove(LEGACY_KEY).apply()
+                TotpLoadResult(legacy)
+            } else {
+                // Preserve the only remaining copy so a transient Keystore failure cannot
+                // irreversibly destroy the user's existing authenticator secret.
+                TotpLoadResult("", "Migrasi secret lama gagal. Salinan lama dipertahankan sementara; periksa Android Keystore lalu buka kembali tool untuk mencoba migrasi lagi.")
+            }
+        }
+
+        if (payload.length > 1024) {
+            return TotpLoadResult("", "Ciphertext TOTP melebihi batas ukuran; data tetap dipertahankan.")
+        }
+        return runCatching {
+            val parts = payload.split(":")
+            require(parts.size == 2) { "Format ciphertext TOTP tidak dikenal." }
+            val iv = Base64.decode(parts[0], Base64.NO_WRAP)
+            val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
+            require(iv.size == 12 && encrypted.size >= 16) { "Ciphertext TOTP tidak lengkap." }
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+            val secret = String(cipher.doFinal(encrypted), Charsets.UTF_8)
+            require(Base32.decode(secret).size >= 10) { "Secret TOTP tersimpan tidak valid." }
+            TotpLoadResult(secret)
+        }.getOrElse {
+            // Keep the ciphertext intact. A transient Keystore failure must not
+            // silently erase the user's only encrypted copy.
+            TotpLoadResult("", "Secret tersimpan tidak dapat dibuka. Ciphertext tetap dipertahankan; periksa Android Keystore atau masukkan ulang secret.")
+        }
+    }
+
+    fun save(context: Context, secret: String) {
+        val decoded = Base32.decode(secret)
+        require(decoded.size >= 10) { "Secret TOTP minimal 80 bit." }
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            keyStore.deleteEntry(ALIAS)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        }
+        val encrypted = cipher.doFinal(secret.toByteArray(Charsets.UTF_8))
+        val payload = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
+            Base64.encodeToString(encrypted, Base64.NO_WRAP)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(CIPHER_KEY, payload)
+            .remove(LEGACY_KEY)
+            .apply()
+    }
+
+    fun delete(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(CIPHER_KEY)
+            .remove(LEGACY_KEY)
+            .apply()
+        runCatching {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            keyStore.deleteEntry(ALIAS)
+        }
+    }
+
+    private fun getOrCreateKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
     }
 }
 

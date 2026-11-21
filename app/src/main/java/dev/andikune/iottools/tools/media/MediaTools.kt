@@ -8,6 +8,7 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +48,8 @@ fun MediaTools() {
     var activeSubTool by remember { mutableIntStateOf(0) }
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
     var selectedName by remember { mutableStateOf("") }
+    var selectedSize by remember { mutableLongStateOf(0L) }
+    var metadataLoadToken by remember { mutableIntStateOf(0) }
     var mediaInfoText by remember { mutableStateOf<String?>(null) }
     var mediaDurationMs by remember { mutableLongStateOf(0L) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -55,14 +58,26 @@ fun MediaTools() {
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
+            val token = ++metadataLoadToken
             selectedMediaUri = uri
-            selectedName = MediaStoreSaver.displayName(context, uri) ?: "media"
+            selectedName = "Membaca metadata..."
+            selectedSize = 0L
+            mediaInfoText = "Membaca metadata dan track..."
+            mediaDurationMs = 0L
             operationResult = null
+            extractedFrameBitmap?.recycle()
             extractedFrameBitmap = null
             scope.launch {
                 val (info, duration) = extractMediaMetadata(context, uri)
-                mediaInfoText = info
-                mediaDurationMs = duration
+                val (name, size) = withContext(Dispatchers.IO) {
+                    (MediaStoreSaver.displayName(context, uri) ?: "media") to MediaStoreSaver.fileSize(context, uri)
+                }
+                if (token == metadataLoadToken) {
+                    selectedName = name
+                    selectedSize = size
+                    mediaInfoText = info
+                    mediaDurationMs = duration
+                }
             }
         }
     }
@@ -113,13 +128,14 @@ fun MediaTools() {
                         )
                         if (selectedMediaUri != null) {
                             Text(
-                                "Durasi ${mediaDurationMs / 1000} detik • ${formatBytes(MediaStoreSaver.fileSize(context, selectedMediaUri!!))}",
+                                "Durasi ${mediaDurationMs / 1000} detik • ${formatBytes(selectedSize)}",
                                 color = TextSecondary,
                                 fontSize = 11.sp
                             )
                         }
                     }
                     Button(
+                        enabled = !isProcessing,
                         onClick = { picker.launch(arrayOf("video/*", "audio/*")) },
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
@@ -151,7 +167,7 @@ fun MediaTools() {
                     Text("Ekstrak audio lossless", color = AccentEmerald, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Demux track audio tanpa transcode. Cocok untuk MP4/M4A dengan codec AAC/AMR. Jika codec tidak didukung muxer MP4, proses akan menampilkan error yang jelas.",
+                        "Demux track audio tanpa transcode. Mendukung AAC ke M4A dan AMR ke 3GP. Codec lain ditolak dengan pesan yang jelas.",
                         color = TextSecondary,
                         fontSize = 11.sp
                     )
@@ -214,8 +230,13 @@ fun MediaTools() {
                             val uri = selectedMediaUri ?: return@CyberButton
                             val start = startSec.toLongOrNull() ?: 0L
                             val end = endSec.toLongOrNull() ?: 0L
-                            if (end <= start) {
-                                operationResult = "Waktu selesai harus lebih besar dari waktu mulai."
+                            if (start > Long.MAX_VALUE / 1000L || end > Long.MAX_VALUE / 1000L) {
+                                operationResult = "Waktu terlalu besar."
+                                return@CyberButton
+                            }
+                            val timeError = validateMediaTimeRange(start * 1000L, end * 1000L, mediaDurationMs)
+                            if (timeError != null) {
+                                operationResult = timeError
                                 return@CyberButton
                             }
                             scope.launch {
@@ -260,22 +281,35 @@ fun MediaTools() {
                         color = AccentRose,
                         onClick = {
                             val uri = selectedMediaUri ?: return@CyberButton
-                            val second = targetSecond.toLongOrNull() ?: 1L
+                            val second = targetSecond.toLongOrNull()
+                            val frameError = if (second == null) {
+                                "Masukkan waktu frame yang valid."
+                            } else {
+                                validateFrameTime(second, mediaDurationMs)
+                            }
+                            if (frameError != null) {
+                                operationResult = frameError
+                                return@CyberButton
+                            }
+                            val validSecond = second ?: return@CyberButton
                             scope.launch {
                                 isProcessing = true
                                 operationResult = null
-                                val bitmap = captureFrameFromVideo(context, uri, second * 1_000_000L)
+                                val bitmap = captureFrameFromVideo(context, uri, validSecond * 1_000_000L)
+                                extractedFrameBitmap?.recycle()
                                 extractedFrameBitmap = bitmap
                                 if (bitmap == null) {
                                     operationResult = "Gagal mengambil frame."
                                 } else {
-                                    val saved = MediaStoreSaver.saveBitmap(
-                                        context,
-                                        bitmap,
-                                        MediaStoreSaver.timestampName("frame_${second}s", "jpg"),
-                                        Bitmap.CompressFormat.JPEG,
-                                        92
-                                    )
+                                    val saved = withContext(Dispatchers.IO) {
+                                        MediaStoreSaver.saveBitmap(
+                                            context,
+                                            bitmap,
+                                            MediaStoreSaver.timestampName("frame_${validSecond}s", "jpg"),
+                                            Bitmap.CompressFormat.JPEG,
+                                            92
+                                        )
+                                    }
                                     operationResult = if (saved != null) {
                                         "Frame ${bitmap.width}x${bitmap.height} tersimpan sebagai ${MediaStoreSaver.displayName(context, saved)} di Pictures/IO-Tools."
                                     } else {
@@ -311,6 +345,26 @@ fun MediaTools() {
             }
         }
     }
+}
+
+internal fun validateMediaTimeRange(startMs: Long, endMs: Long, durationMs: Long): String? {
+    if (startMs < 0L || endMs <= startMs ||
+        startMs > Long.MAX_VALUE / 1000L || endMs > Long.MAX_VALUE / 1000L
+    ) return "Rentang waktu tidak valid."
+    if (durationMs <= 0L) return "Durasi media tidak dapat dibaca."
+    if (startMs >= durationMs || endMs > durationMs) {
+        return "Rentang trim harus berada di dalam durasi media (${durationMs / 1000} detik)."
+    }
+    return null
+}
+
+internal fun validateFrameTime(second: Long, durationMs: Long): String? {
+    if (second < 0L || second > Long.MAX_VALUE / 1_000_000L) return "Waktu frame tidak valid."
+    if (durationMs <= 0L) return "Durasi media tidak dapat dibaca."
+    if (second > (durationMs - 1L) / 1000L) {
+        return "Waktu frame berada di luar durasi media."
+    }
+    return null
 }
 
 suspend fun extractMediaMetadata(context: Context, uri: Uri): Pair<String, Long> = withContext(Dispatchers.IO) {
@@ -363,8 +417,10 @@ suspend fun extractMediaMetadata(context: Context, uri: Uri): Pair<String, Long>
 suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withContext(Dispatchers.IO) {
     val extractor = MediaExtractor()
     var muxer: MediaMuxer? = null
-    val temp = File.createTempFile("audio_", ".m4a", context.cacheDir)
+    var temp: File? = null
     try {
+        val tempFile = File.createTempFile("audio_", ".tmp", context.cacheDir)
+        temp = tempFile
         extractor.setDataSource(context, uri, null)
         var audioTrackIndex = -1
         var audioFormat: MediaFormat? = null
@@ -377,36 +433,57 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
             }
         }
         if (audioTrackIndex < 0 || audioFormat == null) {
-            throw IllegalStateException("Video tidak memiliki track audio.")
+            throw IllegalStateException("File tidak memiliki track audio.")
         }
+
+        val selectedAudioFormat = audioFormat ?: throw IllegalStateException("Format track audio tidak tersedia.")
+        val audioMime = selectedAudioFormat.getString(MediaFormat.KEY_MIME).orEmpty()
+        val (container, extension, outputMime) = when (audioMime) {
+            "audio/mp4a-latm" -> Triple(MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4, "m4a", "audio/mp4")
+            "audio/3gpp", "audio/amr-wb" -> Triple(MediaMuxer.OutputFormat.MUXER_OUTPUT_3GPP, "3gp", "audio/3gpp")
+            else -> throw IllegalStateException(
+                "Codec $audioMime tidak didukung untuk demux lossless. Saat ini didukung AAC dan AMR."
+            )
+        }
+
         extractor.selectTrack(audioTrackIndex)
-        val mux = MediaMuxer(temp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val mux = MediaMuxer(tempFile.absolutePath, container)
         muxer = mux
-        val muxTrack = mux.addTrack(audioFormat)
+        val muxTrack = mux.addTrack(selectedAudioFormat)
         mux.start()
 
-        val buffer = ByteBuffer.allocate((audioFormat.optInt(MediaFormat.KEY_MAX_INPUT_SIZE) ?: 512 * 1024).coerceAtLeast(64 * 1024))
+        val maxInputSize = (selectedAudioFormat.optInt(MediaFormat.KEY_MAX_INPUT_SIZE) ?: (512 * 1024))
+            .coerceIn(64 * 1024, 32 * 1024 * 1024)
+        val buffer = ByteBuffer.allocate(maxInputSize)
         val info = MediaCodec.BufferInfo()
+        var sampleCount = 0
+
         while (true) {
             buffer.clear()
             val size = extractor.readSampleData(buffer, 0)
             if (size < 0) break
+            if (size > buffer.capacity()) {
+                throw IllegalStateException("Ukuran sample audio melebihi buffer yang diizinkan.")
+            }
             info.offset = 0
             info.size = size
             info.presentationTimeUs = extractor.sampleTime
             info.flags = extractor.sampleFlags
             mux.writeSampleData(muxTrack, buffer, info)
+            sampleCount++
             if (!extractor.advance()) break
         }
+        if (sampleCount == 0) throw IllegalStateException("Track audio tidak berisi sample yang dapat diekstrak.")
+
         mux.stop()
         mux.release()
         muxer = null
 
-        val saved = temp.inputStream().use { input ->
+        val saved = tempFile.inputStream().use { input ->
             MediaStoreSaver.saveStream(
                 context,
-                MediaStoreSaver.timestampName("audio", "m4a"),
-                "audio/mp4",
+                MediaStoreSaver.timestampName("audio", extension),
+                outputMime,
                 input
             )
         } ?: throw IllegalStateException("Gagal menyimpan audio ke penyimpanan publik.")
@@ -417,57 +494,92 @@ suspend fun extractAudioTrack(context: Context, uri: Uri): Result<Uri> = withCon
         runCatching { extractor.release() }
         runCatching { muxer?.stop() }
         runCatching { muxer?.release() }
-        temp.delete()
+        temp?.delete()
     }
 }
 
 suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long): Result<Uri> = withContext(Dispatchers.IO) {
     val extractor = MediaExtractor()
     var muxer: MediaMuxer? = null
-    val temp = File.createTempFile("trim_", ".mp4", context.cacheDir)
+    var temp: File? = null
+    val retriever = MediaMetadataRetriever()
     try {
-        if (endMs <= startMs) throw IllegalArgumentException("Rentang waktu tidak valid.")
+        retriever.setDataSource(context, uri)
+        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        val rangeError = validateMediaTimeRange(startMs, endMs, durationMs)
+        if (rangeError != null) throw IllegalArgumentException(rangeError)
+        val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+        runCatching { retriever.release() }
+
+        val tempFile = File.createTempFile("trim_", ".mp4", context.cacheDir)
+        temp = tempFile
         extractor.setDataSource(context, uri, null)
-        val mux = MediaMuxer(temp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val mux = MediaMuxer(tempFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         muxer = mux
+
         val mapping = mutableMapOf<Int, Int>()
+        val trackMime = mutableMapOf<Int, String>()
         for (i in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(i)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
             if (mime.startsWith("video/") || mime.startsWith("audio/")) {
                 mapping[i] = mux.addTrack(format)
+                trackMime[i] = mime
                 extractor.selectTrack(i)
             }
         }
-        if (mapping.isEmpty()) throw IllegalStateException("Tidak ada track video/audio yang dapat di-mux.")
+        if (mapping.isEmpty() || trackMime.values.none { it.startsWith("video/") }) {
+            throw IllegalStateException("File tidak memiliki track video yang dapat dipotong.")
+        }
+        if (rotation in setOf(0, 90, 180, 270)) mux.setOrientationHint(rotation)
         mux.start()
 
-        val startUs = startMs * 1000
-        val endUs = endMs * 1000
-        extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-        val buffer = ByteBuffer.allocate(1024 * 1024)
+        val startUs = startMs * 1000L
+        val endUs = endMs * 1000L
+        // Fast trim is keyframe-accurate, not frame-accurate. Seek to the
+        // previous sync sample so the output starts with a decodable video GOP.
+        extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        val outputStartUs = extractor.sampleTime.takeIf { it >= 0L } ?: startUs
+        val maxInputSize = mapping.keys.mapNotNull { track ->
+            extractor.getTrackFormat(track).optInt(MediaFormat.KEY_MAX_INPUT_SIZE)
+        }.maxOrNull() ?: (1024 * 1024)
+        val buffer = ByteBuffer.allocate(maxInputSize.coerceIn(256 * 1024, 32 * 1024 * 1024))
         val info = MediaCodec.BufferInfo()
+        var sampleCount = 0
+        var videoSampleCount = 0
+
         while (true) {
             buffer.clear()
             val size = extractor.readSampleData(buffer, 0)
             if (size < 0) break
+            if (size > buffer.capacity()) {
+                throw IllegalStateException("Ukuran sample media melebihi buffer yang diizinkan.")
+            }
             val timeUs = extractor.sampleTime
             if (timeUs > endUs) break
-            if (timeUs >= startUs) {
-                val muxTrack = mapping[extractor.sampleTrackIndex] ?: continue
+            if (timeUs >= outputStartUs) {
+                val sourceTrack = extractor.sampleTrackIndex
+                val muxTrack = mapping[sourceTrack]
+                    ?: throw IllegalStateException("Track sample tidak dikenali.")
                 info.offset = 0
                 info.size = size
-                info.presentationTimeUs = timeUs - startUs
+                info.presentationTimeUs = timeUs - outputStartUs
                 info.flags = extractor.sampleFlags
                 mux.writeSampleData(muxTrack, buffer, info)
+                sampleCount++
+                if (trackMime[sourceTrack]?.startsWith("video/") == true) videoSampleCount++
             }
             if (!extractor.advance()) break
         }
+        if (sampleCount == 0 || videoSampleCount == 0) {
+            throw IllegalStateException("Tidak ada frame video pada rentang waktu yang dipilih.")
+        }
+
         mux.stop()
         mux.release()
         muxer = null
 
-        val saved = temp.inputStream().use { input ->
+        val saved = tempFile.inputStream().use { input ->
             MediaStoreSaver.saveStream(
                 context,
                 MediaStoreSaver.timestampName("trim", "mp4"),
@@ -479,10 +591,11 @@ suspend fun trimVideoFast(context: Context, uri: Uri, startMs: Long, endMs: Long
     } catch (e: Exception) {
         Result.failure(e)
     } finally {
+        runCatching { retriever.release() }
         runCatching { extractor.release() }
         runCatching { muxer?.stop() }
         runCatching { muxer?.release() }
-        temp.delete()
+        temp?.delete()
     }
 }
 
@@ -490,7 +603,21 @@ suspend fun captureFrameFromVideo(context: Context, uri: Uri, timeUs: Long): Bit
     val retriever = MediaMetadataRetriever()
     try {
         retriever.setDataSource(context, uri)
-        retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        val frame = if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 2048, 2048)
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        } ?: return@withContext null
+
+        val scale = minOf(1f, 2048f / frame.width, 2048f / frame.height)
+        if (scale >= 1f) frame else {
+            Bitmap.createScaledBitmap(
+                frame,
+                (frame.width * scale).toInt().coerceAtLeast(1),
+                (frame.height * scale).toInt().coerceAtLeast(1),
+                true
+            ).also { if (it !== frame) frame.recycle() }
+        }
     } catch (_: Exception) {
         null
     } finally {

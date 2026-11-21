@@ -39,6 +39,11 @@ fun YouTubeDownloaderScreen() {
 
     var inputUrl by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var activeDownloadProcessId by remember { mutableStateOf<String?>(null) }
+    var activeDownloadLabel by remember { mutableStateOf("") }
+    var activeDownloadProgress by remember { mutableFloatStateOf(-1f) }
+    var activeDownloadEta by remember { mutableStateOf("") }
+    var isCancelingDownload by remember { mutableStateOf(false) }
     var videoResult by remember { mutableStateOf<YouTubeVideoData?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusLogs by remember {
@@ -67,7 +72,9 @@ fun YouTubeDownloaderScreen() {
     }
 
     fun fetchVideo() {
-        if (inputUrl.isBlank()) {
+        if (isLoading) return
+        val requestedUrl = inputUrl.trim()
+        if (requestedUrl.isBlank()) {
             Toast.makeText(context, "Masukkan URL YouTube terlebih dahulu", Toast.LENGTH_SHORT).show()
             return
         }
@@ -76,10 +83,10 @@ fun YouTubeDownloaderScreen() {
             isLoading = true
             errorMessage = null
             videoResult = null
-            statusLogs = statusLogs + "[REQUEST] Memeriksa Video ID: ${inputUrl.take(45)}..."
+            statusLogs = statusLogs + "[REQUEST] Memeriksa Video ID: ${requestedUrl.take(45)}..."
 
             val startTime = System.currentTimeMillis()
-            val result = YouTubeDownloaderService.fetchVideoDetails(inputUrl)
+            val result = YouTubeDownloaderService.fetchVideoDetails(requestedUrl)
             val elapsed = System.currentTimeMillis() - startTime
 
             isLoading = false
@@ -177,7 +184,8 @@ fun YouTubeDownloaderScreen() {
                     CyberButton(
                         text = if (isLoading) "MEMPROSES..." else "AMBIL VIDEO",
                         modifier = Modifier.weight(1f),
-                        onClick = { fetchVideo() }
+                        onClick = { fetchVideo() },
+                        enabled = !isLoading
                     )
                 }
 
@@ -346,6 +354,69 @@ fun YouTubeDownloaderScreen() {
                 }
             }
 
+            if (activeDownloadProcessId != null) {
+                item {
+                    CyberCard(borderColor = AccentAmber) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "UNDUHAN YOUTUBE AKTIF",
+                                    color = AccentAmber,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Text(
+                                    text = if (isCancelingDownload) "Membatalkan: $activeDownloadLabel" else activeDownloadLabel,
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = if (activeDownloadProgress >= 0f) {
+                                        "Progress: ${activeDownloadProgress.toInt().coerceIn(0, 100)}% " +
+                                            activeDownloadEta
+                                    } else {
+                                        "Menunggu data progress dari yt-dlp..."
+                                    },
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    activeDownloadProcessId?.let(YouTubeDownloaderService::cancelDownload)
+                                    isCancelingDownload = true
+                                    statusLogs = statusLogs + "[INFO] Permintaan pembatalan unduhan dikirim."
+                                },
+                                enabled = !isCancelingDownload,
+                                border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.6f))
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = AccentRose)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(if (isCancelingDownload) "MEMBATALKAN" else "BATALKAN", color = AccentRose)
+                            }
+                        }
+                        if (activeDownloadProgress >= 0f) {
+                            LinearProgressIndicator(
+                                progress = (activeDownloadProgress / 100f).coerceIn(0f, 1f),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = AccentAmber,
+                                trackColor = SlateBorder
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = AccentAmber,
+                                trackColor = SlateBorder
+                            )
+                        }
+                    }
+                }
+            }
+
             // Available Download Formats Header
             item {
                 Text(
@@ -405,12 +476,38 @@ fun YouTubeDownloaderScreen() {
                         }
 
                         Button(
+                            enabled = activeDownloadProcessId == null,
                             onClick = {
                                 YouTubeDownloaderService.enqueueDownload(
                                     context = context,
                                     format = format,
                                     videoTitle = result.title,
-                                    videoId = result.videoId
+                                    videoId = result.videoId,
+                                    onStarted = { processId ->
+                                        activeDownloadProcessId = processId
+                                        activeDownloadLabel = format.label
+                                        activeDownloadProgress = -1f
+                                        activeDownloadEta = ""
+                                        isCancelingDownload = false
+                                    },
+                                    onProgress = { progress, eta ->
+                                        if (progress >= 0f) activeDownloadProgress = progress
+                                        activeDownloadEta = if (eta >= 0L) "• ETA ${eta}s" else ""
+                                    },
+                                    onFinished = { processId, outcome ->
+                                        if (activeDownloadProcessId == processId) {
+                                            activeDownloadProcessId = null
+                                            activeDownloadLabel = ""
+                                            activeDownloadProgress = -1f
+                                            activeDownloadEta = ""
+                                            isCancelingDownload = false
+                                            statusLogs = statusLogs + if (outcome.isSuccess) {
+                                                "[SUCCESS] Unduhan YouTube selesai."
+                                            } else {
+                                                "[ERROR] Unduhan YouTube gagal atau dibatalkan."
+                                            }
+                                        }
+                                    }
                                 )
                             },
                             shape = RoundedCornerShape(8.dp),

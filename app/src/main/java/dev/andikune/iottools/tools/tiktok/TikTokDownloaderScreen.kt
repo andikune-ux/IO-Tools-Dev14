@@ -40,12 +40,13 @@ fun TikTokDownloaderScreen() {
     var inputUrl by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var videoResult by remember { mutableStateOf<TikTokVideoData?>(null) }
+    var photoResult by remember { mutableStateOf<TikTokPhotoPost?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusLogs by remember {
         mutableStateOf(
             listOf(
-                "[INIT] TikTok Stream Extractor Core v2.4 initialized.",
-                "[ENGINE] Siap mengunduh video TikTok tanpa watermark."
+                "[INIT] TikTok local extractor siap.",
+                "[ENGINE] yt-dlp + FFmpeg untuk video publik dan ekstraksi audio."
             )
         )
     }
@@ -68,29 +69,38 @@ fun TikTokDownloaderScreen() {
 
     fun fetchVideo() {
         if (inputUrl.isBlank()) {
-            Toast.makeText(context, "Silakan masukkan link video TikTok terlebih dahulu", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Silakan masukkan link TikTok terlebih dahulu", Toast.LENGTH_SHORT).show()
             return
         }
-
         coroutineScope.launch {
             isLoading = true
             errorMessage = null
             videoResult = null
-            statusLogs = statusLogs + "[REQUEST] Menghubungi server TikWM CDN: ${inputUrl.take(45)}..."
-
-            val startTime = System.currentTimeMillis()
-            val result = TikTokDownloaderService.fetchVideoDetails(inputUrl)
-            val elapsed = System.currentTimeMillis() - startTime
-
-            isLoading = false
-            result.onSuccess { data ->
-                videoResult = data
-                statusLogs = statusLogs + "[SUCCESS] Resolusi stream selesai dalam ${elapsed}ms."
-                statusLogs = statusLogs + "[STREAM] Video: ${data.title.take(30)}... (${data.videoSizeFormatted})"
-                statusLogs = statusLogs + "[STATUS] Link tanpa watermark siap diunduh ke memori HP!"
-            }.onFailure { error ->
-                errorMessage = error.message ?: "Terjadi kesalahan saat memproses tautan."
-                statusLogs = statusLogs + "[ERROR] Gagal: ${error.message}"
+            photoResult = null
+            val photoMode = inputUrl.contains("/photo/", ignoreCase = true)
+            statusLogs = statusLogs + "[REQUEST] Memproses ${if (photoMode) "post foto" else "video"} TikTok: ${inputUrl.take(45)}..."
+            val started = System.currentTimeMillis()
+            if (photoMode) {
+                val result = TikTokPhotoDownloader.resolve(inputUrl)
+                isLoading = false
+                result.onSuccess { data ->
+                    photoResult = data
+                    statusLogs = statusLogs + "[SUCCESS] ${data.images.size} foto ditemukan dalam ${System.currentTimeMillis() - started}ms."
+                }.onFailure { error ->
+                    errorMessage = error.message ?: "Gagal membaca post foto TikTok."
+                    statusLogs = statusLogs + "[ERROR] Gagal: ${error.message}"
+                }
+            } else {
+                val result = TikTokDownloaderService.fetchVideoDetails(context, inputUrl)
+                isLoading = false
+                result.onSuccess { data ->
+                    videoResult = data
+                    statusLogs = statusLogs + "[SUCCESS] Resolusi video selesai dalam ${System.currentTimeMillis() - started}ms."
+                    statusLogs = statusLogs + "[STREAM] ${data.title.take(30)}... (${data.videoSizeFormatted})"
+                }.onFailure { error ->
+                    errorMessage = error.message ?: "Terjadi kesalahan saat memproses tautan."
+                    statusLogs = statusLogs + "[ERROR] Gagal: ${error.message}"
+                }
             }
         }
     }
@@ -106,7 +116,7 @@ fun TikTokDownloaderScreen() {
             CyberTerminalHeader(
                 title = "TIKTOK DOWNLOADER PRO",
                 subtitle = "Download Video TikTok Tanpa Watermark (HD) & Audio MP3",
-                statusText = "LIVE API READY",
+                statusText = "TIKWM API READY",
                 statusColor = AccentRose
             )
         }
@@ -182,6 +192,7 @@ fun TikTokDownloaderScreen() {
                             onClick = {
                                 inputUrl = ""
                                 videoResult = null
+                                photoResult = null
                                 errorMessage = null
                             },
                             modifier = Modifier.height(42.dp),
@@ -245,6 +256,71 @@ fun TikTokDownloaderScreen() {
                             color = AccentRose
                         )
                     }
+                }
+            }
+        }
+
+        if (photoResult != null) {
+            val photo = photoResult!!
+            item {
+                CyberCard(borderColor = AccentEmerald) {
+                    Text("POST FOTO TIKTOK", style = MaterialTheme.typography.titleMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("@${photo.username} • ${photo.images.size} foto", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(photo.title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { TikTokPhotoDownloader.createSlideshowVideo(context, photo) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
+                    ) {
+                        Icon(Icons.Default.Movie, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("JADIKAN SLIDESHOW MP4")
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Button(
+                        onClick = { TikTokPhotoDownloader.downloadAll(context, photo) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("UNDUH SEMUA FOTO (${photo.images.size})")
+                    }
+                    photo.images.forEachIndexed { index, imageUrl ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AsyncImage(
+                                model = imageUrl,
+                                contentDescription = "Foto TikTok ${index + 1}",
+                                modifier = Modifier.size(width = 88.dp, height = 112.dp).clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Foto ${index + 1}", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text("Gambar asli tanpa watermark", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Button(
+                                    onClick = { TikTokPhotoDownloader.downloadOne(context, photo, index) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("UNDUH FOTO ${index + 1}")
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "Untuk slideshow yang dibagikan sebagai video, tempel link video TikTok agar diunduh melalui mode video.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
                 }
             }
         }
@@ -408,14 +484,14 @@ fun TikTokDownloaderScreen() {
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Download Action 2: Download Audio (MP3)
-                        if (data.audioUrl != null && data.audioUrl.isNotBlank()) {
+                        if (!data.audioUrl.isNullOrBlank()) {
                             Button(
                                 onClick = {
                                     val sanitizedTitle = data.title.replace(Regex("[^a-zA-Z0-9_]"), "_").take(30)
                                     val fileName = "TikTok_Audio_${sanitizedTitle}_${data.id}.mp3"
                                     TikTokDownloaderService.startDownload(
                                         context = context,
-                                        url = data.audioUrl,
+                                        url = data.audioUrl.orEmpty(),
                                         fileName = fileName,
                                         title = "${data.title} (Audio)",
                                         isAudio = true
@@ -457,7 +533,7 @@ fun TikTokDownloaderScreen() {
 
                             OutlinedButton(
                                 onClick = {
-                                    TikTokDownloaderService.shareMediaLink(context, data.noWatermarkVideoUrl, data.title)
+                                    TikTokDownloaderService.shareMediaLink(context, data.sourceUrl, data.title)
                                 },
                                 modifier = Modifier.weight(1f).height(44.dp),
                                 shape = RoundedCornerShape(10.dp),

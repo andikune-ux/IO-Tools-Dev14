@@ -4,15 +4,16 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import dev.andikune.iottools.tools.common.AppDownloadManager
-import dev.andikune.iottools.tools.common.VideoDownloadHelper
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import dev.andikune.iottools.tools.common.MediaStoreSaver
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.regex.Pattern
+import java.io.File
+import java.net.URI
 
 enum class InstagramMediaType {
     VIDEO,
@@ -23,7 +24,9 @@ enum class InstagramMediaType {
 data class InstagramMediaItem(
     val url: String,
     val isVideo: Boolean,
-    val previewUrl: String?
+    val previewUrl: String?,
+    val index: Int,
+    val isCarousel: Boolean = false
 )
 
 data class InstagramPostData(
@@ -34,203 +37,283 @@ data class InstagramPostData(
     val mediaType: InstagramMediaType,
     val mediaList: List<InstagramMediaItem>,
     val likeCount: Int,
-    val commentCount: Int
+    val commentCount: Int,
+    val sourceUrl: String,
+    val isCarousel: Boolean
 )
 
 object InstagramDownloaderService {
 
-    private val client by lazy { VideoDownloadHelper.client }
+    private val mediaCdnSuffixes = setOf(".cdninstagram.com", ".fbcdn.net")
 
     fun extractShortcode(rawUrl: String): String? {
+        val normalized = normalizeInstagramUrl(rawUrl) ?: return null
+        val uri = runCatching { URI(normalized) }.getOrNull() ?: return null
+        val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
+        val typeIndex = segments.indexOfFirst { it in setOf("p", "reel", "reels", "tv") }
+        if (typeIndex < 0 || typeIndex + 1 >= segments.size) return null
+        return segments[typeIndex + 1].takeIf { it.matches(Regex("^[A-Za-z0-9_-]+$")) }
+    }
+
+    fun normalizeInstagramUrl(rawUrl: String): String? {
         val clean = rawUrl.trim()
-        val pattern = Pattern.compile("instagram\\.com/(?:p|reel|reels|tv)/([^/?#&\\s]+)")
-        val matcher = pattern.matcher(clean)
-        if (matcher.find()) {
-            return matcher.group(1)
+        if (clean.isBlank() || clean.length > 2048 || clean.any { it.isISOControl() }) return null
+        val candidate = if ("://" in clean) clean else "https://$clean"
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        val allowedHosts = setOf("instagram.com", "www.instagram.com", "m.instagram.com", "instagr.am", "www.instagr.am")
+        if (uri.scheme?.lowercase() !in setOf("http", "https") ||
+            uri.userInfo != null || (uri.port != -1 && uri.port !in setOf(80, 443)) ||
+            host !in allowedHosts
+        ) return null
+
+        val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
+        val typeIndex = segments.indexOfFirst { it in setOf("p", "reel", "reels", "tv") }
+        if (typeIndex < 0 || typeIndex + 1 >= segments.size) return null
+        val type = if (segments[typeIndex] == "reels") "reel" else segments[typeIndex]
+        val shortcode = segments[typeIndex + 1]
+        if (!shortcode.matches(Regex("^[A-Za-z0-9_-]+$"))) return null
+        return "https://www.instagram.com/$type/$shortcode/"
+    }
+
+    fun isAllowedMediaUrl(rawUrl: String): Boolean {
+        if (rawUrl.isBlank() || rawUrl.length > 8192) return false
+        val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
+        if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
+            (uri.port != -1 && uri.port != 443) || host.length > 253 ||
+            host.split('.').any { label ->
+                label.isBlank() || label.length > 63 ||
+                    !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+            } || host.matches(Regex("^[0-9.]+$"))
+        ) return false
+        return mediaCdnSuffixes.any { host.endsWith(it) }
+    }
+
+    internal fun isVideoMediaFormat(vcodec: String?, extension: String): Boolean {
+        val codec = vcodec?.trim()
+        if (!codec.isNullOrBlank()) return codec != "none"
+        return extension.lowercase() in setOf("mp4", "m4v", "webm", "mov")
+    }
+
+    internal fun isImageMediaFormat(extension: String): Boolean =
+        extension.lowercase() in setOf("jpg", "jpeg", "png", "webp")
+
+    private fun selectMedia(entry: JSONObject, index: Int, isCarousel: Boolean = false): InstagramMediaItem? {
+        val formats = entry.optJSONArray("formats")
+        val candidates = mutableListOf<JSONObject>()
+        if (formats != null) {
+            for (i in 0 until formats.length()) {
+                val format = formats.optJSONObject(i) ?: continue
+                val formatUrl = format.optString("url")
+                if (!isAllowedMediaUrl(formatUrl)) continue
+                val formatExtension = format.optString("ext").ifBlank {
+                    runCatching { URI(formatUrl).path.substringAfterLast('.', "") }.getOrDefault("")
+                }.lowercase()
+                val codec = format.optString("vcodec").takeIf { it.isNotBlank() }
+                val supportedImage = isImageMediaFormat(formatExtension)
+                if (isVideoMediaFormat(codec, formatExtension) || supportedImage) candidates += format
+            }
         }
-        return null
+
+        val selected = candidates.maxByOrNull { format ->
+            format.optInt("height", 0) * 1_000_000L +
+                format.optLong("tbr", 0L).coerceAtMost(999_999L)
+        }
+        val directUrl = selected?.optString("url")
+            ?.takeIf(::isAllowedMediaUrl)
+            ?: entry.optString("url").takeIf(::isAllowedMediaUrl)
+            ?: return null
+
+        val ext = selected?.optString("ext").orEmpty().ifBlank {
+            runCatching { URI(directUrl).path.substringAfterLast('.', "") }.getOrDefault("")
+        }.lowercase()
+        val video = isVideoMediaFormat(selected?.optString("vcodec"), ext)
+        if (!video && !isImageMediaFormat(ext)) return null
+        val thumbnail = entry.optString("thumbnail")
+            .takeIf(::isAllowedMediaUrl)
+            ?: entry.optJSONArray("thumbnails")?.let { thumbnails ->
+                (0 until thumbnails.length()).mapNotNull { thumbnails.optJSONObject(it)?.optString("url") }
+                    .lastOrNull(::isAllowedMediaUrl)
+            }
+
+        return InstagramMediaItem(
+            url = directUrl,
+            isVideo = video,
+            previewUrl = thumbnail ?: if (video) null else directUrl,
+            index = index,
+            isCarousel = isCarousel
+        )
     }
 
     /**
-     * Resolves Instagram Post or Reel media links to extract REAL MP4 video CDN streams.
-     * Uses Instagram Embed parser, SnapInsta API, and Cobalt resolver.
+     * Extracts public Instagram posts/Reels/carousels locally with yt-dlp.
+     * No SnapInsta, Cobalt, or anonymous third-party resolver is contacted.
      */
     suspend fun fetchPostDetails(rawUrl: String): Result<InstagramPostData> = withContext(Dispatchers.IO) {
-        try {
-            val shortcode = extractShortcode(rawUrl)
-                ?: return@withContext Result.failure(
-                    IllegalArgumentException("Tautan harus berupa link Post, Reel, atau TV Instagram (contoh: instagram.com/reel/C... atau /p/C...)")
-                )
+        runCatching {
+            val sourceUrl = normalizeInstagramUrl(rawUrl)
+                ?: throw IllegalArgumentException("Masukkan URL Instagram Post, Reel, atau IGTV yang valid.")
 
+            val request = YoutubeDLRequest(sourceUrl).apply {
+                addOption("--dump-single-json")
+                addOption("--no-warnings")
+                addOption("--skip-download")
+            }
+            val response = YoutubeDL.getInstance().execute(request)
+            val output = response.out.trim()
+            if (output.isBlank()) throw IllegalStateException("yt-dlp tidak mengembalikan metadata Instagram.")
+
+            val data = JSONObject(output)
+            val entries = data.optJSONArray("entries")
             val mediaItems = mutableListOf<InstagramMediaItem>()
-            var caption = "Instagram Video ($shortcode)"
-            var author = "instagram_creator"
-            var isVideoPost = rawUrl.contains("/reel") || rawUrl.contains("/reels") || rawUrl.contains("/tv")
-
-            // Approach 1: Parse Instagram public embed page to extract genuine FB/IG CDN video_url
-            val embedUrl = "https://www.instagram.com/p/$shortcode/embed/captioned/"
-            val embedReq = Request.Builder()
-                .url(embedUrl)
-                .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .build()
-
-            try {
-                client.newCall(embedReq).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val html = response.body?.string().orEmpty()
-
-                        val authorMatcher = Pattern.compile("class=\"CaptionUsername\"[^>]*>([^<]+)<").matcher(html)
-                        if (authorMatcher.find()) {
-                            author = authorMatcher.group(1)?.trim() ?: author
-                        }
-
-                        val captionMatcher = Pattern.compile("class=\"Caption\"[^>]*>(.*?)</div>", Pattern.DOTALL).matcher(html)
-                        if (captionMatcher.find()) {
-                            val rawCap = captionMatcher.group(1)?.replace("<[^>]+>".toRegex(), "")?.trim()
-                            if (!rawCap.isNullOrBlank()) caption = rawCap
-                        }
-
-                        val videoPatterns = listOf(
-                            Pattern.compile("\"video_url\":\"([^\"]+)\""),
-                            Pattern.compile("video_url=([^\"]+?)(?:&|\")"),
-                            Pattern.compile("<video[^>]+src=\"([^\"]+)\"")
-                        )
-
-                        for (pat in videoPatterns) {
-                            val matcher = pat.matcher(html)
-                            if (matcher.find()) {
-                                var vUrl = matcher.group(1)
-                                if (!vUrl.isNullOrBlank()) {
-                                    vUrl = vUrl.replace("\\u0026", "&")
-                                        .replace("&amp;", "&")
-                                        .replace("\\/", "/")
-                                    if (vUrl.startsWith("http") && (vUrl.contains("fbcdn.net") || vUrl.contains("cdninstagram.com") || vUrl.contains(".mp4"))) {
-                                        mediaItems.add(InstagramMediaItem(vUrl, true, vUrl))
-                                        isVideoPost = true
-                                        break
-                                    }
-                                }
-                            }
-                        }
-
-                        if (mediaItems.isEmpty()) {
-                            val imgMatcher = Pattern.compile("class=\"EmbeddedMediaImage\"[^>]*src=\"([^\"]+)\"").matcher(html)
-                            if (imgMatcher.find()) {
-                                val imgUrl = imgMatcher.group(1)?.replace("&amp;", "&")?.replace("\\/", "/")
-                                if (!imgUrl.isNullOrBlank() && imgUrl.startsWith("http")) {
-                                    mediaItems.add(InstagramMediaItem(imgUrl, false, imgUrl))
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-
-            // Approach 2: SnapInsta API endpoint
-            if (mediaItems.isEmpty()) {
-                try {
-                    val resolverUrl = "https://api.snapinsta.to/api/convert?url=${Uri.encode("https://www.instagram.com/p/$shortcode/")}"
-                    val req = Request.Builder()
-                        .url(resolverUrl)
-                        .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                        .build()
-
-                    client.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            val body = resp.body?.string().orEmpty()
-                            val json = JSONObject(body)
-                            val direct = json.optString("url", "")
-                            if (direct.isNotBlank() && direct.startsWith("http")) {
-                                val isVid = json.optBoolean("isVideo", true)
-                                mediaItems.add(InstagramMediaItem(direct, isVid, direct))
-                                if (isVid) isVideoPost = true
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-            // Approach 3: Cobalt resolver
-            if (mediaItems.isEmpty()) {
-                val cobaltEndpoints = listOf("https://api.cobalt.tools", "https://co.wuk.sh")
-                for (endpoint in cobaltEndpoints) {
-                    try {
-                        val cobaltPayload = JSONObject().apply {
-                            put("url", "https://www.instagram.com/reel/$shortcode/")
-                        }
-                        val cobaltReq = Request.Builder()
-                            .url("$endpoint/")
-                            .header("Accept", "application/json")
-                            .header("Content-Type", "application/json")
-                            .header("User-Agent", VideoDownloadHelper.DEFAULT_USER_AGENT)
-                            .post(cobaltPayload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
-                            .build()
-
-                        client.newCall(cobaltReq).execute().use { resp ->
-                            if (resp.isSuccessful) {
-                                val body = resp.body?.string().orEmpty()
-                                val json = JSONObject(body)
-                                val streamUrl = json.optString("url", "")
-                                if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
-                                    mediaItems.add(InstagramMediaItem(streamUrl, true, streamUrl))
-                                    isVideoPost = true
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {}
-                    if (mediaItems.isNotEmpty()) break
+            if (entries != null) {
+                for (i in 0 until entries.length()) {
+                    val entry = entries.optJSONObject(i) ?: continue
+                    selectMedia(entry, i + 1, isCarousel = entries.length() > 1)?.let(mediaItems::add)
                 }
             }
-
             if (mediaItems.isEmpty()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "Tidak dapat mengekstrak stream video asli dari Instagram. Pastikan akun tidak diprivate dan tautan berupa Reel/Post yang aktif."
-                    )
-                )
+                selectMedia(data, 1)?.let(mediaItems::add)
+            }
+            if (mediaItems.isEmpty()) {
+                val message = data.optString("error").ifBlank {
+                    "Tidak ada media publik yang dapat diekstrak dari post ini."
+                }
+                throw IllegalStateException(message)
             }
 
-            val finalType = if (isVideoPost) InstagramMediaType.VIDEO else InstagramMediaType.PHOTO
-            val postData = InstagramPostData(
-                shortcode = shortcode,
+            val isCarousel = entries != null && entries.length() > 1
+            val mediaType = when {
+                isCarousel -> InstagramMediaType.CAROUSEL
+                mediaItems.first().isVideo -> InstagramMediaType.VIDEO
+                else -> InstagramMediaType.PHOTO
+            }
+            val caption = data.optString("description")
+                .ifBlank { data.optString("title") }
+                .ifBlank { "Instagram media (${data.optString("id", "post")})" }
+            val author = data.optString("uploader")
+                .ifBlank { data.optString("channel") }
+                .ifBlank { "instagram_creator" }
+
+            InstagramPostData(
+                shortcode = extractShortcode(sourceUrl) ?: data.optString("id"),
                 caption = caption,
-                ownerUsername = author,
+                ownerUsername = data.optString("uploader_id").ifBlank { author }.removePrefix("@"),
                 ownerAvatar = null,
-                mediaType = finalType,
+                mediaType = mediaType,
                 mediaList = mediaItems,
-                likeCount = 0,
-                commentCount = 0
+                likeCount = data.optInt("like_count", 0),
+                commentCount = data.optInt("comment_count", 0),
+                sourceUrl = sourceUrl,
+                isCarousel = isCarousel
             )
-
-            Result.success(postData)
-        } catch (e: Exception) {
-            Result.failure(e)
+        }.recoverCatching { error ->
+            val message = error.message.orEmpty()
+            when {
+                message.contains("login", ignoreCase = true) ||
+                    message.contains("private", ignoreCase = true) ||
+                    message.contains("authentication", ignoreCase = true) ->
+                    throw IllegalStateException("Konten Instagram memerlukan login atau tidak publik. Tool ini hanya mendukung konten publik yang boleh diakses.")
+                else -> throw error
+            }
         }
     }
 
-    /**
-     * Downloads genuine media directly to Android Downloads directory as .mp4 or .jpg
-     * with live 0-100% progress and speed tracking in-app.
-     */
     fun enqueueDownload(
         context: Context,
+        sourceUrl: String,
         mediaItem: InstagramMediaItem,
         shortcode: String,
         author: String
     ) {
-        val ext = if (mediaItem.isVideo) "mp4" else "jpg"
-        val mime = if (mediaItem.isVideo) "video/mp4" else "image/jpeg"
-        val fileName = "IG_${author}_${shortcode}_${System.currentTimeMillis() % 10000}.$ext"
+        val normalizedSource = normalizeInstagramUrl(sourceUrl)
+        val sourceShortcode = extractShortcode(sourceUrl)
+        if (normalizedSource == null || sourceShortcode == null ||
+            shortcode != sourceShortcode || mediaItem.index !in 1..1000 ||
+            !isAllowedMediaUrl(mediaItem.url)
+        ) {
+            Toast.makeText(context, "URL atau item media Instagram tidak valid.", Toast.LENGTH_LONG).show()
+            return
+        }
 
-        AppDownloadManager.startDownload(
-            context = context,
-            directUrl = mediaItem.url,
-            suggestedFileName = fileName,
-            title = "Instagram: @$author",
-            mimeType = mime
-        )
+        val processId = "instagram-$shortcode-${mediaItem.index}-${System.currentTimeMillis()}"
+        val outputDir = File(context.cacheDir, "instagram-downloads/$processId").apply { mkdirs() }
+        if (!outputDir.isDirectory) {
+            Toast.makeText(context, "Tidak dapat membuat folder sementara Instagram.", Toast.LENGTH_LONG).show()
+            return
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+            val result = runCatching {
+                // Stable app-generated names avoid trusting post captions as filesystem paths.
+                val outputTemplate = File(outputDir, "IG_$shortcode-${mediaItem.index}.%(ext)s").absolutePath
+                val request = YoutubeDLRequest(normalizedSource).apply {
+                    addOption("-o", outputTemplate)
+                    addOption("--no-warnings")
+                    addOption("--no-overwrites")
+                    addOption("--no-write-thumbnail")
+                    addOption("--no-write-info-json")
+                    addOption("--no-write-subs")
+                    addOption("--no-write-auto-subs")
+                    if (mediaItem.isCarousel) {
+                        addOption("--playlist-items", mediaItem.index.toString())
+                    } else {
+                        addOption("--no-playlist")
+                    }
+                    if (mediaItem.isVideo) {
+                        addOption("-f", "bestvideo+bestaudio/best")
+                        addOption("--merge-output-format", "mp4")
+                    } else {
+                        addOption("-f", "best")
+                    }
+                }
+                YoutubeDL.getInstance().execute(request, processId)
+                val downloaded = outputDir.listFiles()
+                    ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
+                    ?.maxByOrNull { it.lastModified() }
+                    ?: throw IllegalStateException("yt-dlp selesai tetapi file media tidak ditemukan.")
+
+                val extension = downloaded.extension.lowercase()
+                val (mime, isImage) = when (extension) {
+                    "mp4", "m4v" -> "video/mp4" to false
+                    "mov" -> "video/quicktime" to false
+                    "webm" -> "video/webm" to false
+                    "jpg", "jpeg" -> "image/jpeg" to true
+                    "png" -> "image/png" to true
+                    "webp" -> "image/webp" to true
+                    else -> throw IllegalStateException("Format hasil Instagram tidak didukung: $extension")
+                }
+                if (mediaItem.isVideo == isImage) {
+                    throw IllegalStateException("Tipe file hasil tidak sesuai dengan media Instagram yang dipilih.")
+                }
+                val safeAuthor = MediaStoreSaver.sanitizeFileName(author, "creator").take(40)
+                val fileName = MediaStoreSaver.sanitizeFileName(
+                    "IG_${safeAuthor}_${shortcode}_${mediaItem.index}.$extension"
+                )
+                val pending = if (isImage) {
+                    MediaStoreSaver.beginImageOutput(context, fileName, mime)
+                } else {
+                    MediaStoreSaver.beginVideoOutput(context, fileName, mime)
+                } ?: throw IllegalStateException("Tidak dapat membuat file tujuan di penyimpanan publik.")
+                try {
+                    downloaded.inputStream().use { input -> input.copyTo(pending.output, 64 * 1024) }
+                    pending.commit()
+                } catch (e: Exception) {
+                    pending.abort()
+                    throw e
+                }
+                downloaded.delete()
+                pending.uri
+            }
+            outputDir.deleteRecursively()
+            withContext(Dispatchers.Main) {
+                result.onSuccess {
+                    Toast.makeText(context, "Media tersimpan di ${if (mediaItem.isVideo) "Movies" else "Pictures"}/IO-Tools.", Toast.LENGTH_LONG).show()
+                }.onFailure {
+                    Toast.makeText(context, "Gagal mengunduh Instagram: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     fun sharePost(context: Context, shortcode: String, caption: String) {

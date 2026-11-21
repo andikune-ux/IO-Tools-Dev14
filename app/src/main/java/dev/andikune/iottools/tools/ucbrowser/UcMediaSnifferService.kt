@@ -1,25 +1,44 @@
 package dev.andikune.iottools.tools.ucbrowser
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.webkit.URLUtil
 import android.widget.Toast
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import dev.andikune.iottools.tools.common.AppDownloadManager
+import dev.andikune.iottools.tools.common.MediaStoreSaver
 import dev.andikune.iottools.tools.common.VideoDownloadHelper
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONTokener
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.net.URI
-import java.net.URL
-import java.util.regex.Pattern
+import java.util.concurrent.atomic.AtomicReference
 
 data class SniffedMediaItem(
     val url: String,
-    val format: String, // MP4, M3U8, WEBM, FLV, MP3
+    val format: String,
     val title: String,
     val isStreamHls: Boolean,
     val approximateSize: String,
-    val sourceDomain: String
+    val sourceDomain: String,
+    val isDash: Boolean = false,
+    val refererUrl: String = "",
+    val fileExtension: String = "mp4"
 )
 
 data class SniffingResult(
@@ -32,222 +51,434 @@ data class SniffingResult(
 object UcMediaSnifferService {
 
     private val client by lazy { VideoDownloadHelper.client }
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    private const val MOBILE_USER_AGENT =
-        "Mozilla/5.0 (Linux; U; Android 14; id-id; Pixel 8 Pro Build/UQ1A) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0 Mobile Safari/537.36 UCBrowser/13.4.0.1306 Mobile"
+    const val MOBILE_USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+
+    private fun isPublicHost(rawHost: String): Boolean {
+        val host = rawHost.lowercase().trimEnd('.')
+        if (host.length !in 1..253 || host == "localhost" || host.endsWith(".localhost") ||
+            host.endsWith(".local") || host.endsWith(".internal") ||
+            host.endsWith(".lan") || host.endsWith(".home.arpa") ||
+            host.contains(':')
+        ) return false
+
+        // Browsers accept shortened, decimal, octal and hexadecimal IPv4 forms.
+        // Reject numeric-only host spellings instead of relying on dotted-quad checks.
+        val numericAddress = Regex(
+            """(?i)^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}$"""
+        )
+        if (host.matches(numericAddress)) return false
+
+        val labels = host.split('.')
+        return labels.size >= 2 && labels.all { label ->
+            label.length in 1..63 &&
+                label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
+        }
+    }
+
+    fun normalizeTargetUrl(rawUrl: String): String? {
+        val clean = rawUrl.trim()
+        if (clean.isBlank() || clean.length > 2048 || clean.any { it.isISOControl() }) return null
+        val candidate = if ("://" in clean) clean else "https://$clean"
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null) return null
+        if (uri.port != -1 && uri.port !in 1..65535) return null
+        val host = uri.host ?: return null
+        if (!isPublicHost(host)) return null
+        return uri.toASCIIString()
+    }
+
+    internal fun sanitizeReferer(mediaUrl: String, refererUrl: String): String {
+        val media = runCatching { URI(mediaUrl) }.getOrNull() ?: return ""
+        val referer = runCatching { URI(refererUrl) }.getOrNull() ?: return ""
+        if (referer.scheme?.lowercase() !in setOf("http", "https") ||
+            referer.userInfo != null || referer.host.isNullOrBlank() ||
+            (media.scheme.equals("https", true) && referer.scheme.equals("http", true))
+        ) return ""
+
+        val sameOrigin = media.scheme.equals(referer.scheme, true) &&
+            media.host.equals(referer.host, true) &&
+            effectivePort(media) == effectivePort(referer)
+        return runCatching {
+            URI(
+                referer.scheme,
+                null,
+                referer.host,
+                referer.port,
+                if (sameOrigin) referer.path.orEmpty().ifBlank { "/" } else "/",
+                null,
+                null
+            ).toASCIIString()
+        }.getOrDefault("")
+    }
+
+    private fun effectivePort(uri: URI): Int = when {
+        uri.port != -1 -> uri.port
+        uri.scheme.equals("https", true) -> 443
+        else -> 80
+    }
+
+    internal fun readLimited(input: java.io.InputStream, maxBytes: Int): ByteArray {
+        require(maxBytes > 0) { "Batas baca HTML harus lebih besar dari nol." }
+        val output = ByteArrayOutputStream(minOf(maxBytes, 8192))
+        val buffer = ByteArray(8192)
+        while (output.size() < maxBytes) {
+            val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+            if (read < 0) break
+            if (read == 0) {
+                val single = input.read()
+                if (single < 0) break
+                output.write(single)
+                continue
+            }
+            output.write(buffer, 0, read)
+        }
+        if (output.size() == maxBytes && input.read() >= 0) {
+            throw IllegalStateException("HTML halaman melebihi batas $maxBytes byte.")
+        }
+        return output.toByteArray()
+    }
+
+    fun classifyMediaUrl(rawUrl: String, refererUrl: String = "", contentType: String? = null): SniffedMediaItem? {
+        val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null ||
+            (uri.port != -1 && uri.port !in 1..65535) || !isPublicHost(host)
+        ) return null
+        val path = uri.path.orEmpty().lowercase()
+        if (host.contains("doubleclick") || host.contains("googleads") ||
+            host.contains("adservice") || path.contains("/analytics/") ||
+            path.contains("/pixel/") || path.endsWith("pixel.gif")
+        ) return null
+
+        val normalizedMime = contentType.orEmpty().substringBefore(';').trim().lowercase()
+        val extension = path.substringAfterLast('.', "").lowercase()
+        val ext = when {
+            extension in setOf("m3u8", "mpd", "mp4", "m4v", "mov", "webm", "flv") -> extension
+            normalizedMime in setOf("application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/mpegurl", "audio/x-mpegurl") -> "m3u8"
+            normalizedMime == "application/dash+xml" -> "mpd"
+            normalizedMime == "video/mp4" -> "mp4"
+            normalizedMime == "video/webm" -> "webm"
+            normalizedMime == "video/quicktime" -> "mov"
+            normalizedMime == "video/x-flv" -> "flv"
+            normalizedMime == "video/x-m4v" -> "m4v"
+            else -> return null
+        }
+        val (format, isHls, isDash) = when (ext) {
+            "m3u8" -> Triple("M3U8 (HLS)", true, false)
+            "mpd" -> Triple("MPD (DASH)", false, true)
+            "mp4" -> Triple("MP4 Video", false, false)
+            "m4v" -> Triple("M4V Video", false, false)
+            "mov" -> Triple("MOV Video", false, false)
+            "webm" -> Triple("WEBM Video", false, false)
+            "flv" -> Triple("FLV Video", false, false)
+            else -> return null
+        }
+        val name = URLUtil.guessFileName(rawUrl, null, null)
+            .takeIf { it.isNotBlank() && !it.endsWith(".bin", true) }
+            ?: "Video.$ext"
+
+        return SniffedMediaItem(
+            url = rawUrl,
+            format = format,
+            title = name,
+            isStreamHls = isHls,
+            approximateSize = when {
+                isHls -> "HLS manifest"
+                isDash -> "DASH manifest"
+                else -> "Direct media file"
+            },
+            sourceDomain = host,
+            isDash = isDash,
+            refererUrl = sanitizeReferer(rawUrl, refererUrl),
+            fileExtension = ext
+        )
+    }
 
     /**
-     * Crawls target webpage and sniffs out hidden genuine video streams (.mp4, .m3u8, .webm).
-     * Filters out tracking scripts, ads, and HTML wrappers to ensure only playable videos are listed.
+     * Static HTML scan. Dynamic/player requests are captured by createCaptureWebView().
+     * Only direct progressive media and HLS/DASH manifest URLs are returned.
      */
     suspend fun sniffWebpage(rawUrl: String): Result<SniffingResult> = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
-        try {
-            var urlString = rawUrl.trim()
-            if (!urlString.startsWith("http://") && !urlString.startsWith("https://")) {
-                urlString = "https://$urlString"
-            }
-
-            val parsedUri = try {
-                URI(urlString)
-            } catch (e: Exception) {
-                return@withContext Result.failure(IllegalArgumentException("Format URL tidak valid: $rawUrl"))
-            }
-
-            val host = parsedUri.host ?: "unknown"
-
-            // 1. Fetch HTML page source with UC Browser mobile headers
+        runCatching {
+            val urlString = normalizeTargetUrl(rawUrl)
+                ?: throw IllegalArgumentException("URL tidak valid. Gunakan alamat HTTP atau HTTPS publik.")
             val request = Request.Builder()
                 .url(urlString)
                 .header("User-Agent", MOBILE_USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,video/*;q=0.8,*/*;q=0.5")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                val code = response.code
-                response.close()
-                return@withContext Result.failure(IllegalStateException("HTTP $code: Gagal membuka website."))
-            }
-
-            val contentType = response.header("Content-Type", "") ?: ""
-            // If the user entered a direct video URL directly into the sniffer
-            if (contentType.startsWith("video/") || urlString.endsWith(".mp4") || urlString.endsWith(".m3u8")) {
-                val directFormat = if (urlString.contains(".m3u8")) "M3U8" else "MP4"
-                val singleList = listOf(
-                    SniffedMediaItem(
-                        url = urlString,
-                        format = directFormat,
-                        title = URLUtil.guessFileName(urlString, null, contentType),
-                        isStreamHls = directFormat == "M3U8",
-                        approximateSize = "Direct Stream Video",
-                        sourceDomain = host
+            var resolvedPageUrl = urlString
+            val html = client.newCall(request).execute().use { response ->
+                resolvedPageUrl = response.request.url.toString()
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("HTTP ${response.code}: Gagal membuka website.")
+                }
+                val contentType = response.header("Content-Type").orEmpty().lowercase()
+                if (contentType.startsWith("video/") ||
+                    contentType.contains("mpegurl") ||
+                    contentType.contains("dash+xml")
+                ) {
+                    val direct = classifyMediaUrl(resolvedPageUrl, resolvedPageUrl, contentType)
+                        ?: throw IllegalStateException("Respons berupa media, tetapi format URL tidak didukung.")
+                    return@withContext Result.success(
+                        SniffingResult(
+                            targetUrl = urlString,
+                            pageTitle = "Direct Media",
+                            mediaList = listOf(direct),
+                            scanDurationMs = System.currentTimeMillis() - startTime
+                        )
                     )
-                )
-                response.close()
-                return@withContext Result.success(
-                    SniffingResult(
-                        targetUrl = urlString,
-                        pageTitle = "Direct Video Stream",
-                        mediaList = singleList,
-                        scanDurationMs = System.currentTimeMillis() - startTime
-                    )
-                )
+                }
+                val body = response.body
+                    ?: throw IllegalStateException("Website mengembalikan halaman kosong.")
+                val normalizedContentType = contentType.substringBefore(';').trim()
+                if (normalizedContentType.isNotBlank() &&
+                    normalizedContentType !in setOf("text/html", "application/xhtml+xml")
+                ) {
+                    throw IllegalStateException("Konten halaman bukan HTML yang dapat dipindai.")
+                }
+                val charset = runCatching { body.contentType()?.charset(Charsets.UTF_8) }
+                    .getOrNull() ?: Charsets.UTF_8
+                val htmlBytes = body.byteStream().use { readLimited(it, 4 * 1024 * 1024) }
+                String(htmlBytes, charset)
             }
 
-            val html = response.body?.string().orEmpty()
+            val titleMatcher = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .find(html)
+            val pageTitle = titleMatcher?.groupValues?.getOrNull(1)
+                ?.replace(Regex("\\s+"), " ")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: "Web Video Source"
 
-            // 2. Extract Page Title
-            var pageTitle = "Web Video Source"
-            val titleMatcher = Pattern.compile("<title>(.*?)</title>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(html)
-            if (titleMatcher.find()) {
-                pageTitle = titleMatcher.group(1)?.replace("\\s+".toRegex(), " ")?.trim() ?: pageTitle
-            }
-
-            // 3. Regex Sniffing Patterns for media streams
-            val detectedUrls = mutableSetOf<String>()
+            val candidates = linkedSetOf<String>()
             val patterns = listOf(
-                // Video tags: <video src="...">, <source src="...">
-                Pattern.compile("<(?:video|source)[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE),
-                // Direct file extensions in JS or HTML
-                Pattern.compile("(https?://[^\"'\\s<>]+\\.(?:mp4|m3u8|webm|flv|m4v)(?:\\?[^\"'\\s<>]*)?)", Pattern.CASE_INSENSITIVE),
-                // Escaped JSON URLs (https:\/\/...mp4)
-                Pattern.compile("(https?:\\\\/\\\\/[^\"'\\s<>]+\\.(?:mp4|m3u8|webm)(?:\\\\?[^\"'\\s<>]*)?)", Pattern.CASE_INSENSITIVE),
-                // Common video player configs (file: "...", video_url: "...")
-                Pattern.compile("(?:file|url|source|video_url)[\"']?\\s*:\\s*[\"'](https?://[^\"']+)[\"']", Pattern.CASE_INSENSITIVE)
+                Regex("""<(?:video|source)[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
+                Regex("""(https?://[^"'\s<>]+\.(?:mp4|m3u8|mpd|webm|flv|m4v|mov)(?:\?[^"'\s<>]*)?)""", RegexOption.IGNORE_CASE),
+                Regex("""(https?://[^"'\s<>]+\.(?:mp4|m3u8|mpd|webm)(?:\?[^"'\s<>]*)?)""", RegexOption.IGNORE_CASE),
+                Regex("""(?:file|url|source|video_url)["']?\s*:\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
             )
-
-            for (pattern in patterns) {
-                val matcher = pattern.matcher(html)
-                while (matcher.find()) {
-                    val rawMatch = matcher.group(1) ?: continue
-                    val cleanMatch = rawMatch.replace("\\/", "/").trim()
-                    val absoluteUrl = resolveAbsoluteUrl(urlString, cleanMatch)
-                    if (absoluteUrl != null && isGenuineVideoUrl(absoluteUrl)) {
-                        detectedUrls.add(absoluteUrl)
-                    }
+            patterns.forEach { pattern ->
+                pattern.findAll(html).forEach { match ->
+                    val candidate = match.groupValues.getOrNull(1)
+                        ?.replace("\\/", "/")
+                        ?.replace("&amp;", "&")
+                        ?.trim()
+                        ?: return@forEach
+                    resolveAbsoluteUrl(resolvedPageUrl, candidate)?.let(candidates::add)
                 }
             }
 
-            // Also check for embedded video iframes
-            val iframeMatcher = Pattern.compile("<iframe[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
-            while (iframeMatcher.find()) {
-                val rawSrc = iframeMatcher.group(1) ?: continue
-                val cleanSrc = rawSrc.replace("\\/", "/").trim()
-                val absSrc = resolveAbsoluteUrl(urlString, cleanSrc)
-                if (absSrc != null && (absSrc.contains("youtube.com/embed") || absSrc.contains("player.vimeo.com") || absSrc.contains("dailymotion.com/embed"))) {
-                    detectedUrls.add(absSrc)
-                }
-            }
-
-            val mediaList = detectedUrls.mapIndexed { index, mediaUrl ->
-                val format = when {
-                    mediaUrl.contains(".m3u8") -> "M3U8 (HLS)"
-                    mediaUrl.contains(".mp4") -> "MP4 Video"
-                    mediaUrl.contains(".webm") -> "WEBM Video"
-                    mediaUrl.contains("youtube.com") -> "YouTube Video Embed"
-                    else -> "VIDEO STREAM"
-                }
-
-                val mediaHost = try { URI(mediaUrl).host ?: host } catch (_: Exception) { host }
-                var guessedName = URLUtil.guessFileName(mediaUrl, null, null)
-                if (guessedName.endsWith(".bin") || guessedName.length < 5) {
-                    guessedName = "Video_${index + 1}.mp4"
-                }
-
-                SniffedMediaItem(
-                    url = mediaUrl,
-                    format = format,
-                    title = guessedName,
-                    isStreamHls = mediaUrl.contains(".m3u8"),
-                    approximateSize = if (format.contains("M3U8")) "Live HLS Stream" else "Video Asli",
-                    sourceDomain = mediaHost
+            val media = candidates.mapNotNull { classifyMediaUrl(it, resolvedPageUrl) }.distinctBy { it.url }
+            if (media.isEmpty()) {
+                throw IllegalStateException(
+                    "Belum ada URL media langsung di HTML awal. Buka player di browser tertanam, tekan Play, lalu tunggu permintaan media terdeteksi."
                 )
             }
 
-            if (mediaList.isEmpty()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "Tidak ditemukan stream video asli (.mp4, .m3u8) pada halaman ini. Pastikan halaman memiliki player video aktif atau coba link video langsung."
-                    )
-                )
-            }
-
-            val result = SniffingResult(
+            SniffingResult(
                 targetUrl = urlString,
                 pageTitle = pageTitle,
-                mediaList = mediaList,
+                mediaList = media,
                 scanDurationMs = System.currentTimeMillis() - startTime
             )
-
-            Result.success(result)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    private fun isGenuineVideoUrl(url: String): Boolean {
-        val lower = url.lowercase()
-
-        // Discard ad networks and tracking pixels
-        if (lower.contains("doubleclick") ||
-            lower.contains("googleads") ||
-            lower.contains("facebook.com/tr") ||
-            lower.contains("analytics") ||
-            lower.contains("pixel") ||
-            lower.contains("adservice")
-        ) {
-            return false
-        }
-
-        return lower.contains(".mp4") ||
-                lower.contains(".m3u8") ||
-                lower.contains(".webm") ||
-                lower.contains(".flv") ||
-                lower.contains(".m4v") ||
-                lower.contains("googlevideo.com/videoplayback") ||
-                lower.contains("youtube.com/embed")
-    }
-
-    private fun resolveAbsoluteUrl(baseUrl: String, candidate: String): String? {
-        return try {
-            when {
-                candidate.startsWith("http://") || candidate.startsWith("https://") -> candidate
-                candidate.startsWith("//") -> "https:$candidate"
-                candidate.startsWith("/") -> {
-                    val base = URL(baseUrl)
-                    "${base.protocol}://${base.host}${if (base.port != -1) ":${base.port}" else ""}$candidate"
-                }
-                else -> {
-                    val base = URL(baseUrl)
-                    val basePath = base.path.substringBeforeLast('/', "")
-                    "${base.protocol}://${base.host}${if (base.port != -1) ":${base.port}" else ""}$basePath/$candidate"
-                }
-            }
-        } catch (_: Exception) {
-            null
         }
     }
 
     /**
-     * Downloads genuine sniffed media via AppDownloadManager with 0-100% progress.
+     * Visible WebView capture: catches media requests made after JavaScript/player activity.
+     * It does not inspect blob contents, decrypt DRM, or export cookies.
+     */
+    fun createCaptureWebView(
+        context: Context,
+        targetUrl: String,
+        onPageTitle: (String) -> Unit,
+        onMediaDetected: (SniffedMediaItem) -> Unit
+    ): WebView {
+        val normalizedUrl = normalizeTargetUrl(targetUrl)
+            ?: throw IllegalArgumentException("URL target tidak valid.")
+
+        val activePageUrl = AtomicReference(normalizedUrl)
+        return WebView(context).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.userAgentString = MOBILE_USER_AGENT
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+            webChromeClient = WebChromeClient()
+
+            fun reportCandidate(candidate: String, referer: String) {
+                val item = classifyMediaUrl(candidate, referer) ?: return
+                mainHandler.post { onMediaDetected(item) }
+            }
+
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val target = request?.url?.toString()
+                    return target == null || normalizeTargetUrl(target) == null
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val resourceUrl = request?.url?.toString()
+                    val resourceUri = resourceUrl?.let { runCatching { URI(it) }.getOrNull() }
+                    if (resourceUri?.scheme?.lowercase() in setOf("http", "https") &&
+                        normalizeTargetUrl(resourceUrl.orEmpty()) == null
+                    ) {
+                        return WebResourceResponse(
+                            "text/plain",
+                            "UTF-8",
+                            403,
+                            "Blocked",
+                            emptyMap(),
+                            java.io.ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+
+                    val response = super.shouldInterceptRequest(view, request)
+                    request?.takeIf { it.method.equals("GET", true) }?.let {
+                        val referer = it.requestHeaders["Referer"] ?: activePageUrl.get()
+                        val item = classifyMediaUrl(
+                            rawUrl = it.url.toString(),
+                            refererUrl = referer,
+                            contentType = response?.mimeType
+                        )
+                        if (item != null) mainHandler.post { onMediaDetected(item) }
+                    }
+                    return response
+                }
+
+                override fun onLoadResource(view: WebView?, url: String?) {
+                    if (!url.isNullOrBlank()) reportCandidate(url, view?.url ?: normalizedUrl)
+                    super.onLoadResource(view, url)
+                }
+
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    val safeUrl = url?.let(::normalizeTargetUrl)
+                    if (safeUrl == null) {
+                        view?.stopLoading()
+                        return
+                    }
+                    activePageUrl.set(safeUrl)
+                    super.onPageStarted(view, safeUrl, favicon)
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    onPageTitle(view?.title?.takeIf { it.isNotBlank() } ?: "Web Video Source")
+                    val currentPageUrl = activePageUrl.get()
+                    view?.evaluateJavascript(
+                        "JSON.stringify(Array.from(document.querySelectorAll('video,video source,source')).map(e => e.currentSrc || e.src).filter(Boolean))"
+                    ) { value ->
+                        val decoded = runCatching { JSONTokener(value).nextValue() as? String }.getOrNull()
+                            ?: return@evaluateJavascript
+                        val urls = runCatching { JSONArray(decoded) }.getOrNull() ?: return@evaluateJavascript
+                        for (index in 0 until urls.length()) {
+                            val candidate = urls.optString(index)
+                            if (candidate.isNotBlank() && !candidate.startsWith("blob:")) {
+                                reportCandidate(candidate, currentPageUrl)
+                            }
+                        }
+                    }
+                    super.onPageFinished(view, url)
+                }
+            }
+            loadUrl(normalizedUrl)
+        }
+    }
+
+    private fun resolveAbsoluteUrl(baseUrl: String, candidate: String): String? {
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+        val resolved = runCatching { URI(baseUrl).resolve(uri) }.getOrNull() ?: return null
+        return resolved.toASCIIString().takeIf { classifyMediaUrl(it, baseUrl) != null }
+    }
+
+    /**
+     * Progressive files use the shared streaming downloader. HLS/DASH manifests
+     * are passed to yt-dlp/FFmpeg so the manifest itself is never saved as an MP4.
      */
     fun enqueueDownload(context: Context, item: SniffedMediaItem) {
-        val ext = if (item.isStreamHls) "m3u8" else "mp4"
-        val mime = if (item.isStreamHls) "application/x-mpegURL" else "video/mp4"
+        if (!item.isStreamHls && !item.isDash) {
+            val mime = when (item.fileExtension.lowercase()) {
+                "mp4" -> "video/mp4"
+                "m4v" -> "video/x-m4v"
+                "mov" -> "video/quicktime"
+                "webm" -> "video/webm"
+                "flv" -> "video/x-flv"
+                else -> {
+                    Toast.makeText(context, "Format media tidak didukung.", Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
+            val safeName = item.title.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
+            AppDownloadManager.startDownload(
+                context = context,
+                directUrl = item.url,
+                suggestedFileName = safeName,
+                title = safeName.take(35),
+                mimeType = mime,
+                customHeaders = buildMap {
+                    put("User-Agent", MOBILE_USER_AGENT)
+                    if (item.refererUrl.isNotBlank()) put("Referer", item.refererUrl)
+                }
+            )
+            return
+        }
 
-        val safeName = item.title
-            .replace("[\\\\/:*?\"<>|]".toRegex(), "_")
-            .ifEmpty { "Video_${System.currentTimeMillis()}" }
-        val finalFileName = if (safeName.endsWith(".$ext", ignoreCase = true)) safeName else "$safeName.$ext"
-
-        dev.andikune.iottools.tools.common.AppDownloadManager.startDownload(
-            context = context,
-            directUrl = item.url,
-            suggestedFileName = finalFileName,
-            title = finalFileName.take(35),
-            mimeType = mime
-        )
+        CoroutineScope(Dispatchers.IO).launch {
+            val processId = "uc-media-${System.currentTimeMillis()}"
+            val outputDir = File(context.cacheDir, "uc-media-downloads/$processId").apply { mkdirs() }
+            val result = runCatching {
+                val outputTemplate = File(outputDir, "%(title).100B [%(id)s].%(ext)s").absolutePath
+                val request = YoutubeDLRequest(item.url).apply {
+                    addOption("-o", outputTemplate)
+                    addOption("--no-warnings")
+                    addOption("--no-playlist")
+                    addOption("--newline")
+                    addOption("--no-write-thumbnail")
+                    addOption("--no-write-info-json")
+                    addOption("--no-write-subs")
+                    addOption("--no-write-auto-subs")
+                    addOption("--merge-output-format", "mp4")
+                    addOption("--user-agent", MOBILE_USER_AGENT)
+                    if (item.refererUrl.isNotBlank()) addOption("--referer", item.refererUrl)
+                }
+                YoutubeDL.getInstance().execute(request, processId)
+                val downloaded = outputDir.listFiles()
+                    ?.filter { it.isFile && it.length() > 0L && !it.name.endsWith(".part") }
+                    ?.maxByOrNull { it.lastModified() }
+                    ?: throw IllegalStateException("Engine tidak menghasilkan file media.")
+                val mime = when (downloaded.extension.lowercase()) {
+                    "mp4", "m4v" -> "video/mp4"
+                    "webm" -> "video/webm"
+                    "mkv" -> "video/x-matroska"
+                    else -> throw IllegalStateException("Format hasil ${downloaded.extension} tidak didukung.")
+                }
+                val uri = downloaded.inputStream().use { input ->
+                    MediaStoreSaver.saveStream(context, downloaded.name, mime, input)
+                } ?: throw IllegalStateException("Gagal menyimpan media ke Download/IO-Tools.")
+                downloaded.delete()
+                uri
+            }
+            outputDir.deleteRecursively()
+            withContext(Dispatchers.Main) {
+                result.onSuccess {
+                    Toast.makeText(context, "Unduhan stream selesai.", Toast.LENGTH_LONG).show()
+                }.onFailure {
+                    Toast.makeText(context, "Unduhan stream gagal: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 }

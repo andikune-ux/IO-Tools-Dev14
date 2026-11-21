@@ -325,6 +325,8 @@ object ApkPackagingEngine {
                 putExtra("EXTRA_PERM_CAMERA", config.permCamera)
                 putExtra("EXTRA_PERM_AUDIO", config.permRecordAudio)
                 putExtra("EXTRA_PERM_LOCATION", config.permFineLocation || config.permCoarseLocation)
+            putExtra("EXTRA_PERM_FINE_LOCATION", config.permFineLocation)
+            putExtra("EXTRA_PERM_COARSE_LOCATION", config.permCoarseLocation)
                 putExtra("EXTRA_PULL_REFRESH", config.enablePullToRefresh)
                 putExtra("EXTRA_PROGRESS_BAR", config.enableProgressBar)
                 putExtra("EXTRA_DESKTOP_MODE", config.enableDesktopMode)
@@ -351,6 +353,7 @@ object ApkPackagingEngine {
     }
 
     fun launchStandaloneApp(context: Context, config: WebToApkConfig) {
+        validate(config)
         WebToApkStorage.saveActiveConfig(context, config)
         val intent = Intent(context, WebToApkStandaloneActivity::class.java).apply {
             putExtra("EXTRA_WEB_URL", config.webUrl)
@@ -371,16 +374,65 @@ object ApkPackagingEngine {
         context.startActivity(intent)
     }
 
-    private fun validate(config: WebToApkConfig) {
+    internal fun validate(config: WebToApkConfig) {
         val url = config.webUrl.trim()
-        require(url.startsWith("http://") || url.startsWith("https://")) {
-            "URL harus dimulai dengan http:// atau https://"
+        val uri = runCatching { java.net.URI(url) }.getOrNull()
+            ?: throw IllegalArgumentException("URL website tidak valid.")
+        val host = uri.host?.lowercase()
+            ?: throw IllegalArgumentException("URL website harus memiliki hostname yang valid.")
+        require(uri.scheme?.equals("https", ignoreCase = true) == true && uri.userInfo == null) {
+            "URL website harus menggunakan HTTPS dan tidak boleh memuat kredensial."
         }
-        require(Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$").matches(config.packageName)) {
-            "Package name tidak valid. Contoh: com.nama.app"
+        val normalizedHost = host.trimEnd('.')
+        require(
+            normalizedHost != "localhost" && !normalizedHost.endsWith(".local") &&
+                !normalizedHost.endsWith(".internal") && !normalizedHost.endsWith(".lan") &&
+                !normalizedHost.endsWith(".home.arpa") &&
+                normalizedHost.contains('.') &&
+                !normalizedHost.matches(Regex("^[0-9.]+$")) &&
+                !normalizedHost.contains(':')
+        ) { "URL website harus mengarah ke hostname HTTPS publik." }
+        require(uri.port == -1 || uri.port in 1..65535) {
+            "Port URL website tidak valid."
         }
-        require(config.appName.isNotBlank()) { "Nama aplikasi wajib diisi." }
-        require(config.versionCode > 0) { "Version code harus lebih dari 0." }
+        val hostLabels = host.trimEnd('.').split('.')
+        require(host.length <= 253 && hostLabels.size >= 2 && hostLabels.all { label ->
+            label.isNotBlank() && label.length <= 63 &&
+                label.matches(Regex("^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$"))
+        }) { "Hostname website tidak valid." }
+        require(url.length <= 2048) { "URL website terlalu panjang (maksimal 2048 karakter)." }
+
+        val packagePattern = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+        val javaKeywords = setOf(
+            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+            "class", "const", "continue", "default", "do", "double", "else", "enum",
+            "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+            "import", "instanceof", "int", "interface", "long", "native", "new", "package",
+            "private", "protected", "public", "return", "short", "static", "strictfp",
+            "super", "switch", "synchronized", "this", "throw", "throws", "transient",
+            "try", "void", "volatile", "while", "true", "false", "null"
+        )
+        require(packagePattern.matches(config.packageName) &&
+            config.packageName.split('.').none { it in javaKeywords }
+        ) { "Package name tidak valid. Contoh: com.nama.app" }
+
+        require(config.appName.isNotBlank() && config.appName.length <= 60 &&
+            config.appName.none { it.isISOControl() }
+        ) { "Nama aplikasi wajib diisi dan maksimal 60 karakter." }
+        require(config.versionName.isNotBlank() && config.versionName.length <= 64 &&
+            config.versionName.none { it.isISOControl() }
+        ) { "Version name wajib diisi dan maksimal 64 karakter." }
+        require(config.versionCode in 1..2_100_000_000) {
+            "Version code harus antara 1 sampai 2.100.000.000."
+        }
+        val colorPattern = Regex("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")
+        require(colorPattern.matches(config.themeColorHex) && colorPattern.matches(config.navBarColorHex)) {
+            "Warna tema harus berupa HEX #RRGGBB atau #AARRGGBB."
+        }
+        require(config.userAgentOverride.length <= 512 &&
+            !config.userAgentOverride.contains('\n') &&
+            !config.userAgentOverride.contains('\r')
+        ) { "User-Agent maksimal 512 karakter dan tidak boleh mengandung baris baru." }
     }
 
     private fun sanitize(value: String): String =
