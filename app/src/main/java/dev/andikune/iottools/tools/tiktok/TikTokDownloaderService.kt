@@ -4,19 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
 import dev.andikune.iottools.tools.common.AppDownloadManager
-import dev.andikune.iottools.tools.common.MediaStoreSaver
-import dev.andikune.iottools.tools.common.VideoDownloadHelper
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
+import org.json.JSONObject
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
@@ -29,31 +22,23 @@ data class TikTokVideoData(
     val coverUrl: String,
     val sourceUrl: String,
     val noWatermarkVideoUrl: String,
-    val noWatermarkFormatId: String,
-    val noWatermarkFormatHasAudio: Boolean,
     val watermarkVideoUrl: String?,
-    val audioAvailable: Boolean,
+    val audioUrl: String?,
     val durationSeconds: Int,
     val videoSizeFormatted: String
 )
 
 object TikTokDownloaderService {
-    private suspend fun ensureLatestYtDlp(context: Context) = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences("tiktok_extractor", Context.MODE_PRIVATE)
-        val lastCheck = prefs.getLong("nightly_checked_at", 0L)
-        if (System.currentTimeMillis() - lastCheck < 86_400_000L) return@withContext
-        runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
-        }.onSuccess { prefs.edit().putLong("nightly_checked_at", System.currentTimeMillis()).apply() }
-    }
-
-    private val httpClient by lazy {
-        OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS).followRedirects(true).build()
+    private val client by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
     }
 
     private val mediaCdnSuffixes = setOf(
         ".tiktokcdn.com",
-        ".tiktok.com",
         ".tiktokcdn-us.com",
         ".tiktokcdn-eu.com",
         ".tiktokv.com",
@@ -83,140 +68,100 @@ object TikTokDownloaderService {
         return uri.toASCIIString().takeIf { host in allowedHosts }
     }
 
-    internal fun buildVideoFormatSelector(formatId: String, hasAudio: Boolean = false): String? {
-        val safeId = formatId.trim()
-        if (!safeId.matches(Regex("^[A-Za-z0-9_.-]{1,80}$"))) return null
-        return if (hasAudio) "$safeId/best" else "$safeId+bestaudio/$safeId/best"
-    }
-
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
         if (rawUrl.isBlank() || rawUrl.length > 8192) return false
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return false
         val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (uri.scheme?.lowercase() != "https" || uri.userInfo != null ||
-            (uri.port != -1 && uri.port != 443) || host.length > 253 ||
-            host.split('.').any { label ->
-                label.isBlank() || label.length > 63 ||
-                    !label.matches(Regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))
-            } || host.matches(Regex("^[0-9.]+$"))
+            (uri.port != -1 && uri.port != 443)
         ) return false
-        return mediaCdnSuffixes.any { host.endsWith(it) }
+        val isTikTokCdn = mediaCdnSuffixes.any { host.endsWith(it) }
+        val isTikwmCdn = host == "tikwm.com" || host.endsWith(".tikwm.com")
+        return isTikTokCdn || isTikwmCdn
     }
 
     /**
-     * Uses the app's local yt-dlp extractor. No TikWM or other anonymous
-     * third-party resolver endpoint is contacted.
+     * Restored legacy TikWM resolver flow. TikWM supplies the direct media URLs;
+     * yt-dlp is deliberately not involved in TikTok video metadata extraction.
      */
-    suspend fun fetchVideoDetails(context: Context, rawUrl: String): Result<TikTokVideoData> = withContext(Dispatchers.IO) {
+    suspend fun fetchVideoDetails(
+        @Suppress("UNUSED_PARAMETER") context: Context,
+        rawUrl: String
+    ): Result<TikTokVideoData> = withContext(Dispatchers.IO) {
         runCatching {
             val cleanUrl = normalizeTikTokUrl(rawUrl)
                 ?: throw IllegalArgumentException("Tautan harus berasal dari domain TikTok atau Douyin yang valid.")
 
-            ensureLatestYtDlp(context)
-            val request = YoutubeDLRequest(cleanUrl).apply {
-                addOption("--dump-single-json")
-                addOption("--no-warnings")
-                addOption("--skip-download")
-                addOption("--no-playlist")
-            }
-            val response = YoutubeDL.getInstance().execute(request)
-            val output = response.out.trim()
-            if (output.isBlank()) throw IllegalStateException("yt-dlp tidak mengembalikan metadata video TikTok.")
+            val endpoint = "https://www.tikwm.com/api/?url=${Uri.encode(cleanUrl)}&hd=1"
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
+                .header("Accept", "application/json")
+                .build()
 
-            val data = JSONObject(output)
-            val formatsJson = data.optJSONArray("formats")
-                ?: throw IllegalStateException("Extractor tidak mengembalikan daftar format video.")
-            val videoFormats = mutableListOf<JSONObject>()
-            val audioFormats = mutableListOf<JSONObject>()
-
-            for (index in 0 until formatsJson.length()) {
-                val format = formatsJson.optJSONObject(index) ?: continue
-                val url = format.optString("url")
-                if (!isAllowedMediaUrl(url)) continue
-                val vcodec = format.optString("vcodec", "none")
-                val acodec = format.optString("acodec", "none")
-                if (vcodec != "none") videoFormats += format
-                if (vcodec == "none" && acodec != "none") audioFormats += format
-            }
-
-            val noWatermarkFormat = videoFormats
-                .filter { format ->
-                    val note = format.optString("format_note").lowercase()
-                    val id = format.optString("format_id").lowercase()
-                    !note.contains("watermark") && id != "download_addr"
+            val response = client.newCall(request).execute()
+            val body = response.use {
+                if (!it.isSuccessful) {
+                    throw IllegalStateException("Gagal menghubungi server TikWM (HTTP ${it.code}).")
                 }
-                .maxByOrNull { format ->
-                    format.optInt("height", 0) * 1_000_000L +
-                        format.optLong("tbr", 0L).coerceAtMost(999_999L)
-                } ?: throw IllegalStateException(
-                    "Tidak ditemukan format video tanpa watermark dari extractor. Tidak akan mengklaim file watermarked sebagai no-watermark."
-                )
-
-            val noWatermarkUrl = noWatermarkFormat.optString("url")
-                .takeIf(::isAllowedMediaUrl)
-                ?: throw IllegalStateException("URL video TikTok bukan berasal dari CDN yang diizinkan.")
-
-            val watermarkFormat = videoFormats.firstOrNull { format ->
-                format.optString("format_note").contains("watermark", ignoreCase = true) ||
-                    format.optString("format_id").equals("download_addr", ignoreCase = true)
+                it.body?.string() ?: throw IllegalStateException("Respon server TikWM kosong.")
             }
-            val watermarkUrl = watermarkFormat?.optString("url")?.takeIf(::isAllowedMediaUrl)
 
-            val id = data.optString("id").ifBlank { "tiktok_${System.currentTimeMillis()}" }
+            val json = JSONObject(body)
+            val code = json.optInt("code", -1)
+            val message = json.optString("msg", "Gagal memproses link")
+            if (code != 0) {
+                throw IllegalStateException("TikWM API: $message. Pastikan video bersifat publik dan belum dihapus.")
+            }
+
+            val data = json.optJSONObject("data")
+                ?: throw IllegalStateException("Data video tidak ditemukan pada respons TikWM.")
+            val id = data.optString("id").ifBlank { System.currentTimeMillis().toString() }
             val title = data.optString("title").ifBlank { "TikTok Video" }
-            val authorName = data.optString("uploader")
-                .ifBlank { data.optString("channel") }
-                .ifBlank { "TikTok Creator" }
-            val authorId = data.optString("uploader_id")
-                .ifBlank { data.optString("channel_id") }
-                .ifBlank { "creator" }
-                .removePrefix("@")
-            val thumbnail = data.optString("thumbnail").takeIf(::isAllowedMediaUrl).orEmpty()
-            val duration = data.optInt("duration", 0)
-            val sizeBytes = noWatermarkFormat.optLong(
-                "filesize",
-                noWatermarkFormat.optLong("filesize_approx", 0L)
-            )
+            val cover = data.optString("cover")
+            val play = data.optString("play")
+            val hdPlay = data.optString("hdplay").ifBlank { play }
+            val noWatermarkUrl = hdPlay.ifBlank { play }
+            val watermarkUrl = data.optString("wmplay").takeIf { it.isNotBlank() }
+            val audioUrl = data.optString("music").takeIf { it.isNotBlank() }
+
+            if (noWatermarkUrl.isBlank() || !isAllowedMediaUrl(noWatermarkUrl)) {
+                throw IllegalStateException("TikWM tidak memberikan URL video tanpa watermark yang valid.")
+            }
+            if (audioUrl != null && !isAllowedMediaUrl(audioUrl)) {
+                throw IllegalStateException("TikWM memberikan URL audio dari domain yang tidak diizinkan.")
+            }
+
+            val size = data.optLong("size", 0L)
+            val hdSize = data.optLong("hd_size", size)
+            val sizeBytes = if (hdSize > 0L) hdSize else size
             val sizeFormatted = if (sizeBytes > 0L) {
                 String.format("%.1f MB", sizeBytes / (1024.0 * 1024.0))
             } else {
                 "Ukuran dinamis"
             }
 
+            val author = data.optJSONObject("author")
             TikTokVideoData(
                 id = id,
                 title = title,
-                authorName = authorName,
-                authorUniqueId = authorId,
-                authorAvatar = "",
-                coverUrl = thumbnail,
+                authorName = author?.optString("nickname").orEmpty().ifBlank { "TikTok Creator" },
+                authorUniqueId = author?.optString("unique_id").orEmpty().ifBlank { "creator" },
+                authorAvatar = author?.optString("avatar").orEmpty(),
+                coverUrl = cover,
                 sourceUrl = cleanUrl,
                 noWatermarkVideoUrl = noWatermarkUrl,
-                noWatermarkFormatId = noWatermarkFormat.optString("format_id")
-                    .takeIf { buildVideoFormatSelector(it) != null }
-                    ?: throw IllegalStateException("Extractor mengembalikan ID format video yang tidak valid."),
-                noWatermarkFormatHasAudio = noWatermarkFormat.optString("acodec", "none") != "none",
-                watermarkVideoUrl = watermarkUrl,
-                audioAvailable = audioFormats.isNotEmpty() ||
-                    videoFormats.any { it.optString("acodec", "none") != "none" },
-                durationSeconds = duration,
+                watermarkVideoUrl = watermarkUrl?.takeIf(::isAllowedMediaUrl),
+                audioUrl = audioUrl,
+                durationSeconds = data.optInt("duration", 0),
                 videoSizeFormatted = sizeFormatted
             )
-        }.recoverCatching { error ->
-            val message = error.message.orEmpty()
-            when {
-                message.contains("login", ignoreCase = true) ||
-                    message.contains("private", ignoreCase = true) ||
-                    message.contains("authentication", ignoreCase = true) ->
-                    throw IllegalStateException("Video TikTok memerlukan login atau tidak publik. Tool ini hanya mendukung konten publik yang boleh diakses.")
-                else -> throw error
-            }
         }
     }
 
     /**
-     * Video uses the direct extractor-selected no-watermark stream. Audio is
-     * extracted from the original public TikTok URL and converted to MP3 by FFmpeg.
+     * Uses the original direct-download mechanism: Android DownloadManager
+     * wrapper with in-app progress, now receiving TikWM's resolved media URL.
      */
     fun startDownload(
         context: Context,
@@ -224,117 +169,25 @@ object TikTokDownloaderService {
         fileName: String,
         title: String,
         isAudio: Boolean,
-        formatId: String? = null,
-        formatHasAudio: Boolean = false
+        @Suppress("UNUSED_PARAMETER") formatId: String? = null,
+        @Suppress("UNUSED_PARAMETER") formatHasAudio: Boolean = false
     ) {
-        if (!isAudio) {
-            val sourceUrl = normalizeTikTokUrl(url)
-            val formatSelector = buildVideoFormatSelector(formatId.orEmpty(), formatHasAudio)
-            if (sourceUrl == null || formatSelector == null) {
-                Toast.makeText(context, "URL sumber atau format video TikTok tidak valid.", Toast.LENGTH_LONG).show()
-                return
-            }
-
-            CoroutineScope(Dispatchers.IO).launch {
-                val processId = "tiktok-video-${System.currentTimeMillis()}"
-                val outputDir = File(context.cacheDir, "tiktok-video/$processId").apply { mkdirs() }
-                if (!outputDir.isDirectory) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Tidak dapat membuat folder sementara video TikTok.", Toast.LENGTH_LONG).show()
-                    }
-                    return@launch
-                }
-                val result = runCatching {
-                    val outputTemplate = File(outputDir, "video.%(ext)s").absolutePath
-                    val request = YoutubeDLRequest(sourceUrl).apply {
-                        addOption("-o", outputTemplate)
-                        addOption("-f", formatSelector)
-                        addOption("--no-warnings")
-                        addOption("--no-playlist")
-                        addOption("--newline")
-                        addOption("--remux-video", "mp4")
-                        addOption("--no-write-thumbnail")
-                        addOption("--no-write-info-json")
-                        addOption("--no-write-subs")
-                        addOption("--no-write-auto-subs")
-                    }
-                    YoutubeDL.getInstance().execute(request, processId)
-                    val downloaded = outputDir.listFiles()
-                        ?.filter { it.isFile && it.length() > 0L && it.extension.equals("mp4", true) }
-                        ?.maxByOrNull { it.lastModified() }
-                        ?: throw IllegalStateException("Engine tidak menghasilkan MP4 gabungan dengan audio.")
-                    val uri = downloaded.inputStream().use { input ->
-                        MediaStoreSaver.saveStream(context, fileName, "video/mp4", input)
-                    } ?: throw IllegalStateException("Gagal menyimpan video TikTok ke Download/IO-Tools.")
-                    downloaded.delete()
-                    uri
-                }
-                outputDir.deleteRecursively()
-                withContext(Dispatchers.Main) {
-                    result.onSuccess {
-                        Toast.makeText(context, "Video TikTok tersimpan di Download/IO-Tools.", Toast.LENGTH_LONG).show()
-                    }.onFailure {
-                        Toast.makeText(context, "Gagal mengunduh video TikTok: ${it.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
+        if (!isAllowedMediaUrl(url)) {
+            Toast.makeText(context, "URL media TikTok tidak valid atau bukan dari CDN yang diizinkan.", Toast.LENGTH_LONG).show()
             return
         }
-
-        val sourceUrl = normalizeTikTokUrl(url)
-        if (sourceUrl == null) {
-            Toast.makeText(context, "URL sumber TikTok tidak valid.", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        CoroutineScope(Dispatchers.IO).launch {
-            val processId = "tiktok-audio-${System.currentTimeMillis()}"
-            val outputDir = File(context.cacheDir, "tiktok-audio/$processId").apply { mkdirs() }
-            if (!outputDir.isDirectory) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Tidak dapat membuat folder sementara audio TikTok.", Toast.LENGTH_LONG).show()
-                }
-                return@launch
-            }
-            val result = runCatching {
-                val outputTemplate = File(outputDir, "audio.%(ext)s").absolutePath
-                val request = YoutubeDLRequest(sourceUrl).apply {
-                    addOption("-o", outputTemplate)
-                    addOption("--no-warnings")
-                    addOption("--no-playlist")
-                    addOption("-x")
-                    addOption("--audio-format", "mp3")
-                    addOption("--audio-quality", "0")
-                    addOption("--no-write-thumbnail")
-                    addOption("--no-write-info-json")
-                    addOption("--no-write-subs")
-                    addOption("--no-write-auto-subs")
-                }
-                YoutubeDL.getInstance().execute(request, processId)
-                val downloaded = outputDir.listFiles()
-                    ?.filter { it.isFile && it.length() > 0L && it.extension.equals("mp3", true) }
-                    ?.maxByOrNull { it.lastModified() }
-                    ?: throw IllegalStateException("FFmpeg tidak menghasilkan file MP3.")
-                val uri = downloaded.inputStream().use { input ->
-                    MediaStoreSaver.saveStream(context, fileName, "audio/mpeg", input)
-                } ?: throw IllegalStateException("Gagal menyimpan MP3 ke Download/IO-Tools.")
-                downloaded.delete()
-                uri
-            }
-            outputDir.deleteRecursively()
-            withContext(Dispatchers.Main) {
-                result.onSuccess {
-                    Toast.makeText(context, "Audio MP3 tersimpan di Download/IO-Tools.", Toast.LENGTH_LONG).show()
-                }.onFailure {
-                    Toast.makeText(context, "Gagal mengekstrak audio: ${it.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
+        AppDownloadManager.startDownload(
+            context = context,
+            directUrl = url,
+            suggestedFileName = fileName,
+            title = title,
+            mimeType = if (isAudio) "audio/mpeg" else "video/mp4"
+        )
     }
 
     fun openPreview(context: Context, directUrl: String) {
         if (!isAllowedMediaUrl(directUrl)) {
-            Toast.makeText(context, "URL preview bukan berasal dari CDN TikTok yang valid.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "URL preview bukan berasal dari CDN TikTok/TikWM yang valid.", Toast.LENGTH_SHORT).show()
             return
         }
         try {
@@ -364,7 +217,7 @@ object TikTokDownloaderService {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, title)
-                putExtra(Intent.EXTRA_TEXT, "Video TikTok: $title\n$safeSourceUrl")
+                putExtra(Intent.EXTRA_TEXT, "Unduh Video TikTok Tanpa Watermark:\n$title\n\nLink: $safeSourceUrl")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(Intent.createChooser(shareIntent, "Bagikan Link Video TikTok"))
