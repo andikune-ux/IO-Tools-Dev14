@@ -38,6 +38,7 @@ object TikTokDownloaderService {
 
     private val mediaCdnSuffixes = setOf(
         ".tiktokcdn.com",
+        ".tiktok.com",
         ".tiktokcdn-us.com",
         ".tiktokcdn-eu.com",
         ".tiktokv.com",
@@ -70,7 +71,7 @@ object TikTokDownloaderService {
     internal fun buildVideoFormatSelector(formatId: String, hasAudio: Boolean = false): String? {
         val safeId = formatId.trim()
         if (!safeId.matches(Regex("^[A-Za-z0-9_.-]{1,80}$"))) return null
-        return if (hasAudio) safeId else "$safeId+bestaudio/$safeId"
+        return if (hasAudio) "$safeId/best" else "$safeId+bestaudio/$safeId/best"
     }
 
     fun isAllowedMediaUrl(rawUrl: String): Boolean {
