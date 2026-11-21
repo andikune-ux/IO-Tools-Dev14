@@ -181,7 +181,10 @@ object TikTokDownloaderService {
             directUrl = url,
             suggestedFileName = fileName,
             title = title,
-            mimeType = if (isAudio) "audio/mpeg" else "video/mp4"
+            mimeType = if (isAudio) "audio/mpeg" else "video/mp4",
+            // Some TikWM video CDN responses are mislabeled as audio/mpeg.
+            // The MP4 file-signature check still rejects an actual MP3 stream.
+            acceptedContentTypes = if (isAudio) emptySet() else setOf("audio/mpeg")
         )
     }
 
