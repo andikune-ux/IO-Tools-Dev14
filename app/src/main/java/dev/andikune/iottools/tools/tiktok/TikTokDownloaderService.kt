@@ -14,8 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 data class TikTokVideoData(
     val id: String,
@@ -35,6 +38,18 @@ data class TikTokVideoData(
 )
 
 object TikTokDownloaderService {
+    private suspend fun ensureLatestYtDlp(context: Context) = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("tiktok_extractor", Context.MODE_PRIVATE)
+        val lastCheck = prefs.getLong("nightly_checked_at", 0L)
+        if (System.currentTimeMillis() - lastCheck < 86_400_000L) return@withContext
+        runCatching {
+            YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
+        }.onSuccess { prefs.edit().putLong("nightly_checked_at", System.currentTimeMillis()).apply() }
+    }
+
+    private val httpClient by lazy {
+        OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS).followRedirects(true).build()
+    }
 
     private val mediaCdnSuffixes = setOf(
         ".tiktokcdn.com",
@@ -92,11 +107,12 @@ object TikTokDownloaderService {
      * Uses the app's local yt-dlp extractor. No TikWM or other anonymous
      * third-party resolver endpoint is contacted.
      */
-    suspend fun fetchVideoDetails(rawUrl: String): Result<TikTokVideoData> = withContext(Dispatchers.IO) {
+    suspend fun fetchVideoDetails(context: Context, rawUrl: String): Result<TikTokVideoData> = withContext(Dispatchers.IO) {
         runCatching {
             val cleanUrl = normalizeTikTokUrl(rawUrl)
                 ?: throw IllegalArgumentException("Tautan harus berasal dari domain TikTok atau Douyin yang valid.")
 
+            ensureLatestYtDlp(context)
             val request = YoutubeDLRequest(cleanUrl).apply {
                 addOption("--dump-single-json")
                 addOption("--no-warnings")
