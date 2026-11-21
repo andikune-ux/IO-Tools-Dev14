@@ -33,11 +33,11 @@ class TikTokUrlValidationTest {
     @Test
     fun buildsSafeAudioVideoFormatSelectors() {
         assertEquals(
-            "play_addr+bestaudio/play_addr",
+            "play_addr+bestaudio/play_addr/best",
             TikTokDownloaderService.buildVideoFormatSelector("play_addr")
         )
         assertEquals(
-            "muxed_format",
+            "muxed_format/best",
             TikTokDownloaderService.buildVideoFormatSelector("muxed_format", hasAudio = true)
         )
         assertNull(TikTokDownloaderService.buildVideoFormatSelector("bad/id"))
@@ -48,8 +48,11 @@ class TikTokUrlValidationTest {
     fun onlyAcceptsHttpsTikTokMediaCdnHosts() {
         assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokcdn.com/video.mp4"))
         assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://p16-sign-va.tiktokcdn-us.com/video.mp4"))
+        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktok.com/video.mp4"))
+        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v19-webapp-prime.tiktok.com/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("http://v16-webapp.tiktokcdn.com/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://tiktokcdn.com.evil.example/video.mp4"))
+        assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://tiktok.com.evil.example/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://evil.example/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokcdn.com:444/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://v16..tiktokcdn.com/video.mp4"))
