@@ -114,6 +114,78 @@ object TikTokPhotoDownloader {
         }
     }
 
+    fun createSlideshowVideo(context: Context, post: TikTokPhotoPost) {
+        CoroutineScope(Dispatchers.IO).launch {
+            val result = runCatching {
+                val workDir = java.io.File(context.cacheDir, "tiktok-slideshow-${post.id}").apply {
+                    deleteRecursively()
+                    mkdirs()
+                }
+                check(workDir.isDirectory) { "Folder sementara tidak dapat dibuat." }
+                val imageFiles = mutableListOf<java.io.File>()
+                post.images.forEachIndexed { index, url ->
+                    check(TikTokDownloaderService.isAllowedMediaUrl(url)) { "URL foto tidak valid." }
+                    val file = java.io.File(workDir, "slide_${index.toString().padStart(3, '0')}.jpg")
+                    client.newCall(Request.Builder().url(url).header(
+                        "User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36"
+                    ).get().build()).execute().use { response ->
+                        check(response.isSuccessful) { "Foto ${index + 1} gagal diunduh (HTTP ${response.code})." }
+                        val body = response.body ?: error("Data foto kosong.")
+                        file.outputStream().use { output -> body.byteStream().use { it.copyTo(output) } }
+                    }
+                    check(file.length() > 0L) { "Foto ${index + 1} kosong." }
+                    imageFiles += file
+                }
+                val concat = java.io.File(workDir, "slides.txt")
+                concat.writeText(buildString {
+                    imageFiles.forEach { file ->
+                        append("file '").append(file.absolutePath.replace("'", "'\\''")).append("'\n")
+                        append("duration 2\n")
+                    }
+                    imageFiles.lastOrNull()?.let { append("file '").append(it.absolutePath.replace("'", "'\\''")).append("'\n") }
+                })
+                val nativeFfmpeg = java.io.File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
+                val unpackedFfmpeg = java.io.File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/bin/ffmpeg")
+                val ffmpeg = listOf(nativeFfmpeg, unpackedFfmpeg).firstOrNull { it.exists() && it.canExecute() }
+                    ?: error("FFmpeg tidak tersedia pada perangkat ini.")
+                val output = java.io.File(workDir, "TikTok_${post.id}_slideshow.mp4")
+                val command = listOf(
+                    ffmpeg.absolutePath, "-y", "-f", "concat", "-safe", "0", "-i", concat.absolutePath,
+                    "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p",
+                    "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage",
+                    "-movflags", "+faststart", output.absolutePath
+                )
+                val process = ProcessBuilder(command).redirectErrorStream(true).apply {
+                    environment()["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir +
+                        ":" + (environment()["LD_LIBRARY_PATH"] ?: "")
+                }.start()
+                val log = process.inputStream.bufferedReader().use { it.readText() }
+                val exit = process.waitFor()
+                check(exit == 0 && output.exists() && output.length() > 0L) {
+                    "FFmpeg gagal membuat MP4: ${log.takeLast(500)}"
+                }
+                val pending = MediaStoreSaver.beginVideoOutput(context, "TikTok_${post.id}_slideshow.mp4", "video/mp4")
+                    ?: error("Tidak dapat membuat file MP4 di Galeri.")
+                try {
+                    output.inputStream().use { it.copyTo(pending.output, 64 * 1024) }
+                    pending.commit()
+                } catch (error: Exception) {
+                    pending.abort()
+                    throw error
+                }
+                workDir.deleteRecursively()
+            }
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    context,
+                    if (result.isSuccess) "Slideshow MP4 berhasil dibuat dan disimpan ke Galeri."
+                    else "Gagal membuat slideshow: ${result.exceptionOrNull()?.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     private fun saveImage(context: Context, url: String, baseName: String) {
         require(TikTokDownloaderService.isAllowedMediaUrl(url)) { "Domain foto tidak diizinkan." }
         client.newCall(Request.Builder().url(url).header(
