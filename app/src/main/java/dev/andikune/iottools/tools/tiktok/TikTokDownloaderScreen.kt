@@ -270,6 +270,16 @@ fun TikTokDownloaderScreen() {
                     Text(photo.title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                     Spacer(modifier = Modifier.height(10.dp))
                     Button(
+                        onClick = { TikTokPhotoDownloader.createSlideshowVideo(context, photo) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
+                    ) {
+                        Icon(Icons.Default.Movie, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("JADIKAN SLIDESHOW MP4")
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Button(
                         onClick = { TikTokPhotoDownloader.downloadAll(context, photo) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
