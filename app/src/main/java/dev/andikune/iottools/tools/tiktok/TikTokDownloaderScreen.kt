@@ -304,10 +304,14 @@ fun TikTokDownloaderScreen() {
                                 Text("Foto ${index + 1}", color = TextPrimary, fontWeight = FontWeight.SemiBold)
                                 Text("Gambar asli tanpa watermark", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
                                 Spacer(modifier = Modifier.height(6.dp))
-                                OutlinedButton(onClick = { TikTokPhotoDownloader.downloadOne(context, photo, index) }) {
+                                Button(
+                                    onClick = { TikTokPhotoDownloader.downloadOne(context, photo, index) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+                                ) {
                                     Icon(Icons.Default.Download, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Unduh foto")
+                                    Text("UNDUH FOTO ${index + 1}")
                                 }
                             }
                         }
