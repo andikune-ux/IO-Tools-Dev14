@@ -1,5 +1,5 @@
 package dev.andikune.iottools.tools.tiktok
-import dev.andikune.iottools.tools.tiktok.TikTokDownloaderService
+
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -31,28 +31,16 @@ class TikTokUrlValidationTest {
     }
 
     @Test
-    fun buildsSafeAudioVideoFormatSelectors() {
-        assertEquals(
-            "play_addr+bestaudio/play_addr/best",
-            TikTokDownloaderService.buildVideoFormatSelector("play_addr")
-        )
-        assertEquals(
-            "muxed_format/best",
-            TikTokDownloaderService.buildVideoFormatSelector("muxed_format", hasAudio = true)
-        )
-        assertNull(TikTokDownloaderService.buildVideoFormatSelector("bad/id"))
-        assertNull(TikTokDownloaderService.buildVideoFormatSelector("format;best"))
-    }
-
-    @Test
-    fun onlyAcceptsHttpsTikTokMediaCdnHosts() {
+    fun acceptsOnlyHttpsMediaUrlsFromTikTokCdnOrTikwm() {
         assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokcdn.com/video.mp4"))
         assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://p16-sign-va.tiktokcdn-us.com/video.mp4"))
-        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktok.com/video.mp4"))
-        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v19-webapp-prime.tiktok.com/video.mp4"))
+        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokv.com/video.mp4"))
+        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://www.tikwm.com/video.mp4"))
+        assertTrue(TikTokDownloaderService.isAllowedMediaUrl("https://cdn.tikwm.com/video.mp4"))
+
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("http://v16-webapp.tiktokcdn.com/video.mp4"))
+        assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://tikwm.com.evil.example/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://tiktokcdn.com.evil.example/video.mp4"))
-        assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://tiktok.com.evil.example/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://evil.example/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://v16-webapp.tiktokcdn.com:444/video.mp4"))
         assertFalse(TikTokDownloaderService.isAllowedMediaUrl("https://v16..tiktokcdn.com/video.mp4"))
