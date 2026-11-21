@@ -108,12 +108,17 @@ object AppDownloadManager {
             !host.contains(':')
     }
 
-    internal fun isCompatibleContentType(expectedMime: String, actualMime: String): Boolean {
+    internal fun isCompatibleContentType(
+        expectedMime: String,
+        actualMime: String,
+        acceptedContentTypes: Set<String> = emptySet()
+    ): Boolean {
         val expected = expectedMime.substringBefore(';').trim().lowercase()
         val actual = actualMime.substringBefore(';').trim().lowercase()
+        val accepted = acceptedContentTypes.map { it.substringBefore(';').trim().lowercase() }.toSet()
         if (actual.isBlank() || actual == "application/octet-stream" || actual == "binary/octet-stream") return true
         if (expected.isBlank() || expected == "application/octet-stream") return true
-        return actual == expected
+        return actual == expected || actual in accepted
     }
 
     internal fun matchesFileSignature(mimeType: String, header: ByteArray): Boolean {
@@ -202,7 +207,8 @@ object AppDownloadManager {
         title: String,
         mimeType: String = "video/mp4",
         customHeaders: Map<String, String> = emptyMap(),
-        onSuccess: (Uri) -> Unit = {}
+        onSuccess: (Uri) -> Unit = {},
+        acceptedContentTypes: Set<String> = emptySet()
     ) {
         cancelDownload()
         val downloadId = synchronized(downloadLock) {
@@ -298,7 +304,7 @@ object AppDownloadManager {
                     if (contentType.contains("application/json") && !expectedMime.startsWith("application/json")) {
                         throw IllegalStateException("Server mengembalikan JSON error, bukan file yang diminta.")
                     }
-                    if (!isCompatibleContentType(expectedMime, contentType)) {
+                    if (!isCompatibleContentType(expectedMime, contentType, acceptedContentTypes)) {
                         throw IllegalStateException(
                             "Tipe konten server (${contentType.substringBefore(';')}) tidak cocok dengan file yang diminta ($expectedMime)."
                         )
